@@ -1,0 +1,16 @@
+data:
+  input_vars: ["FLUT", "TS", "PRECT"]
+  output_vars: ["PRECT"]
+  sim_ids: ["1161.009", "1181.010"]
+  start_year: 2010
+  end_year: 2014
+
+  n_input_days: 14
+  n_lead_days: 21
+  n_output_days: 7
+  n_step_days: 14
+  need_daily_predictions: false
+
+  write_directory: "./tensors"
+  saved_metadata_path: "./tensors/metadata/saved.json"
+  
