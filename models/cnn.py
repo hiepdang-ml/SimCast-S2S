@@ -43,3 +43,4 @@ class CNN(nn.Module):
         assert output_tensor.shape == (batch_size, 192, 288, self.out_features)
         return output_tensor
     
+

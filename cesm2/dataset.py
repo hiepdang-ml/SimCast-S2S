@@ -63,4 +63,4 @@ if __name__ == "__main__":
 
     cesm2 = CESM2(metadata)
     dataloader = torch.utils.data.DataLoader(dataset=cesm2, batch_size=32, shuffle=True)
-
+    input_indices, output_indices, input_tensor, output_tensor = next(iter(dataloader))
