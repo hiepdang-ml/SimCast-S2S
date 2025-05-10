@@ -33,18 +33,7 @@ class DataWriter:
 
     def __save_config(self) -> None:
         with open(file=pathlib.Path(self.metadata.saved_metadata_path), mode="w") as file:
-            metadata: Dict[str, Any] = {
-                "input_vars": self.metadata.input_vars,
-                "output_vars": self.metadata.output_vars,
-                "sim_ids": self.metadata.sim_ids,
-                "years": self.metadata.years,
-                "n_input_days": self.metadata.n_input_days,
-                "n_lead_days": self.metadata.n_lead_days,
-                "n_output_days": self.metadata.n_output_days,
-                "n_step_days": self.metadata.n_step_days,
-                "need_daily_predictions": self.metadata.need_daily_predictions,
-            }
-            json.dump(obj=metadata, fp=file)
+            json.dump(obj=self.metadata.to_dict(), fp=file)
 
     def __construct_file_name(
         self,
@@ -60,7 +49,8 @@ class DataWriter:
         # Input
         input_indices: torch.Tensor = torch.tensor(
             range(sample_index, sample_index + self.metadata.n_input_days),
-            dtype=torch.int
+            dtype=torch.int,
+            device=self.metadata.device,
         )
         input_tensors: List[str] = []
         for var_name in self.metadata.input_vars:
@@ -79,7 +69,8 @@ class DataWriter:
                 sample_index + self.metadata.n_input_days + self.metadata.n_lead_days,
                 sample_index + self.metadata.n_input_days + self.metadata.n_lead_days + self.metadata.n_output_days,
             ),
-            dtype=torch.int
+            dtype=torch.int,
+            device=self.metadata.device,
         )
         output_tensors: List[str] = []
         for var_name in self.metadata.output_vars:

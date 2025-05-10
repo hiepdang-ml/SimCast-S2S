@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from models.modules import SinusoidEmbedding
+from model.modules import SinusoidEmbedding
 
 
 class CNN(nn.Module):
@@ -31,11 +31,11 @@ class CNN(nn.Module):
             nn.Conv2d(in_channels=embedding_dim, out_channels=out_features, kernel_size=3, padding=1),
         )
 
-    def forward(self, input_tensor: torch.Tensor) -> torch.Tensor:
-        batch_size: int = input_tensor.shape[0]
-        assert input_tensor.shape == (batch_size, self.n_input_days, 192, 288, self.in_features)
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        batch_size: int = input.shape[0]
+        assert input.shape == (batch_size, self.n_input_days, 192, 288, self.in_features)
 
-        input_tensor_reshaped: torch.Tensor = input_tensor.flatten(start_dim=0, end_dim=1).permute(0, 3, 1, 2)
+        input_tensor_reshaped: torch.Tensor = input.flatten(start_dim=0, end_dim=1).permute(0, 3, 1, 2)
         assert input_tensor_reshaped.shape == (batch_size * self.n_input_days, self.in_features , 192, 288)
         output_tensor: torch.Tensor = self.cnn(input=input_tensor_reshaped)
         output_tensor = output_tensor.reshape(batch_size, self.n_input_days, self.in_features, 192, 288).mean(dim=1, keepdim=False)

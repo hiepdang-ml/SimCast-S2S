@@ -1,16 +1,39 @@
-data:
+dataset:
+
+  device: "cuda"
+  root: "/scratch/zgp2ps/cesm2/data"
   input_vars: ["FLUT", "TS", "PRECT"]
   output_vars: ["PRECT"]
-  sim_ids: ["1161.009", "1181.010"]
-  start_year: 2010
-  end_year: 2014
+  # allow segmented execution by sim_id to reduce memory usage
+  sim_ids: [
+    "1161.009", "1181.010", 
+    "1041.003", "1061.004", 
+    "1081.005", "1101.006", 
+    "1121.007", "1141.008", 
+    "1161.009", "1181.010"
+  ]
+  train_start_year: 1950
+  train_end_year: 2000
+  val_start_year: 2001
+  val_end_year: 2010
+  test_start_year: 2011
+  test_end_year: 2014
 
   n_input_days: 14
   n_lead_days: 21
   n_output_days: 7
   n_step_days: 14
+  climatological_window_size: 15
   need_daily_predictions: false
 
-  write_directory: "./tensors"
-  saved_metadata_path: "./tensors/metadata/saved.json"
-  
+  train_write_directory: "/scratch/zgp2ps/cesm2/tensors/train"
+  train_metadata_path: "/scratch/zgp2ps/cesm2/tensors/train/metadata/train.json"
+  val_write_directory: "/scratch/zgp2ps/cesm2/tensors/val"
+  val_metadata_path: "/scratch/zgp2ps/cesm2/tensors/val/metadata/val.json"
+  test_write_directory: "/scratch/zgp2ps/cesm2/tensors/test"
+  test_metadata_path: "/scratch/zgp2ps/cesm2/tensors/test/metadata/test.json"
+
+  detrender_state_directory: "/scratch/zgp2ps/cesm2/tensors/detrender"
+  climatology_state_directory: "/scratch/zgp2ps/cesm2/tensors/climatology"
+
+

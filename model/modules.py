@@ -20,7 +20,7 @@ class SinusoidEmbedding(nn.Module):
         assert timeframes.ndim == 2
         batch_size, n_timeframes = timeframes.shape
         timeframes = timeframes.unsqueeze(-1)  # (batch_size, n_timeframes, 1)
-        sinusoid = torch.zeros(*timeframes.shape[:-1], self.embedding_dim, device='cuda')
+        sinusoid = torch.zeros(*timeframes.shape[:-1], self.embedding_dim, device=timeframes.device)
         sinusoid[:, :, 0::2] = torch.sin(timeframes * self.w)
         sinusoid[:, :, 1::2] = torch.cos(timeframes * self.w)
         assert sinusoid.shape == (batch_size, n_timeframes, self.embedding_dim)

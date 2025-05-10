@@ -5,45 +5,60 @@ import yaml
 import pathlib
 from itertools import product
 from typing import *
-import torch
 
+import torch
 
 class MetaData:
 
-    """ Singleton """
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._init()
-        return cls._instance
-
-    def _init(self):
+    def __init__(self, tp: Literal["train", "val", "test"]):
         with open("./config.yaml", mode="r") as file:
             self.__config: Dict[str, Any] = yaml.safe_load(file)
 
+        self.tp: Literal["train", "val", "test"] = tp
         self.load_metadata_from_config()
         self.var_names: List[str] = sorted(set(self.input_vars + self.output_vars))
         self.years: List[int] = list(range(self.start_year, self.end_year + 1))
         self.combinations: List[Tuple[str, str, int]] = list(product(self.var_names, self.sim_ids, self.years))
+        self.n_years: int = len(self.years)
 
     def load_metadata_from_config(self) -> None:
-        self.input_vars: List[str] = self.__config["data"]["input_vars"]
-        self.output_vars: List[str] = self.__config["data"]["output_vars"]
-        self.sim_ids: List[str] = self.__config["data"]["sim_ids"]
-        self.start_year: int = self.__config["data"]["start_year"]
-        self.end_year: int = self.__config["data"]["end_year"]
-        self.write_directory: pathlib.Path = pathlib.Path(self.__config["data"]["write_directory"])
-        self.saved_metadata_path: pathlib.Path = pathlib.Path(self.__config["data"]["saved_metadata_path"])
-        self.n_input_days: int = self.__config["data"]["n_input_days"]
-        self.n_lead_days: int = self.__config["data"]["n_lead_days"]
-        self.n_output_days: int = self.__config["data"]["n_output_days"]
-        self.n_step_days: int = self.__config["data"]["n_step_days"]
-        self.need_daily_predictions: bool = self.__config["data"]["need_daily_predictions"]
+        self.device: str = self.__config["dataset"]["device"]
+        self.input_vars: List[str] = self.__config["dataset"]["input_vars"]
+        self.output_vars: List[str] = self.__config["dataset"]["output_vars"]
+        self.sim_ids: List[str] = self.__config["dataset"]["sim_ids"]
+
+        if self.tp == "train":
+            self.start_year: int = self.__config["dataset"]["train_start_year"]
+            self.end_year: int = self.__config["dataset"]["train_end_year"]
+            self.write_directory: pathlib.Path = pathlib.Path(self.__config["dataset"]["train_write_directory"])
+            self.saved_metadata_path: pathlib.Path = pathlib.Path(self.__config["dataset"]["train_metadata_path"])
+        elif self.tp == "val":
+            self.start_year: int = self.__config["dataset"]["val_start_year"]
+            self.end_year: int = self.__config["dataset"]["val_end_year"]
+            self.write_directory: pathlib.Path = pathlib.Path(self.__config["dataset"]["val_write_directory"])
+            self.saved_metadata_path: pathlib.Path = pathlib.Path(self.__config["dataset"]["val_metadata_path"])
+        elif self.tp == "test":
+            self.start_year: int = self.__config["dataset"]["test_start_year"]
+            self.end_year: int = self.__config["dataset"]["test_end_year"]
+            self.write_directory: pathlib.Path = pathlib.Path(self.__config["dataset"]["test_write_directory"])
+            self.saved_metadata_path: pathlib.Path = pathlib.Path(self.__config["dataset"]["test_metadata_path"])
+        else:
+            raise ValueError(f"Invalid tp for MetaData, expected one of ['train', 'val', 'test'], get: '{self.tp}'")
+        
+        self.n_input_days: int = self.__config["dataset"]["n_input_days"]
+        self.n_lead_days: int = self.__config["dataset"]["n_lead_days"]
+        self.n_output_days: int = self.__config["dataset"]["n_output_days"]
+        self.n_step_days: int = self.__config["dataset"]["n_step_days"]
+        self.climatological_window_size: int = self.__config["dataset"]["climatological_window_size"]
+        self.need_daily_predictions: bool = self.__config["dataset"]["need_daily_predictions"]
+
+        self.detrender_state_directory: pathlib.Path = pathlib.Path(self.__config["dataset"]["detrender_state_directory"])
+        self.climatology_state_directory: pathlib.Path = pathlib.Path(self.__config["dataset"]["climatology_state_directory"])
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "tp": self.tp,
+            "device": self.device,
             "input_vars": self.input_vars,
             "output_vars": self.output_vars,
             "sim_ids": self.sim_ids,
@@ -52,14 +67,14 @@ class MetaData:
             "n_lead_days": self.n_lead_days,
             "n_output_days": self.n_output_days,
             "n_step_days": self.n_step_days,
+            "climatological_window_size": self.climatological_window_size,
             "need_daily_predictions": self.need_daily_predictions,
         }
-
 
 class DataContainer:
 
     """
-    Universal data container in place of xarray
+    Universal dataset container in place of xarray
     """
 
     def __init__(self, metadata: MetaData) -> None:
@@ -91,6 +106,14 @@ class DataContainer:
             for sim_id in self.metadata.sim_ids
             for year in self.metadata.years
         )
+
+    def to(self, device: torch.device) -> DataContainer:
+        assert self.is_completed, "DataContainer must be completed to be sent to new device"
+        for var_name, sim_id, year in self.metadata.combinations:
+            value = self.get(var_name, sim_id, year)
+            if isinstance(value, torch.Tensor):
+                self.set(var_name, sim_id, year, value.to(device=device))
+        return self
 
     def __add__(self, other) -> DataContainer:
         assert isinstance(other, DataContainer)
