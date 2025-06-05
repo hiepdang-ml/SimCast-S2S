@@ -1,3 +1,4 @@
+from typing import *
 import datetime as dt
 import pathlib
 from functools import cached_property
@@ -9,9 +10,9 @@ import xarray as xr
 
 class DataReader:
 
-    def __init__(self, var_name: str, sim_id: str, year: int, device: str = "cpu") -> None:
-        self.var_name: str = var_name
+    def __init__(self, sim_id: str, var_name: str, year: int, device: str) -> None:
         self.sim_id: str = sim_id
+        self.var_name: str = var_name
         self.year: int = year
         self.device: str = device
         with open("./config.yaml", mode="r") as file:
@@ -23,7 +24,7 @@ class DataReader:
             start_year, end_year = (int(part[:4]) for part in filepath.name.split(".")[-2].split("-")[:2])
             if start_year <= self.year <= end_year:
                 return filepath
-        raise FileNotFoundError(f"No file found for year {self.year} from year {start_year} to {end_year}")
+        raise FileNotFoundError(f"No file found for sim_id {self.sim_id} year {self.year}")
 
     @staticmethod
     def __compute_week(t: dt.date) -> int:
@@ -45,3 +46,41 @@ class DataReader:
         assert tensor.shape == (365, 192, 288)
         return tensor
     
+
+class LandMaskReader:
+
+    def __init__(self, device: str) -> None:
+        self.device: str = device
+        with open("./config.yaml", mode="r") as file:
+            pathstring: str = yaml.safe_load(file)["dataset"]["root"]
+            self.mask_directory: pathlib.Path = pathlib.Path(pathstring).parent.joinpath("landmask")
+            self.filepath: pathlib.Path = next(self.mask_directory.glob("*.nc"))
+
+    @cached_property
+    def tensor(self) -> torch.Tensor:
+        xrarray: xr.DataArray = xr.open_dataset(self.filepath, engine="netcdf4")["landmask"]
+        tensor: torch.Tensor = torch.from_numpy(xrarray.values).squeeze().to(device=self.device)
+        tensor = torch.nan_to_num(tensor, nan=0.0)
+        assert tensor.shape == (192, 288)
+        return tensor
+
+
+class CoordinatesReader:
+
+    def __init__(self, device: str) -> None:
+        self.device: str = device
+        with open("./config.yaml", mode="r") as file:
+            pathstring: str = yaml.safe_load(file)["dataset"]["root"]
+            self.mask_directory: pathlib.Path = pathlib.Path(pathstring).parent.joinpath("landmask")
+            self.filepath: pathlib.Path = next(self.mask_directory.glob("*.nc"))
+
+    @cached_property
+    def tensors(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        ds: xr.Dataset = xr.open_dataset(self.filepath, engine="netcdf4")
+        lat_tensor: torch.Tensor = torch.from_numpy(ds["lat"].values).squeeze().to(device=self.device)
+        lon_tensor: torch.Tensor = torch.from_numpy(ds["lon"].values).squeeze().to(device=self.device)
+        assert lat_tensor.shape == (192,) 
+        assert lon_tensor.shape == (288,)
+        return lat_tensor, lon_tensor
+    
+

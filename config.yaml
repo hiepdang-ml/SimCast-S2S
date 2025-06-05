@@ -2,15 +2,27 @@ dataset:
 
   device: "cuda"
   root: "/scratch/zgp2ps/cesm2/data"
-  input_vars: ["FLUT", "TS", "PRECT"]
+  input_vars: [
+    "FLUT", "TS", 
+    "PSL", "OMEGA500", 
+    "U200", "V200", "Z200", 
+    "U850", "V850", "Z850", 
+    "U500", "V500", "Z500", 
+    "PRECT",
+  ]
   output_vars: ["PRECT"]
   # allow segmented execution by sim_id to reduce memory usage
   sim_ids: [
-    "1161.009", "1181.010", 
-    "1041.003", "1061.004", 
-    "1081.005", "1101.006", 
-    "1121.007", "1141.008", 
-    "1161.009", "1181.010"
+    "1001.001", 
+    "1021.002", 
+    "1041.003", 
+    "1061.004", 
+    "1081.005", 
+    "1101.006", 
+    "1121.007", 
+    "1141.008", 
+    "1161.009", 
+    "1181.010",
   ]
   train_start_year: 1950
   train_end_year: 2000
@@ -19,21 +31,123 @@ dataset:
   test_start_year: 2011
   test_end_year: 2014
 
-  n_input_days: 14
+  n_input_days: 28
   n_lead_days: 21
   n_output_days: 7
-  n_step_days: 14
+  n_step_days: 7
   climatological_window_size: 15
-  need_daily_predictions: false
 
   train_write_directory: "/scratch/zgp2ps/cesm2/tensors/train"
-  train_metadata_path: "/scratch/zgp2ps/cesm2/tensors/train/metadata/train.json"
+  train_metadata_directory: "/scratch/zgp2ps/cesm2/tensors/train/metadata"
   val_write_directory: "/scratch/zgp2ps/cesm2/tensors/val"
-  val_metadata_path: "/scratch/zgp2ps/cesm2/tensors/val/metadata/val.json"
+  val_metadata_directory: "/scratch/zgp2ps/cesm2/tensors/val/metadata"
   test_write_directory: "/scratch/zgp2ps/cesm2/tensors/test"
-  test_metadata_path: "/scratch/zgp2ps/cesm2/tensors/test/metadata/test.json"
+  test_metadata_directory: "/scratch/zgp2ps/cesm2/tensors/test/metadata"
 
   detrender_state_directory: "/scratch/zgp2ps/cesm2/tensors/detrender"
   climatology_state_directory: "/scratch/zgp2ps/cesm2/tensors/climatology"
+
+
+cnn:
+
+  device: "cuda"
+  in_features: 14
+  out_features: 1
+  embedding_dim: 1024
+  n_hidden_layers: 8
+
+  learning_rate: 1e-6
+  train_batch_size: 4
+  val_batch_size: 1
+  
+  n_epochs: 1000
+  patience: 10
+  tolerance: 0.
+  save_frequency: 1
+
+  from_checkpoint: "/home/zgp2ps/s2s-cesm2/.cnn_checkpoints/cnn22.pt"
+  saved_checkpoint_directory: ".cnn_checkpoints"
+  best_checkpoint: "/home/zgp2ps/s2s-cesm2/.cnn_checkpoints/cnn22.pt"
+  
+
+unet:
+
+  device: "cuda"
+  in_features: 14
+  out_features: 1
+  embedding_dim: 512
+
+  learning_rate: 1e-6
+  train_batch_size: 4
+  val_batch_size: 1
+  n_epochs: 1000
+  patience: 10
+  tolerance: 0.
+  save_frequency: 1
+
+  from_checkpoint: "/home/zgp2ps/s2s-cesm2/.unet_checkpoints/unetlarge5.pt"
+  saved_checkpoint_directory: ".unet_checkpoints"
+  best_checkpoint: "/home/zgp2ps/s2s-cesm2/.unet_checkpoints/unetlarge5.pt"
+  
+
+vit:
+
+  device: "cuda"
+  in_features: 14
+  out_features: 1
+  embedding_dim: 1024
+  patch_size: 8
+  n_heads: 8
+  n_transformer_layers: 6
+
+  learning_rate: 1e-5
+  train_batch_size: 4
+  val_batch_size: 1
+  n_epochs: 1000
+  patience: 10
+  tolerance: 0.
+  save_frequency: 1
+
+  from_checkpoint: null
+  saved_checkpoint_directory: ".vit_checkpoints"
+  best_checkpoint: "/home/zgp2ps/s2s-cesm2/.vit_checkpoints/vitsmall9.pt"
+
+
+vae-context:
+  device: "cuda"
+  latent_dim: 128
+  n_layers: 3
+
+  lambda: 0.5
+  learning_rate: 1e-5
+  train_batch_size: 4
+  val_batch_size: 1
+  n_epochs: 1000
+  patience: 10
+  tolerance: 0.
+  save_frequency: 1
+
+  from_checkpoint: null
+  saved_checkpoint_directory: ".vaecontext_checkpoints"
+  best_checkpoint: null
+
+
+vae-target:
+  device: "cuda"
+  latent_dim: 128
+  n_layers: 3
+
+  lambda: 0.5
+  learning_rate: 1e-5
+  train_batch_size: 4
+  val_batch_size: 1
+  n_epochs: 1000
+  patience: 10
+  tolerance: 0.
+  save_frequency: 1
+
+  from_checkpoint: null
+  saved_checkpoint_directory: ".vaetarget_checkpoints"
+  best_checkpoint: null
 
 

@@ -125,7 +125,7 @@ class Timer:
         Parameters:
             epoch (int): The epoch number.
         """
-        self.__epoch_starts[epoch] = time.time()
+        self.__epoch_starts[epoch] = time.perf_counter()
 
     def end_epoch(self, epoch: int) -> None:
         """
@@ -134,7 +134,7 @@ class Timer:
         Parameters:
             - epoch (int): The epoch number.
         """
-        self.__epoch_ends[epoch] = time.time()
+        self.__epoch_ends[epoch] = time.perf_counter()
 
     def start_batch(self, epoch: int, batch: Optional[int] = None) -> None:
         """
@@ -149,7 +149,7 @@ class Timer:
                 batch: int = max(self.__batch_starts[epoch].keys()) + 1
             else:
                 batch: int = 1
-        self.__batch_starts[epoch][batch] = time.time()
+        self.__batch_starts[epoch][batch] = time.perf_counter()
     
     def end_batch(self, epoch: int, batch: Optional[int] = None) -> None:
         """
@@ -164,7 +164,7 @@ class Timer:
                 batch: int = max(self.__batch_starts[epoch].keys())
             else:
                 raise RuntimeError(f"no batch has started")
-        self.__batch_ends[epoch][batch] = time.time()
+        self.__batch_ends[epoch][batch] = time.perf_counter()
     
     def time_epoch(self, epoch: int) -> float:
         """
@@ -247,6 +247,7 @@ class Logger:
         if took is not None:
             prefix += f'Took {took:.2f}s | '
         logstring: str = prefix + suffix
+        print(logstring)
         self._file.write(logstring + '\n')
 
     def __del__(self) -> None:
@@ -315,6 +316,7 @@ class CheckpointLoader:
         # Model metadata
         self.model_classname: str = self.__checkpoint['model']['classname']
         self.model_kwargs: Dict[str, Any] = self.__checkpoint['model']['kwargs']
+        print(self.model_kwargs)
 
     def load(
         self, 
@@ -349,7 +351,8 @@ class CheckpointLoader:
                 self.model_kwargs.update(overrided_params)
             else:
                 sys.exit()
-        print(self.model_kwargs)
+        
+        # TODO: remove n_output_days
         model: nn.Module = eval(self.model_classname, scope)(**self.model_kwargs)
 
         # Load model from model state_dict and check for compatibility
