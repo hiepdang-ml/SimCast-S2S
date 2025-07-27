@@ -70,18 +70,6 @@ class DataWriter:
         input_tensor: torch.Tensor = torch.stack(tensors=input_tensors, dim=3)
         assert input_tensor.shape == (self.metadata.n_input_days, 192, 288, len(self.metadata.input_vars))
 
-        # TODO: need to get another tensor for var_name in self.metadata.output_vars for Diffusion model (target)
-        self_tensors: List[torch.Tensor] = []
-        for var_name in self.metadata.output_vars:
-            tensor: torch.Tensor = input.get(sim_id=sim_id, var_name=var_name, year=year)
-            assert tensor.shape == (365, 192, 288)
-            var_tensor: torch.Tensor = tensor[input_indices]
-            assert var_tensor.shape == (self.metadata.n_input_days, 192, 288)
-            self_tensors.append(var_tensor)
-
-        self_tensor: torch.Tensor = torch.stack(tensors=self_tensors, dim=3)
-        assert self_tensor.shape == (self.metadata.n_input_days, 192, 288, len(self.metadata.output_vars))
-
         # Output
         output_indices: torch.Tensor = torch.tensor(
             range(
@@ -105,7 +93,7 @@ class DataWriter:
         assert output_tensor.shape == (1, 192, 288, len(self.metadata.output_vars))
 
         torch.save(
-            obj=(input_indices, output_indices, input_tensor, self_tensor, output_tensor),
+            obj=(input_indices, output_indices, input_tensor, output_tensor),
             f=pathlib.Path(
                 self.metadata.write_directory,
                 self.__construct_file_name(

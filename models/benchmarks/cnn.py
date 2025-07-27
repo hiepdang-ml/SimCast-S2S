@@ -2,11 +2,10 @@ from typing import *
 
 import torch
 import torch.nn as nn
+from ..common import NamedModel
 
-from models.modules import SinusoidEmbedding
 
-
-class CNN(nn.Module):
+class CNN(NamedModel, nn.Module):
 
     def __init__(
         self, 

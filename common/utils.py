@@ -4,7 +4,7 @@ import pathlib
 import time
 import warnings
 from typing import List, Optional, Dict, TextIO, Any, Tuple, NamedTuple
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 import datetime as dt
 import copy
 import inspect
@@ -271,7 +271,14 @@ class CheckpointSaver:
         """
         self.dirpath: pathlib.Path = pathlib.Path(dirpath)
         # For model reconstruction
+        if isinstance(model, (torch.nn.DataParallel, torch.nn.parallel.DistributedDataParallel)):
+            model = model.module
         self.model_classname: str = model.__class__.__name__
+        signature: inspect.Signature = inspect.signature(model.__init__)
+        self.model_kwargs: Dict[str, Any] = {
+            p: getattr(model, p) for p in signature.parameters.keys() if p != 'self'
+        }
+
         signature: inspect.Signature = inspect.signature(model.__init__)
         self.model_kwargs: Dict[str, Any] = {
             p: getattr(model, p) for p in signature.parameters.keys() if p != 'self'
@@ -351,15 +358,16 @@ class CheckpointLoader:
                 self.model_kwargs.update(overrided_params)
             else:
                 sys.exit()
-        
-        # TODO: remove n_output_days
+
         model: nn.Module = eval(self.model_classname, scope)(**self.model_kwargs)
 
-        # Load model from model state_dict and check for compatibility
-        model_states: Dict[str, Any] = self.__checkpoint['model']['states']
-        for ignored_module in ignored_modules:
-            model_states = {k: v for k, v in model_states.items() if not k.startswith(ignored_module)}
-
+        # Load model from model state_dict
+        is_wrapped = all(k.startswith("module.") for k in self.__checkpoint['model']['states'].keys())
+        model_states: Dict[str, Any] = {
+            (k[len("module."):] if is_wrapped else k): v
+            for k, v in self.__checkpoint['model']['states'].items()
+            if not k.startswith(tuple(ignored_modules))
+        }
         model_incompatible_keys: NamedTuple = model.load_state_dict(model_states, strict=False)   # inplace update
         if model_incompatible_keys.missing_keys:  # List[str]
             warnings.warn(

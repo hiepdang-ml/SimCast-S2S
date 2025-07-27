@@ -11,8 +11,5 @@ class SampleInfo:
     out_startdate: str
     out_enddate: str
 
-DataBatch = NewType(
-    "DataBatch", 
-    Tuple[List[SampleInfo], torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
-)
+DataBatch = NewType("DataBatch", Tuple[List[SampleInfo], torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor])
 

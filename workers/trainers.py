@@ -9,17 +9,21 @@ from torch.optim import Adam
 
 from tqdm import tqdm
 from cesm2.utils import DataBatch
-from models import CNN, UNet, ViT, VAE
 from cesm2 import CESM2
 from common.utils import Accumulator, EarlyStopping, Timer, Logger, CheckpointSaver
 from common.losses import VAELoss
-from .utils import HasModelName
+from models.benchmarks import CNN, UNet, ViT
+from models.diffusion import (
+    VAE, VAEEncoder, VAEDecoder, UNetDenoiser, 
+    LinearNoiseScheduler, CosineNoiseScheduler, 
+    DDPMForwardProcess, DDPMReverseProcess,
+)
 
 
-class AbstractTrainer(HasModelName, ABC):
+class _AbstractTrainer(ABC):
 
     def __init__(self, 
-        net: CNN | UNet | ViT | VAE,
+        net: CNN | UNet | ViT | VAE | UNetDenoiser,
         lr: float,
         train_dataset: CESM2,
         val_dataset: CESM2,
@@ -27,14 +31,21 @@ class AbstractTrainer(HasModelName, ABC):
         val_batch_size: int,
     ):
         self.net: CNN | UNet | ViT | VAE = net
+        self.model_name: str = net.name
         self.lr: float = lr
         self.train_dataset: CESM2 = train_dataset
         self.val_dataset: CESM2 = val_dataset
         self.train_batch_size: int = train_batch_size
         self.val_batch_size: int = val_batch_size
 
-        self.train_dataloader = DataLoader(dataset=train_dataset, batch_size=train_batch_size, shuffle=True, collate_fn=CESM2.collate_fn)
-        self.val_dataloader = DataLoader(dataset=val_dataset, batch_size=val_batch_size, shuffle=False, collate_fn=CESM2.collate_fn)
+        self.train_dataloader = DataLoader(
+            dataset=train_dataset, batch_size=train_batch_size, 
+            shuffle=True, collate_fn=CESM2.collate_fn
+        )
+        self.val_dataloader = DataLoader(
+            dataset=val_dataset, batch_size=val_batch_size, 
+            shuffle=False, collate_fn=CESM2.collate_fn
+        )
         self.__loss_function: nn.Module = None
         self.mae: nn.Module = nn.L1Loss(reduction="mean")
 
@@ -111,9 +122,9 @@ class AbstractTrainer(HasModelName, ABC):
     @abstractmethod
     def _eval_step(self, batch: DataBatch) -> float:
         pass
-∞
 
-class BaselineTrainer(AbstractTrainer):
+
+class BaselineTrainer(_AbstractTrainer):
 
     def __init__(
         self,
@@ -132,12 +143,12 @@ class BaselineTrainer(AbstractTrainer):
 
     #implement
     def _train_step(self, batch: DataBatch) -> None:
-        sampleinfos, input_indices, output_indices, input_tensor, self_tensor, groundtruth_tensor = batch
+        sampleinfos, input_indices, output_indices, input_tensor, groundtruth_tensor = batch
         # Forward pass
         self.optimizer.zero_grad()
-        if isinstance(self.net, (CNN, UNet)):
+        if self.model_name in ["cnn", "unet"]:
             prediction_tensor: torch.Tensor = self.net(input=input_tensor)
-        elif isinstance(self.net, ViT):
+        elif self.model_name == "vit":
             prediction_tensor: torch.Tensor = self.net(input=input_tensor, input_indices=input_indices)
         else:
             raise NotImplementedError(f"Architecture: {type(self.net)} is not implemented")
@@ -150,11 +161,11 @@ class BaselineTrainer(AbstractTrainer):
 
     #implement
     def _eval_step(self, batch: DataBatch) -> float:
-        sampleinfos, input_indices, output_indices, input_tensor, self_tensor, groundtruth_tensor = batch
+        sampleinfos, input_indices, output_indices, input_tensor, groundtruth_tensor = batch
         # Forward pass
-        if isinstance(self.net, (CNN, UNet)):
+        if self.model_name in ["cnn", "unet"]:
             prediction_tensor: torch.Tensor = self.net(input=input_tensor)
-        elif isinstance(self.net, ViT):
+        elif self.model_name == "vit":
             prediction_tensor: torch.Tensor = self.net(input=input_tensor, input_indices=input_indices)
         else:
             raise NotImplementedError(f"Architecture: {type(self.net)} is not implemented")
@@ -165,7 +176,7 @@ class BaselineTrainer(AbstractTrainer):
         return mean_mae.item()
 
 
-class VAETrainer(AbstractTrainer):
+class VAETrainer(_AbstractTrainer):
 
     def __init__(
         self,
@@ -188,16 +199,11 @@ class VAETrainer(AbstractTrainer):
 
     #implement
     def _train_step(self, batch: DataBatch) -> None:
-        sampleinfos, input_indices, output_indices, input_tensor, self_tensor, target_tensor = batch
+        sampleinfos, input_indices, output_indices, input_tensor, target_tensor = batch
         # Forward pass
         self.optimizer.zero_grad()
         true_x: torch.Tensor = input_tensor if self.tp.lower() == "context" else target_tensor
-        batch_size, n_days, H, W, n_features = true_x.shape
-        assert n_days == 1 and n_days * n_features == self.net.pixel_dim
-        true_x = true_x.permute(0, 2, 3, 1, 4).flatten(start_dim=3, end_dim=4)
         reconstructed_x, mu, logvar = self.net(true_x)
-        assert reconstructed_x.shape == true_x.shape
-        assert mu.shape == logvar.shape
         # Backward pass
         mean_mse: torch.Tensor = self.loss_function(
             x_hat=reconstructed_x, true_x=true_x, mu=mu, logvar=logvar,
@@ -207,17 +213,82 @@ class VAETrainer(AbstractTrainer):
 
     #implement
     def _eval_step(self, batch: DataBatch) -> float:
-        sampleinfos, input_indices, output_indices, input_tensor, self_tensor, target_tensor = batch
+        sampleinfos, input_indices, output_indices, input_tensor, target_tensor = batch
         # Forward pass
         true_x: torch.Tensor = input_tensor if self.tp.lower() == "context" else target_tensor
         batch_size, n_days, H, W, n_features = true_x.shape
-        assert n_days * n_features == self.net.pixel_dim
-        true_x = true_x.permute(0, 2, 3, 1, 4).flatten(start_dim=3, end_dim=4)
         reconstructed_x, mu, logvar = self.net(true_x)
-        assert reconstructed_x.shape == true_x.shape == (1, 192, 288, self.net.pixel_dim)
         # Compute evaluation metrics
         mean_mae: torch.Tensor = self.mae(input=reconstructed_x, target=true_x)
         return mean_mae.item()
 
 
-    
+class DDPMTrainer(_AbstractTrainer):
+
+    def __init__(
+        self,
+        denoiser: UNetDenoiser,
+        target_encoder: VAEEncoder, 
+        context_encoder: VAEEncoder,
+        noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler,
+        lr: float,
+        train_dataset: CESM2,
+        val_dataset: CESM2,
+        train_batch_size: int,
+        val_batch_size: int,
+    ) -> None:
+        super().__init__(
+            net=denoiser, lr=lr, train_dataset=train_dataset, val_dataset=val_dataset, 
+            train_batch_size=train_batch_size, val_batch_size=val_batch_size,
+        )
+        self.denoiser: UNetDenoiser = denoiser
+        self.loss_function: nn.Module = nn.MSELoss(reduction="mean")
+        # Freeze target encoder
+        self.target_encoder: VAEEncoder = target_encoder
+        self.target_encoder.freeze()
+        assert target_encoder.is_frozen
+        # Freeze context encoder
+        self.context_encoder: VAEEncoder = context_encoder
+        self.context_encoder.freeze()
+        assert self.context_encoder.is_frozen
+
+        self.noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler = noise_scheduler
+        self.n_denoising_steps: int = noise_scheduler.n_steps
+        self.forward_process: DDPMForwardProcess = DDPMForwardProcess(noise_scheduler)
+
+    def _train_step(self, batch: DataBatch) -> None:
+        _, _, _, condition, target = batch
+        # Reset gradients
+        self.optimizer.zero_grad()
+        # Forward propagation
+        mean_mse, mean_mae = self._forward_pass(target=target, condition=condition)
+        # Back propagation
+        mean_mse.backward()
+        self.optimizer.step()
+
+    def _eval_step(self, batch: DataBatch) -> float:
+        _, _, _, condition, target = batch
+        # Forward propagation
+        mean_mse, mean_mae = self._forward_pass(target=target, condition=condition)
+        return mean_mae
+
+    def _forward_pass(self, target: torch.Tensor, condition: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        # Encode to latent space
+        target_latent: torch.Tensor = VAEEncoder.reparameterize(*self.target_encoder(target))
+        condition_latent: torch.Tensor = VAEEncoder.reparameterize(*self.context_encoder(condition))
+        # Generate step
+        batch_size: int = target.shape[0]
+        step: torch.Tensor = torch.randint(
+            low=0, high=self.n_denoising_steps + 1, # 0 -> K (K+1 step indices)
+            size=(batch_size, 1), device=target_latent.device
+        )
+        # DDPM forward process
+        noisy_target, true_gaussian = self.forward_process.add_noise(original_latent=target_latent, step=step)
+        # Predict gaussian using UNetDenoiser
+        predicted_gaussian: torch.Tensor = self.denoiser(target=noisy_target, condition=condition_latent, step=step)
+        # MSE
+        mean_mse: torch.Tensor = self.loss_function(input=predicted_gaussian, target=true_gaussian)
+        # MAE
+        mean_mae: torch.Tensor = self.mae(input=predicted_gaussian, target=true_gaussian)
+        return mean_mse, mean_mae
+

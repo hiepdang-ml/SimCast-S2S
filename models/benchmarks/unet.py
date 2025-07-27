@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from ..common import NamedModel
 
 
 class DoubleConv(nn.Module):
@@ -10,10 +11,10 @@ class DoubleConv(nn.Module):
         self.out_features: int = out_features
         self.double_conv: nn.Sequential = nn.Sequential(
             nn.Conv2d(in_channels=in_features, out_channels=out_features, kernel_size=3, padding=1),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Conv2d(in_channels=out_features, out_channels=out_features, kernel_size=3, padding=1),
-            nn.Tanh(),
-            nn.Dropout(0.25)
+            nn.ReLU(),
+            nn.Dropout(0.25),
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -22,7 +23,7 @@ class DoubleConv(nn.Module):
         return output
 
 
-class UNet(nn.Module):
+class UNet(NamedModel, nn.Module):
 
     def __init__(
         self,
@@ -69,11 +70,11 @@ class UNet(nn.Module):
 
         self.outc = nn.Sequential(
             nn.Conv2d(in_channels=embedding_dim, out_channels=embedding_dim, kernel_size=1),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Conv2d(in_channels=embedding_dim, out_channels=embedding_dim, kernel_size=1),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Conv2d(in_channels=embedding_dim, out_channels=embedding_dim, kernel_size=1),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Conv2d(in_channels=embedding_dim, out_channels=output_channels, kernel_size=1),
         )
 

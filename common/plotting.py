@@ -74,6 +74,8 @@ class PredictionPlotter(_BasePlotter):
         )
         vmin: float = -0.06
         vmax: float =  0.06
+        # vmin: float = -1.
+        # vmax: float =  1.
         self._plot_layer(ax=axs[0], data=groundtruth_frame, coords=coordinates, title="Groundtruth", cmap="RdBu", vmin=vmin, vmax=vmax)
         self._plot_layer(ax=axs[1], data=prediction_frame, coords=coordinates, title="Prediction", cmap="RdBu", vmin=vmin, vmax=vmax)
         self._plot_layer(ax=axs[2], data=error_frame, coords=coordinates, title="Error Map", cmap="RdBu", vmin=vmin, vmax=vmax)
@@ -82,7 +84,6 @@ class PredictionPlotter(_BasePlotter):
         fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=0.88, hspace=0.1)
         fig.suptitle(title, fontsize=12)
 
-        now: dt.datetime = dt.datetime.now()
         fig.savefig(self.destination_directory.joinpath(filename), bbox_inches="tight")
         plt.close(fig)
 
@@ -114,8 +115,8 @@ class MetricPlotter(_BasePlotter):
             2, 1, figsize=(figwidth, 2 * figwidth * aspect_ratio),
             subplot_kw={'projection': self.projection},
         )
-        self._plot_layer(ax=axs[0], data=mae_frame, coords=coordinates, title="MAE Map", cmap="Oranges", vmin=0., vmax=0.1)
-        self._plot_layer(ax=axs[1], data=rsquared_frame, coords=coordinates, title="R-squared Map", cmap="Blues", vmin=0., vmax=0.1)
+        self._plot_layer(ax=axs[0], data=mae_frame, coords=coordinates, title="MAE Map", cmap="Oranges", vmin=0., vmax=0.05)
+        self._plot_layer(ax=axs[1], data=rsquared_frame, coords=coordinates, title="R-squared Map", cmap="Blues", vmin=0., vmax=1.)
         self._add_landmask(axs=axs, landmask=landmask, coords=coordinates)
 
         fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=0.88, hspace=0.1)

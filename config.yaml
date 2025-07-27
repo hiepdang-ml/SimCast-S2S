@@ -22,7 +22,7 @@ dataset:
     "1121.007", 
     "1141.008", 
     "1161.009", 
-    "1181.010",
+    "1181.010", 
   ]
   train_start_year: 1950
   train_end_year: 2000
@@ -65,9 +65,8 @@ cnn:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/home/zgp2ps/s2s-cesm2/.cnn_checkpoints/cnn22.pt"
+  from_checkpoint: ".cnn_checkpoints/cnn22.pt"
   saved_checkpoint_directory: ".cnn_checkpoints"
-  best_checkpoint: "/home/zgp2ps/s2s-cesm2/.cnn_checkpoints/cnn22.pt"
   
 
 unet:
@@ -75,9 +74,9 @@ unet:
   device: "cuda"
   in_features: 14
   out_features: 1
-  embedding_dim: 512
+  embedding_dim: 256
 
-  learning_rate: 1e-6
+  learning_rate: 1e-5
   train_batch_size: 4
   val_batch_size: 1
   n_epochs: 1000
@@ -85,9 +84,8 @@ unet:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/home/zgp2ps/s2s-cesm2/.unet_checkpoints/unetlarge5.pt"
+  from_checkpoint: ".unet_checkpoints/unet3.pt"
   saved_checkpoint_directory: ".unet_checkpoints"
-  best_checkpoint: "/home/zgp2ps/s2s-cesm2/.unet_checkpoints/unetlarge5.pt"
   
 
 vit:
@@ -95,13 +93,14 @@ vit:
   device: "cuda"
   in_features: 14
   out_features: 1
-  embedding_dim: 1024
-  patch_size: 8
+  embedding_dim: 2048
+  patch_size: 16
   n_heads: 8
   n_transformer_layers: 6
+  dropout: 0.1
 
   learning_rate: 1e-5
-  train_batch_size: 4
+  train_batch_size: 16
   val_batch_size: 1
   n_epochs: 1000
   patience: 10
@@ -110,44 +109,87 @@ vit:
 
   from_checkpoint: null
   saved_checkpoint_directory: ".vit_checkpoints"
-  best_checkpoint: "/home/zgp2ps/s2s-cesm2/.vit_checkpoints/vitsmall9.pt"
 
 
 vae-context:
-  device: "cuda"
-  latent_dim: 128
-  n_layers: 3
 
-  lambda: 0.5
+  device: "cuda"
+  latent_dim: 1568
+  hidden_dim: 1024
+  n_scaling_blocks: 3
+  n_convstack_layers: 6
+  n_convhead_layers: 4
+
+  lambda: 0.9999
   learning_rate: 1e-5
-  train_batch_size: 4
-  val_batch_size: 1
+  train_batch_size: 16
+  val_batch_size: 16
   n_epochs: 1000
   patience: 10
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: null
-  saved_checkpoint_directory: ".vaecontext_checkpoints"
-  best_checkpoint: null
+  from_checkpoint: ".vaecontext_16times_deep_checkpoints/vae24.pt"
+  saved_checkpoint_directory: ".vaecontext_16times_deep_checkpoints"
 
 
 vae-target:
-  device: "cuda"
-  latent_dim: 128
-  n_layers: 3
 
-  lambda: 0.5
+  device: "cuda"
+  latent_dim: 1
+  hidden_dim: 128
+  n_scaling_blocks: 3
+  n_convstack_layers: 6
+  n_convhead_layers: 4
+
+  lambda: 0.9999
   learning_rate: 1e-5
-  train_batch_size: 4
-  val_batch_size: 1
+  train_batch_size: 32
+  val_batch_size: 4
   n_epochs: 1000
   patience: 10
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: null
-  saved_checkpoint_directory: ".vaetarget_checkpoints"
-  best_checkpoint: null
+  from_checkpoint: ".vaetarget_64times_large_checkpoints/vae38.pt"
+  saved_checkpoint_directory: ".vaetarget_64times_large_checkpoints"
+
+
+ddpm:
+
+  device: "cuda"
+  target_in_dim: 4  # fixed by VAE being used
+  condition_in_dim: 1568  # fixed by VAE being used
+  step_in_dim: 32
+  # Unet configurations
+  down_out_dims: [128, 256]
+  down_hidden_dims: [512, 512]
+  mid_out_dims: [256, 256]
+  mid_hidden_dims: [512, 512]
+  up_out_dims: [128, 64]
+  up_hidden_dims: [512, 512]
+  n_layers_per_scaling_block: 3
+  n_layers_per_mid_block: 2
+  n_attention_heads: 8
+  condition_dropout: 0.
+  # DDPM configurations
+  n_steps: 1000
+  noise_scheduler_scheme: "cosine" # "linear" or "cosine"
+  beta_min: 1e-4  # only applicable for "linear" 
+  beta_max: 0.02  # only applicable for "linear"
+
+  # 
+  learning_rate: 1e-4
+  train_batch_size: 32
+  val_batch_size: 8
+  n_epochs: 1000
+  patience: 10
+  tolerance: 0.
+  save_frequency: 1
+
+  target_vae_checkpoint: ".vaetarget_16times_large_checkpoints/vae73.pt"
+  context_vae_checkpoint: ".vaecontext_16times_deep_checkpoints/vae27.pt"
+  from_checkpoint: ".ddpm_checkpoints/unetdenoiser25.pt"
+  saved_checkpoint_directory: ".ddpm_checkpoints"
 
 

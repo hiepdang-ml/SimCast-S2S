@@ -64,16 +64,15 @@ class CESM2(Dataset):
 
     @staticmethod
     def collate_fn(
-        batch: List[Tuple[SampleInfo, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]
+        batch: List[Tuple[SampleInfo, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]
     ) -> DataBatch:
         # get iterables of objects of the same kind
-        sampleinfos, input_indices, output_indices, input_tensors, self_tensors, output_tensors = zip(*batch)
+        sampleinfos, input_indices, output_indices, input_tensors, output_tensors = zip(*batch)
         return (
             list(sampleinfos),
             torch.stack(input_indices, dim=0),
             torch.stack(output_indices, dim=0),
             torch.stack(input_tensors, dim=0),
-            torch.stack(self_tensors, dim=0),
             torch.stack(output_tensors, dim=0),
         )
 
