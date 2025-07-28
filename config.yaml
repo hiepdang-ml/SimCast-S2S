@@ -169,7 +169,7 @@ ddpm:
   up_out_dims: [128, 64]
   up_hidden_dims: [1024, 1024]
   n_layers_per_scaling_block: 4
-  n_layers_per_mid_block: 2
+  n_layers_per_mid_block: 3
   n_attention_heads: 8
   condition_dropout: 0.
   # DDPM configurations
@@ -180,7 +180,7 @@ ddpm:
 
   # Training
   learning_rate: 1e-5
-  train_batch_size: 32
+  train_batch_size: 16
   val_batch_size: 8
   n_epochs: 1000
   patience: 10
@@ -189,7 +189,7 @@ ddpm:
 
   target_vae_checkpoint: ".vaetarget_16times_large_checkpoints/vae73.pt"
   context_vae_checkpoint: ".vaecontext_16times_deep_checkpoints/vae27.pt"
-  from_checkpoint: ".ddpm_checkpoints/unetdenoiser7.pt"
+  from_checkpoint: null
   saved_checkpoint_directory: ".ddpm_checkpoints"
 
 
