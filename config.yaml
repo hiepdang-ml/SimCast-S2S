@@ -163,12 +163,12 @@ ddpm:
   step_in_dim: 32
   # Unet configurations
   down_out_dims: [128, 256]
-  down_hidden_dims: [512, 512]
+  down_hidden_dims: [1024, 1024]
   mid_out_dims: [256, 256]
-  mid_hidden_dims: [512, 512]
+  mid_hidden_dims: [1024, 1024]
   up_out_dims: [128, 64]
-  up_hidden_dims: [512, 512]
-  n_layers_per_scaling_block: 3
+  up_hidden_dims: [1024, 1024]
+  n_layers_per_scaling_block: 4
   n_layers_per_mid_block: 2
   n_attention_heads: 8
   condition_dropout: 0.
@@ -178,8 +178,8 @@ ddpm:
   beta_min: 1e-4  # only applicable for "linear" 
   beta_max: 0.02  # only applicable for "linear"
 
-  # 
-  learning_rate: 1e-4
+  # Training
+  learning_rate: 1e-5
   train_batch_size: 32
   val_batch_size: 8
   n_epochs: 1000
@@ -189,7 +189,7 @@ ddpm:
 
   target_vae_checkpoint: ".vaetarget_16times_large_checkpoints/vae73.pt"
   context_vae_checkpoint: ".vaecontext_16times_deep_checkpoints/vae27.pt"
-  from_checkpoint: ".ddpm_checkpoints/unetdenoiser25.pt"
+  from_checkpoint: ".ddpm_checkpoints/unetdenoiser7.pt"
   saved_checkpoint_directory: ".ddpm_checkpoints"
 
 

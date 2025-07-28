@@ -281,7 +281,7 @@ class DDPMPredictor(_AbstractPredictor):
         # Denoise
         target_latent_k: torch.Tensor = gaussian
         with torch.no_grad():
-            for k in reversed(range(1, self.noise_scheduler.n_steps + 1)):  # K -> 1
+            for k in reversed(range(1, self.noise_scheduler.n_steps)):
                 step: torch.Tensor = torch.ones(1, 1, device=target_latent.device, dtype=torch.int32) * k
                 # DDPM backward process
                 predicted_gaussian: torch.Tensor = self.denoiser(
@@ -290,8 +290,14 @@ class DDPMPredictor(_AbstractPredictor):
                 target_latent_k, target_latent_0 = self.reverse_process.sample(
                     target_k=target_latent_k, predicted_noise=predicted_gaussian, step=step,
                 )
+                print(f"k={k}")
+                print(f"target_latent_k.isnan: {target_latent_k.isnan().any()}")
+                print(f"target_latent_0.isnan: {target_latent_0.isnan().any()}")
+                print("-----")
 
         # At k=0 (last denoising step), target_latent_k = target_latent_0
+        print(target_latent_k.mean())
+        print(target_latent_0.mean())
         assert target_latent_k.isclose(target_latent_0).all()
         # Decode target back to physical space
         prediction: torch.Tensor = self.target_decoder(target_latent_0)

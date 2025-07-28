@@ -279,7 +279,7 @@ class DDPMTrainer(_AbstractTrainer):
         # Generate step
         batch_size: int = target.shape[0]
         step: torch.Tensor = torch.randint(
-            low=0, high=self.n_denoising_steps + 1, # 0 -> K (K+1 step indices)
+            low=0, high=self.n_denoising_steps,
             size=(batch_size, 1), device=target_latent.device
         )
         # DDPM forward process
