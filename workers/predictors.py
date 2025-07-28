@@ -290,14 +290,8 @@ class DDPMPredictor(_AbstractPredictor):
                 target_latent_k, target_latent_0 = self.reverse_process.sample(
                     target_k=target_latent_k, predicted_noise=predicted_gaussian, step=step,
                 )
-                print(f"k={k}")
-                print(f"target_latent_k.isnan: {target_latent_k.isnan().any()}")
-                print(f"target_latent_0.isnan: {target_latent_0.isnan().any()}")
-                print("-----")
 
         # At k=0 (last denoising step), target_latent_k = target_latent_0
-        print(target_latent_k.mean())
-        print(target_latent_0.mean())
         assert target_latent_k.isclose(target_latent_0).all()
         # Decode target back to physical space
         prediction: torch.Tensor = self.target_decoder(target_latent_0)
