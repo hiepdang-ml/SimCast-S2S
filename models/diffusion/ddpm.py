@@ -560,11 +560,11 @@ class DDPMReverseProcess(_DDPMProcess):
         batch_size: int = target_N
 
         # Alpha bar
-        alpha_bars: torch.Tensor = self.noise_scheduler.alpha_bar_schedule.to(target_k.device)[step]
+        alpha_bars: torch.Tensor = self.noise_scheduler.alpha_bar_schedule.to(target_k.device)[step.int()]
         assert alpha_bars.shape == (batch_size, 1)
         alpha_bars = alpha_bars[:, :, None, None]
         # Beta
-        betas: torch.Tensor = self.noise_scheduler.beta_schedule.to(target_k.device)[step]
+        betas: torch.Tensor = self.noise_scheduler.beta_schedule.to(target_k.device)[step.int()]
         assert betas.shape == (batch_size, 1)
         betas = betas[:, :, None, None]
         # Original target prediction at k
