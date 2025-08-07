@@ -1,21 +1,17 @@
-import os
 from typing import *
 
-import datetime as dt
 import pathlib
 import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
 import torch
 
 
 class _BasePlotter:
 
     def __init__(self) -> None:
-        self.projection: ccrs.Projection = ccrs.Robinson()
         self.destination_directory: pathlib.Path = pathlib.Path('./plots/prediction')
         self.destination_directory.mkdir(parents=True, exist_ok=True)
 
-    def _plot_layer(
+    def plot_layer(
         self, 
         ax, data: torch.Tensor, 
         coords: Tuple[torch.Tensor, torch.Tensor], 
@@ -23,24 +19,28 @@ class _BasePlotter:
         cmap: str,
         vmin: float, vmax: float, 
     ) -> None:
-        ax.set_global()
         im = ax.pcolormesh(
             coords[1], coords[0], data,
             cmap=cmap,
             vmin=vmin, vmax=vmax,
-            shading='nearest', transform=ccrs.PlateCarree(),
+            shading='nearest',
         )
         ax.set_title(title, fontsize=12)
-        cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.035, shrink=0.9, pad=0.04)
+        cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.035, pad=0.04)
         cbar.ax.tick_params(labelsize=10)
+        self._clean_axes(ax)
 
-    def _add_landmask(self, axs, landmask: torch.Tensor, coords: Tuple[torch.Tensor, torch.Tensor]) -> None:
+    def add_landmask(self, axs, landmask: torch.Tensor, coords: Tuple[torch.Tensor, torch.Tensor]) -> None:
         for ax in axs:
             ax.contour(
                 coords[1], coords[0], landmask,
                 levels=[0.5], colors='black', linewidths=1,
-                transform=ccrs.PlateCarree()
             )
+            self._clean_axes(ax)
+
+    @staticmethod
+    def _clean_axes(ax):
+        ax.set_xticks([]); ax.set_yticks([]); ax.set_xlabel(''); ax.set_ylabel('')
 
 
 class PredictionPlotter(_BasePlotter):
@@ -68,20 +68,17 @@ class PredictionPlotter(_BasePlotter):
         aspect_ratio: float = H / W
         figwidth: float = 5.5
 
-        fig, axs = plt.subplots(
-            3, 1, figsize=(figwidth, 3 * figwidth * aspect_ratio),
-            subplot_kw={'projection': self.projection},
-        )
+        fig, axs = plt.subplots(3, 1, figsize=(figwidth, 3 * figwidth * aspect_ratio))
         vmin: float = -0.06
         vmax: float =  0.06
         # vmin: float = -1.
         # vmax: float =  1.
-        self._plot_layer(ax=axs[0], data=groundtruth_frame, coords=coordinates, title="Groundtruth", cmap="RdBu", vmin=vmin, vmax=vmax)
-        self._plot_layer(ax=axs[1], data=prediction_frame, coords=coordinates, title="Prediction", cmap="RdBu", vmin=vmin, vmax=vmax)
-        self._plot_layer(ax=axs[2], data=error_frame, coords=coordinates, title="Error Map", cmap="RdBu", vmin=vmin, vmax=vmax)
-        self._add_landmask(axs=axs, landmask=landmask, coords=coordinates)
+        self.plot_layer(ax=axs[0], data=groundtruth_frame, coords=coordinates, title="Groundtruth", cmap="RdBu", vmin=vmin, vmax=vmax)
+        self.plot_layer(ax=axs[1], data=prediction_frame, coords=coordinates, title="Prediction", cmap="RdBu", vmin=vmin, vmax=vmax)
+        self.plot_layer(ax=axs[2], data=error_frame, coords=coordinates, title="Error Map", cmap="RdBu", vmin=vmin, vmax=vmax)
+        self.add_landmask(axs=axs, landmask=landmask, coords=coordinates)
 
-        fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=0.88, hspace=0.1)
+        fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=0.87, hspace=0.15)
         fig.suptitle(title, fontsize=12)
 
         fig.savefig(self.destination_directory.joinpath(filename), bbox_inches="tight")
@@ -115,9 +112,9 @@ class MetricPlotter(_BasePlotter):
             2, 1, figsize=(figwidth, 2 * figwidth * aspect_ratio),
             subplot_kw={'projection': self.projection},
         )
-        self._plot_layer(ax=axs[0], data=mae_frame, coords=coordinates, title="MAE Map", cmap="Oranges", vmin=0., vmax=0.05)
-        self._plot_layer(ax=axs[1], data=rsquared_frame, coords=coordinates, title="R-squared Map", cmap="Blues", vmin=0., vmax=1.)
-        self._add_landmask(axs=axs, landmask=landmask, coords=coordinates)
+        self.plot_layer(ax=axs[0], data=mae_frame, coords=coordinates, title="MAE Map", cmap="Oranges", vmin=0., vmax=0.05)
+        self.plot_layer(ax=axs[1], data=rsquared_frame, coords=coordinates, title="R-squared Map", cmap="Blues", vmin=0., vmax=1.)
+        self.add_landmask(axs=axs, landmask=landmask, coords=coordinates)
 
         fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=0.88, hspace=0.1)
         fig.suptitle(title, fontsize=12)

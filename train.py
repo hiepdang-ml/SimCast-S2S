@@ -3,7 +3,7 @@ from typing import *
 from torch.nn import DataParallel
 from torch.utils.data import Subset
 
-from cesm2 import CESM2
+from datasets.cesm2 import CESM2
 from common.utils import CheckpointLoader
 from workers import BaselineTrainer, VAETrainer, DDPMTrainer
 from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEContextConfig, VAETargetConfig, DDPMConfig

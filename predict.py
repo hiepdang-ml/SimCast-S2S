@@ -2,7 +2,7 @@ from typing import *
 import argparse
 from torch.nn import DataParallel
 
-from cesm2 import CESM2
+from datasets.cesm2 import CESM2
 from common.utils import CheckpointLoader
 from workers import BaselinePredictor, VAEPredictor, DDPMPredictor
 from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEContextConfig, VAETargetConfig, DDPMConfig

@@ -23,7 +23,7 @@ class MetaData(BaseConfig):
 
     def __init__(self, tp: Literal["train", "val", "test"]):
         with open("./config.yaml", mode="r") as file:
-            self.__config: Dict[str, Any] = yaml.safe_load(file)["dataset"]
+            self.__config: Dict[str, Any] = yaml.safe_load(file)["cesm2"]
 
         self.tp: Literal["train", "val", "test"] = tp
         self._load()

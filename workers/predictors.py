@@ -8,8 +8,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from cesm2 import CESM2, CoordinatesReader, LandMaskReader
-from cesm2.utils import DataBatch, SampleInfo
+from datasets.cesm2 import CESM2, CoordinatesReader, LandMaskReader
+from datasets.common.utils import DataBatch, SampleInfo
 from common.metrics import ErrorMap, MAEMap, RsquaredMap
 from common.plotting import MetricPlotter, PredictionPlotter
 from models.benchmarks import CNN, UNet, ViT
@@ -270,8 +270,6 @@ class DDPMPredictor(_AbstractPredictor):
     def _predict_step(self, batch: DataBatch, output_names: List[str]) -> Tuple[torch.Tensor, torch.Tensor]:
         sampleinfos, _, _, condition, groundtruth = batch
         sampleinfo: SampleInfo = sampleinfos[0] # because batch_size=1
-        # FIXME: UNetDenoiser does not see n_input_days and in_features
-        # assert condition.shape == (1, self.net.n_input_days, 192, 288, self.net.in_features)
 
         # Encode condition to latent space
         condition_latent: torch.Tensor = VAEEncoder.reparameterize(*self.context_encoder(condition))

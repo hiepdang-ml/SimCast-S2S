@@ -5,7 +5,7 @@ from typing import *
 
 import torch
 from torch.utils.data import Dataset
-from cesm2.utils import SampleInfo, DataBatch
+from datasets.common.utils import SampleInfo, DataBatch
 from common.configs import MetaData
 
 

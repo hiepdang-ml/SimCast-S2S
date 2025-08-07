@@ -260,10 +260,6 @@ class _ScalingBlock(nn.Module):
         self.n_attention_heads: int = n_attention_heads
         self.condition_dropout: float = condition_dropout
         self.type: Literal["up", "down", "mid"] = type
-        # assert hidden_dim >= max(input_dim, condition_in_dim, step_in_dim), (
-        #     f"hidden_dim={hidden_dim} is not enough to cover "
-        #     f"(input_dim, condition_in_dim, step_in_dim)={(input_dim, condition_in_dim, step_in_dim)}"
-        # )
         # Condition
         self.condition_projection = nn.Conv2d(in_channels=condition_in_dim, out_channels=hidden_dim, kernel_size=1, padding=0)
         self.condition_conv_layers = nn.ModuleList([

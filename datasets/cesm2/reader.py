@@ -16,12 +16,12 @@ class DataReader:
         self.year: int = year
         self.device: str = device
         with open("./config.yaml", mode="r") as file:
-            self.root_directory: pathlib.Path = pathlib.Path(yaml.safe_load(file)["dataset"]["root"])
+            self.root_directory: pathlib.Path = pathlib.Path(yaml.safe_load(file)["cesm2"]["root"])
 
     @cached_property
     def filepath(self) -> pathlib.Path:
         for filepath in pathlib.Path(self.root_directory, self.var_name).glob("*.nc"):
-            start_year, end_year = (int(part[:4]) for part in filepath.name.split(".")[-2].split("-")[:2])
+            start_year, end_year = (int(part[:4]) for part in filepath.name.split(".")[-2].split("-")[:6])
             if start_year <= self.year <= end_year:
                 return filepath
         raise FileNotFoundError(f"No file found for sim_id {self.sim_id} year {self.year}")
@@ -52,7 +52,7 @@ class LandMaskReader:
     def __init__(self, device: str) -> None:
         self.device: str = device
         with open("./config.yaml", mode="r") as file:
-            pathstring: str = yaml.safe_load(file)["dataset"]["root"]
+            pathstring: str = yaml.safe_load(file)["cesm2"]["root"]
             self.mask_directory: pathlib.Path = pathlib.Path(pathstring).parent.joinpath("landmask")
             self.filepath: pathlib.Path = next(self.mask_directory.glob("*.nc"))
 
@@ -68,9 +68,9 @@ class LandMaskReader:
 class CoordinatesReader:
 
     def __init__(self, device: str) -> None:
-        self.device: str = device
+        self.device: torch.device = torch.device(device)
         with open("./config.yaml", mode="r") as file:
-            pathstring: str = yaml.safe_load(file)["dataset"]["root"]
+            pathstring: str = yaml.safe_load(file)["cesm2"]["root"]
             self.mask_directory: pathlib.Path = pathlib.Path(pathstring).parent.joinpath("landmask")
             self.filepath: pathlib.Path = next(self.mask_directory.glob("*.nc"))
 

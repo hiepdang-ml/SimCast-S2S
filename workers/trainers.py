@@ -8,8 +8,8 @@ from torch.utils.data import DataLoader
 from torch.optim import Adam
 
 from tqdm import tqdm
-from cesm2.utils import DataBatch
-from cesm2 import CESM2
+from datasets.common.utils import DataBatch
+from datasets.cesm2 import CESM2
 from common.utils import Accumulator, EarlyStopping, Timer, Logger, CheckpointSaver
 from common.losses import VAELoss
 from models.benchmarks import CNN, UNet, ViT

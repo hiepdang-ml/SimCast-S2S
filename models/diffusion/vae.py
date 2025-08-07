@@ -381,3 +381,22 @@ class VAE(_Freezable, NamedModel, nn.Module):
     def out_features(self) -> int:
         return self.pixel_dim
 
+
+
+"""
+4 scenarios:
+
+                    Train+Test CESM2        Train CESM2, fixed + Test Era5(upscale)   Train CESM2, fine tune + test ERA5 (upscale)   Train + Test Era5 (upscale)
+CNN
+Unet
+Vit
+Diffusion
+
+Issue: How to define a fair finetuning policy across architectures?
+
+For now, focus on the first 2 scenarios
+
+Note: no training on original ERA5 in any of the scenarios, just the upscaled ERA5
+
+"""
+

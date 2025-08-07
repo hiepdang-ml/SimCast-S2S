@@ -1,21 +1,14 @@
 import argparse
-from typing import List, Dict, Any, Optional
-import yaml
+from typing import *
 
-from cesm2.container import DataContainer
-from cesm2.preprocessing import Detrender, ClimatologyRemover
-from cesm2.reader import DataReader
-from cesm2.writer import DataWriter
+from datasets.common.container import DataContainer
+from datasets.common.preprocessing import Detrender, ClimatologyRemover
+from datasets.cesm2.reader import DataReader
+from datasets.cesm2.writer import DataWriter
 from common.configs import MetaData
 
 
-def main() -> None:
-    """
-    Main function to write tensors with a metadata.
-
-    Parameters:
-        config (Dict[str, Any]): Configuration dictionary.
-    """
+def export_cesm2() -> None:
 
     # train dataset
     train_metadata: MetaData = MetaData(tp="train")
@@ -50,6 +43,20 @@ def main() -> None:
         writer(container)
         del container
 
+
+# TODO: implement
+def export_era5() -> None:
+    pass
+
+
+def main(dataset: Literal["cesm2", "era5"]):
+    export_cesm2() if dataset == "cesm2" else export_era5()
+
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=str, choices=["cesm2", "era5"], required=True)
+    args: argparse.Namespace = parser.parse_args()
+    main(dataset=args.dataset)
+
 
