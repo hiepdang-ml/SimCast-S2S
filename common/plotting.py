@@ -69,10 +69,11 @@ class PredictionPlotter(_BasePlotter):
         figwidth: float = 5.5
 
         fig, axs = plt.subplots(3, 1, figsize=(figwidth, 3 * figwidth * aspect_ratio))
-        vmin: float = -0.06
-        vmax: float =  0.06
-        # vmin: float = -1.
-        # vmax: float =  1.
+        q: float = 0.95
+        limit: float = max(groundtruth_frame.quantile(q=q).item(), groundtruth_frame.neg().quantile(q=q).item())
+        vmax: float = limit
+        vmin: float = limit * (-1)
+
         self.plot_layer(ax=axs[0], data=groundtruth_frame, coords=coordinates, title="Groundtruth", cmap="RdBu", vmin=vmin, vmax=vmax)
         self.plot_layer(ax=axs[1], data=prediction_frame, coords=coordinates, title="Prediction", cmap="RdBu", vmin=vmin, vmax=vmax)
         self.plot_layer(ax=axs[2], data=error_frame, coords=coordinates, title="Error Map", cmap="RdBu", vmin=vmin, vmax=vmax)

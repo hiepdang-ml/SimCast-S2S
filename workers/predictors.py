@@ -29,7 +29,7 @@ class _AbstractPredictor(ABC):
         elif isinstance(net, VAE):
             self.out_features: int = net.pixel_dim
         elif isinstance(net, UNetDenoiser):
-            # TODO: need to avoid magic number
+            # TODO: should avoid magic number
             self.out_features: int = 1
 
         self.mse = nn.MSELoss(reduction='mean')
@@ -211,7 +211,6 @@ class VAEPredictor(_AbstractPredictor):
             )
             filename = filename.replace("/", "")
             # Plot single frame
-            # TODO: uncomment
             self.prediction_plotter.plot(
                 groundtruth_frame=true_frame,
                 prediction_frame=reconstructed_frame,

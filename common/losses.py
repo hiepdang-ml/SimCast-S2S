@@ -16,7 +16,8 @@ class VAELoss(nn.Module):
     ) -> torch.Tensor:
         assert x_hat.shape == true_x.shape
         assert mu.shape == logvar.shape
-        reconstruction_loss: torch.Tensor = F.mse_loss(input=x_hat, target=true_x, reduction="mean")
+        weight: torch.Tensor = 1. / (true_x.abs().mean(dim=(0, 1, 2, 3), keepdim=True) + 1e-6)   # (1, 1, 1, 1, n_features)
+        reconstruction_loss = (((x_hat - true_x) ** 2) * weight).sum() / weight.sum()
         kl_divergence: torch.Tensor = 0.5 * torch.mean(mu.pow(2) + logvar.exp() - 1 - logvar)
         negative_elbo: torch.Tensor = self.lambda_ * reconstruction_loss + (1 - self.lambda_) * kl_divergence
         return negative_elbo

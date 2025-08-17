@@ -5,6 +5,7 @@ from collections import defaultdict
 from functools import cached_property
 import datetime as dt
 
+import numpy as np
 import xarray as xr
 from zipfile import ZipFile
 import torch
@@ -60,58 +61,91 @@ class ZipExtractor:
     def from_single_level(self, year: int) -> xr.DataArray:
         return self._extract(year=year, tp="single_level")
 
-    def save_xr_dataarray(self, year: int) -> None:
+    def to_netcdf(self, year: int) -> None:
         da: xr.DataArray = xr.concat(
             objs=[self.from_pressure_levels(year=year), self.from_single_level(year=year)],
             dim="variable",
         )
+        da = ZipExtractor.__dropfeb29(da)
         da = da.rename({"valid_time": "time"})
         da = da.transpose("time", "variable", "latitude", "longitude")
-        da = da.sortby(variables=["time", "variable"])
+        da = da.sortby(variables=["variable", "time"], ascending=True)
         da.to_netcdf(self.array_root.joinpath(f"{year}.nc"))
-        print(f"Saved year: {year} - Shape: {da.shape}")
+        print(f"Saved {year}.nc - Shape: {da.shape}")
+
+    @staticmethod
+    def __dropfeb29(da: xr.DataArray) -> xr.Dataset:
+        assert "valid_time" in da.coords
+        return da.sel(valid_time=~((da.valid_time.dt.month == 2) & (da.valid_time.dt.day == 29)))
 
 
 class DataReader:
 
-    def __init__(self, year: int, spatial_resolution: Tuple[int, int], device: str) -> None:
+    def __init__(self, year: int, resolution: Tuple[int, int] | None, device: str) -> None:
         self.year: int = year
-        self.spatial_resolution: Tuple[int, int] = spatial_resolution
+        self.resolution: Tuple[int, int] = resolution
+        self.H, self.W = self.resolution
         self.device: torch.device = torch.device(device)
         with open("./config.yaml", mode="r") as file:
-            self.array_directory: pathlib.Path = pathlib.Path(yaml.safe_load(file)["era5"]["array_root"])
+            data_config: Dict[str, Any] = yaml.safe_load(file)["era5"]
+            self.array_directory: pathlib.Path = pathlib.Path(data_config["array_root"])
+            self.zip_directory: pathlib.Path = pathlib.Path(data_config["zip_root"])
 
         self.filepath: pathlib.Path = self.array_directory.joinpath(f"{self.year}.nc")
+
+    @cached_property
+    def xrarray(self) -> xr.DataArray:
+        if not self.filepath.exists():
+            # zip file not extracted to netcdf (.nc) yet
+            self.__extract()
+
         assert self.filepath.exists()
+        # force to load full data to RAM (not just memory references)
+        da: xr.DataArray = xr.open_dataarray(self.filepath, engine="netcdf4").load()
+        # validate
+        self.__validate_complete_data(da)
+        return da
+
+    # NOTE: 
+    # era5.DataReader has slightly different interface with cesm2.DataReader 
+    # due to the difference in raw data's structure. However, they both return 
+    # consistent output (365, H, W) because we want both datasets share a common 
+    # preprocessing pipeline. Difference in interfaces should only be taken care 
+    # in `exportdata.py`
+    def get_tensor(self, var_name: str) -> torch.Tensor:
+        assert var_name in self.xrarray.coords["variable"]
+        tensor: torch.Tensor = torch.from_numpy(self.xrarray.sel(variable=var_name).values).to(device=self.device)
+        assert tensor.shape == (365, 721, 1440)
+        if self.resolution:
+            tensor = self.__resize(tensor)
+            assert tensor.shape == (365, self.H, self.W)
+        return tensor
+
+    def __extract(self) -> None:
+        zip_extractor: ZipExtractor = ZipExtractor(zip_root=self.zip_directory, array_root=self.array_directory)
+        zip_extractor.to_netcdf(year=self.year)
 
     def __resize(self, input2d: torch.Tensor) -> torch.Tensor:
-        """
-        For pre-trained models
-        """
-        assert input2d.ndim == 4    # (n_days, n_variables, H, W)
-        return torch.nn.functional.interpolate(input=input2d, size=(self.spatial_resolution))
-
-    @property   # Only access once -> No cache
-    def tensor(self) -> torch.Tensor:
-        da: xr.DataArray = xr.open_dataarray(self.filepath, engine="netcdf4")
-        tensor: torch.Tensor = torch.from_numpy(da.values).to(device=self.device)
-        # valid if 
-        if self.year == 2025:
-            n_year_days: int = 181
-        elif self.year % 4 == 0:
-            n_year_days: int = 366
-        else:
-            n_year_days: int = 365
-        assert tensor.shape == (n_year_days, 16, 721, 1440)
-        tensor = self.__resize(tensor)
-        assert tensor.shape == (n_year_days, 16, self.spatial_resolution[0], self.spatial_resolution[1])
-        return self.__resize(tensor)
+        assert input2d.ndim == 3    # (365, H, W)
+        return torch.nn.functional.interpolate(
+            input=input2d[:, None, :, :], size=self.resolution, mode="bilinear"
+        ).squeeze(dim=1)
+    
+    def __validate_complete_data(self, da: xr.DataArray) -> None:
+        time: xr.DataArray = da.coords["time"]  # or "valid_time" if that's the name
+        years = np.unique(time.dt.year.values)
+        assert len(years) == 1 and years[0] == self.year, f"Found years: {years}"
+        months = np.unique(time.dt.month.values)
+        assert len(months) == 12, f"Found months: {months}"
+        days = np.unique(time.dt.floor("D").values.astype("datetime64[D]"))
+        assert len(days) == 365, f"Found {len(days)} unique days"
 
 
 class LandmaskReader:
 
-    def __init__(self, spatial_resolution: Tuple[int, int], device: str) -> None:
-        self.spatial_resolution: Tuple[int, int] = spatial_resolution
+    def __init__(self, resolution: Tuple[int, int], device: str) -> None:
+        self.resolution: Tuple[int, int]= resolution
+        self.H, self.W = self.resolution
         self.device: torch.device = torch.device(device)
         with open("./config.yaml", mode="r") as file:
             pathstring: str = yaml.safe_load(file)["era5"]["zip_root"]
@@ -125,43 +159,42 @@ class LandmaskReader:
         """
         assert input2d.ndim == 2
         input2d = torch.nn.functional.interpolate(
-            input=input2d[None, None, :, :], size=self.spatial_resolution, mode="nearest"
+            input=input2d[None, None, :, :], size=self.resolution, mode="nearest"
         )
-        input2d = input2d.squeeze(0, 1)
-        assert input2d.shape == self.spatial_resolution
-        return input2d
+        return input2d.squeeze(0, 1)
 
     @cached_property
-    def tensors(self) -> torch.Tensor:
+    def tensor(self) -> torch.Tensor:
         da: xr.DataArray = xr.load_dataarray(self.filepath, engine="netcdf4")
         value: torch.Tensor = torch.from_numpy(da.values).to(device=self.device).nan_to_num(0.0)
-        landmask: torch.Tensor = (value != 0.)
+        landmask: torch.Tensor = (value != 0.).float()
+        assert landmask.shape == (721, 1440)
         landmask = LandmaskReader.__resize(landmask)
-        assert landmask.shape == self.spatial_resolution
+        assert landmask.shape == (self.H, self.W)
         return landmask
 
 
 class CoordinatesReader:
 
-    def __init__(self, spatial_resolution: Tuple[int, int], device: str) -> None:
-        self.spatial_resolution: Tuple[int, int] = spatial_resolution
+    def __init__(self, resolution: Tuple[int, int], device: str) -> None:
+        self.resolution: Tuple[int, int] = resolution
+        self.H, self.W = self.resolution
         self.device: torch.device = torch.device(device)
 
     @cached_property
     def tensors(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        lat, lon = self.spatial_resolution
-        lat_tensor: torch.Tensor = torch.arange(start=-90., end=90.01, step=180 / lat)
-        lon_tensor: torch.Tensor = torch.arange(start=0., end=360., step=360 / lon)
-        assert lat_tensor.shape == (lat,) 
-        assert lon_tensor.shape == (lon,)
+        lat_tensor: torch.Tensor = torch.arange(start=-90., end=90.01, step=180 / (self.H - 1))
+        lon_tensor: torch.Tensor = torch.arange(start=0., end=360., step=360 / self.W)
+        assert lat_tensor.shape == (self.H,)
+        assert lon_tensor.shape == (self.W,)
         return lat_tensor, lon_tensor
 
 
 if __name__ == "__main__":
-    year: int = 2022
-    self = ZipExtractor(zip_root="/scratch/zgp2ps/era5/raw", array_root="/scratch/zgp2ps/era5/arrays")
-    self.save_xr_dataarray(year=year)
+    year: int = 2024
+    # self = ZipExtractor(zip_root="/scratch/zgp2ps/era5/raw", array_root="/scratch/zgp2ps/era5/arrays")
+    # self.to_netcdf(year=year)
 
-    self = DataReader(year=year, device="cpu")
-    a = self.tensor
+    self = DataReader(year=year, resolution=(192, 288), device="cpu")
+    a = self.get_tensor(var_name="500_w")
 

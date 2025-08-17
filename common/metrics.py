@@ -47,7 +47,6 @@ class RsquaredMap(_SequenceLevelMap):
         residual_tensor: torch.Tensor = torch.sum(input=(prediction_tensor - groundtruth_tensor) ** 2, dim=0, keepdim=False)
         assert total_variation_tensor.shape == residual_tensor.shape == (192, 288, self.n_features)
         rsquared_map: torch.Tensor = 1 - residual_tensor / (total_variation_tensor + 1e-6)
-        # TODO: uncomment
         print(f"Max R-squared: {rsquared_map.max().item()}")
         print(f"Min R-squared: {rsquared_map.min().item()}")
         print(f"Mean R-squared: {rsquared_map.mean().item()}")
@@ -69,7 +68,6 @@ class MAEMap(_SequenceLevelMap):
         prediction_tensor: torch.Tensor = torch.stack(predictions, dim=0)
         groundtruth_tensor: torch.Tensor = torch.stack(groundtruths, dim=0)
         mae_map: torch.Tensor = (groundtruth_tensor - prediction_tensor).abs().mean(dim=0, keepdim=False)
-        # TODO: uncomment
         print(f"Max MAE: {mae_map.max().item()}")
         print(f"Min MAE: {mae_map.min().item()}")
         print(f"Mean MAE: {mae_map.mean().item()}")

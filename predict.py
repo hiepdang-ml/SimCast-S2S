@@ -14,14 +14,21 @@ from models.diffusion import (
 )
 
 
-def main(model: Literal["cnn", "unet", "vit", "vae-context", "vae-target"]) -> None:
+def main(
+    model: Literal["cnn", "unet", "vit", "vae-context", "vae-target"],
+    dataset: Literal["cesm2", "era5"]
+) -> None:
 
     # Dataset
     # TODO:
-    # test_metadata: MetaData = MetaData(tp="train")
-    # test_metadata: MetaData = MetaData(tp="val")
-    test_metadata: MetaData = MetaData(tp="test")
-    test_dataset: CESM2 = CESM2(metadata=test_metadata)
+    # test_metadata: MetaData = MetaData(dataset_name=dataset, tp="train")
+    # test_metadata: MetaData = MetaData(dataset_name=dataset, tp="val")
+    test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
+    if dataset == "cesm2":
+        test_dataset: CESM2 = CESM2(metadata=test_metadata)
+    else:
+        # TODO
+        ...
 
     # Model
     if model.lower() == "cnn":
@@ -119,9 +126,13 @@ def main(model: Literal["cnn", "unet", "vit", "vae-context", "vae-target"]) -> N
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--model", type=str, choices=["cnn", "unet", "vit", "vae-context", "vae-target", "ddpm"], 
+        "--model", type=str, choices=["cnn", "unet", "vit", "vae-context", "vae-target", "ddpm"],
+        required=True,
+    )
+    parser.add_argument(
+        "--dataset", type=str, choices=["cesm2", "era5"],
         required=True,
     )
     args: argparse.Namespace = parser.parse_args()
-    main(model=args.model)
+    main(model=args.model, dataset=args.dataset)
 

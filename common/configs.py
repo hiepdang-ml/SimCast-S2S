@@ -21,11 +21,12 @@ class BaseConfig(ABC):
 
 class MetaData(BaseConfig):
 
-    def __init__(self, tp: Literal["train", "val", "test"]):
-        with open("./config.yaml", mode="r") as file:
-            self.__config: Dict[str, Any] = yaml.safe_load(file)["cesm2"]
-
+    def __init__(self, dataset_name: Literal["cesm2", "era5"], tp: Literal["train", "val", "test"]):
+        self.dataset_name: Literal["cesm2", "era5"] = dataset_name
         self.tp: Literal["train", "val", "test"] = tp
+        with open("./config.yaml", mode="r") as file:
+            self.__config: Dict[str, Any] = yaml.safe_load(file)[dataset_name]
+
         self._load()
         self.var_names: List[str] = sorted(set(self.input_vars + self.output_vars))
         self.years: List[int] = list(range(self.start_year, self.end_year + 1))
@@ -36,6 +37,7 @@ class MetaData(BaseConfig):
         self.device: str = self.__config["device"]
         self.input_vars: List[str] = self.__config["input_vars"]
         self.output_vars: List[str] = self.__config["output_vars"]
+        self.resolution: Tuple[int, int] = tuple(self.__config["resolution"])
         self.sim_ids: List[str] = self.__config["sim_ids"]
 
         if self.tp == "train":
@@ -64,10 +66,12 @@ class MetaData(BaseConfig):
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "dataset_name": self.dataset_name,
             "tp": self.tp,
             "device": self.device,
             "input_vars": self.input_vars,
             "output_vars": self.output_vars,
+            "resolution": self.resolution,
             "sim_ids": self.sim_ids,
             "years": self.years,
             "n_input_days": self.n_input_days,

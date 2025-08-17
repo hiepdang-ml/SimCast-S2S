@@ -1,7 +1,6 @@
 import argparse
 from typing import *
 from torch.nn import DataParallel
-from torch.utils.data import Subset
 
 from datasets.cesm2 import CESM2
 from common.utils import CheckpointLoader
@@ -15,16 +14,20 @@ from models.diffusion import (
 )
 
 
-def main(model: Literal["cnn", "unet", "vit", "vae-context", "vae-target", "ddpm"]) -> None:
+def main(
+    model: Literal["cnn", "unet", "vit", "vae-context", "vae-target"],
+    dataset: Literal["cesm2", "era5"]
+) -> None:
 
     # Dataset
-    train_metadata: MetaData = MetaData(tp="train")
-    val_metadata: MetaData = MetaData(tp="val")
-    train_dataset: CESM2 = CESM2(metadata=train_metadata)
-    val_dataset: CESM2 = CESM2(metadata=val_metadata)
-    # TODO: use full dataset (comment out next 2 lines)
-    # train_dataset = Subset(dataset=train_dataset, indices=range(1000))
-    # val_dataset = Subset(dataset=val_dataset, indices=range(1000))
+    train_metadata: MetaData = MetaData(dataset_name=dataset, tp="train")
+    val_metadata: MetaData = MetaData(dataset_name=dataset, tp="val")
+    if dataset == "cesm2":
+        train_dataset: CESM2 = CESM2(metadata=train_metadata)
+        val_dataset: CESM2 = CESM2(metadata=val_metadata)
+    # TODO
+    else:
+        ...
 
     # Model
     if model.lower() == "cnn":
@@ -263,6 +266,10 @@ if __name__ == "__main__":
         "--model", type=str, choices=["cnn", "unet", "vit", "vae-context", "vae-target", "ddpm"],
         required=True,
     )
+    parser.add_argument(
+        "--dataset", type=str, choices=["cesm2", "era5"],
+        required=True,
+    )
     args: argparse.Namespace = parser.parse_args()
-    main(model=args.model)
+    main(model=args.model, dataset=args.dataset)
 

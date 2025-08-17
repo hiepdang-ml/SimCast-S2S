@@ -13,6 +13,7 @@ class CESM2(Dataset):
 
     def __init__(self, metadata: MetaData):
         super().__init__()
+        assert metadata.dataset_name == "cesm2"
         self.metadata: MetaData = metadata
         meta_dict: Dict[str, Any] = self.metadata.to_dict()
         # validate consistent write/read metadata

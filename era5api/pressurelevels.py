@@ -22,7 +22,7 @@ def main(year: int, months: List[int]) -> None:
     }
 
     client = cdsapi.Client()
-    client.retrieve(dataset, request).download()
+    client.retrieve(dataset, request)
 
 
 if __name__ == "__main__":

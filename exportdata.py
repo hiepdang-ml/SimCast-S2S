@@ -3,21 +3,41 @@ from typing import *
 
 from datasets.common.container import DataContainer
 from datasets.common.preprocessing import Detrender, ClimatologyRemover
-from datasets.cesm2.reader import DataReader
-from datasets.cesm2.writer import DataWriter
+from datasets.cesm2.reader import DataReader as CESM2_DataReader
+from datasets.era5.reader import DataReader as ERA5_DataReader
+from datasets.common.writer import DataWriter
 from common.configs import MetaData
 
 
-def export_cesm2() -> None:
-
+def main(dataset: Literal["cesm2", "era5"]) -> None:
+    
     # train dataset
-    train_metadata: MetaData = MetaData(tp="train")
+    train_metadata: MetaData = MetaData(dataset_name=dataset, tp="train")
     container: DataContainer = DataContainer(metadata=train_metadata)
-    for sim_id, var_name, year in train_metadata.combinations:
-        container.set(
-            sim_id=sim_id, var_name=var_name, year=year, 
-            value=DataReader(sim_id=sim_id, var_name=var_name, year=year, device=train_metadata.device).tensor
-        )
+    if dataset == "cesm2":
+        # require H200
+        for sim_id, var_name, year in train_metadata.combinations:
+            reader: CESM2_DataReader = CESM2_DataReader(
+                sim_id=sim_id, var_name=var_name, year=year, device=train_metadata.device,
+            )
+            container.set(sim_id=sim_id, var_name=var_name, year=year, value=reader.tensor)
+            print(f"Loaded to container: {(sim_id, var_name, year)}")
+    else:
+        assert len(train_metadata.sim_ids) == 1
+        sim_id: str = train_metadata.sim_ids[0]
+        assert sim_id == "reanalysis"   # only one "simulation"
+        # require H200
+        for year in train_metadata.years:
+            reader: ERA5_DataReader = ERA5_DataReader(
+                year=year, resolution=train_metadata.resolution, device=train_metadata.device,
+            )
+            for var_name in train_metadata.var_names:
+                container.set(
+                    sim_id=sim_id, var_name=var_name, year=year, 
+                    value=reader.get_tensor(var_name=var_name),
+                )
+                print(f"Loaded to container: {(sim_id, var_name, year)}")
+
     detrender: Detrender = Detrender(metadata=train_metadata)
     climatology_remover: ClimatologyRemover = ClimatologyRemover(metadata=train_metadata)
     writer: DataWriter = DataWriter(metadata=train_metadata)
@@ -28,13 +48,24 @@ def export_cesm2() -> None:
 
     # val & test dataset
     for tp in ["val", "test"]:
-        metadata: MetaData = MetaData(tp=tp)
+        metadata: MetaData = MetaData(dataset_name=dataset, tp=tp)
         container: DataContainer = DataContainer(metadata=metadata)
-        for sim_id, var_name, year in metadata.combinations:
-            container.set(
-                sim_id=sim_id, var_name=var_name, year=year, 
-                value=DataReader(sim_id=sim_id, var_name=var_name, year=year, device=metadata.device).tensor
-            )
+        if dataset == "cesm2":
+            for sim_id, var_name, year in metadata.combinations:
+                reader: CESM2_DataReader = CESM2_DataReader(
+                    sim_id=sim_id, var_name=var_name, year=year, device=metadata.device
+                )
+                container.set(sim_id=sim_id, var_name=var_name, year=year, value=reader.tensor)
+        else:
+            for sim_id, var_name, year in metadata.combinations:
+                assert sim_id == "reanalysis"   # only one "simulation"
+                reader: ERA5_DataReader = ERA5_DataReader(
+                    year=year, resolution=metadata.resolution, device=metadata.device
+                )
+                container.set(
+                    sim_id=sim_id, var_name=var_name, year=year, 
+                    value=reader.get_tensor(var_name=var_name),
+                )
         detrender: Detrender = Detrender(metadata=metadata)
         climatology_remover: ClimatologyRemover = ClimatologyRemover(metadata=metadata)
         writer: DataWriter = DataWriter(metadata=metadata)
@@ -42,15 +73,6 @@ def export_cesm2() -> None:
         climatology_remover(container, train_metadata=train_metadata)
         writer(container)
         del container
-
-
-# TODO: implement
-def export_era5() -> None:
-    pass
-
-
-def main(dataset: Literal["cesm2", "era5"]):
-    export_cesm2() if dataset == "cesm2" else export_era5()
 
 
 if __name__ == "__main__":

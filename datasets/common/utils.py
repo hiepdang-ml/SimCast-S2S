@@ -1,5 +1,6 @@
 from typing import *
 from dataclasses import dataclass
+from functools import cache
 
 import torch
 
@@ -12,4 +13,5 @@ class SampleInfo:
     out_enddate: str
 
 DataBatch = NewType("DataBatch", Tuple[List[SampleInfo], torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor])
+
 
