@@ -40,8 +40,8 @@ class RsquaredMap(_SequenceLevelMap):
         assert all(tensor.shape == (192, 288, self.n_features) for tensor in predictions)
         assert all(tensor.shape == (192, 288, self.n_features) for tensor in groundtruths)
 
-        prediction_tensor: torch.Tensor = torch.stack(predictions, dim=0)
-        groundtruth_tensor: torch.Tensor = torch.stack(groundtruths, dim=0)
+        prediction_tensor: torch.Tensor = torch.stack(predictions, dim=0).cpu()     # to avoid out of VRAM
+        groundtruth_tensor: torch.Tensor = torch.stack(groundtruths, dim=0).cpu()   # to avoid out of VRAM
         true_mean_tensor: torch.Tensor = torch.mean(groundtruth_tensor, dim=0, keepdim=True)
         total_variation_tensor: torch.Tensor = torch.sum(input=(groundtruth_tensor - true_mean_tensor) ** 2, dim=0, keepdim=False)
         residual_tensor: torch.Tensor = torch.sum(input=(prediction_tensor - groundtruth_tensor) ** 2, dim=0, keepdim=False)
@@ -65,8 +65,8 @@ class MAEMap(_SequenceLevelMap):
         batch_size: int = groundtruths[0].shape[0]
         assert all(tensor.shape == (192, 288, self.n_features) for tensor in predictions)
         assert all(tensor.shape == (192, 288, self.n_features) for tensor in groundtruths)
-        prediction_tensor: torch.Tensor = torch.stack(predictions, dim=0)
-        groundtruth_tensor: torch.Tensor = torch.stack(groundtruths, dim=0)
+        prediction_tensor: torch.Tensor = torch.stack(predictions, dim=0).cpu()     # to avoid out of VRAM
+        groundtruth_tensor: torch.Tensor = torch.stack(groundtruths, dim=0).cpu()   # to avoid out of VRAM
         mae_map: torch.Tensor = (groundtruth_tensor - prediction_tensor).abs().mean(dim=0, keepdim=False)
         print(f"Max MAE: {mae_map.max().item()}")
         print(f"Min MAE: {mae_map.min().item()}")

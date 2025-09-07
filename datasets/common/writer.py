@@ -1,15 +1,16 @@
 import datetime as dt
 import json
-import os
 import pathlib
 from typing import *
 
 import torch
-from datasets.common.container import DataContainer
+from datasets.common.container import VariableContainer
 from common.configs import MetaData
 
 
 class DataWriter:
+
+    _SAMPLE_COUNTER: int = 0
 
     def __init__(self, metadata: MetaData):
         """
@@ -28,86 +29,112 @@ class DataWriter:
             (dt.datetime(2025, 1, 1) + dt.timedelta(days=i)).strftime("%m%d")
             for i in range(365)
         ]
-        os.makedirs(name=self.metadata.write_directory, exist_ok=True)
-        os.makedirs(name=self.metadata.write_directory.joinpath("metadata"), exist_ok=True)
-        self.__save_config()
+        self.metadata_path: pathlib.Path = self.metadata.write_directory.joinpath("metadata")
+        self.metadata_path.mkdir(parents=True, exist_ok=True)
 
-    def __save_config(self) -> None:
-        for sim_id in self.metadata.sim_ids:
-            filepath: pathlib.Path = pathlib.Path(
-                self.metadata.write_directory.joinpath(f"metadata/{sim_id}.json")
-            )
-            d: Dict[str, Any] = self.metadata.to_dict()
-            d["sim_ids"] = [sim_id]
-            with open(file=filepath, mode="w") as file:
-                json.dump(obj=d, fp=file)
+        self.input_path: pathlib.Path = self.metadata.write_directory.joinpath("input")
+        self.output_path: pathlib.Path = self.metadata.write_directory.joinpath("output")
+        self.input_path.mkdir(parents=True, exist_ok=True)
+        self.output_path.mkdir(parents=True, exist_ok=True)
+
+        for var_name in self.metadata.input_vars:
+            self.input_path.joinpath(var_name).mkdir(exist_ok=True)
+
+        for var_name in self.metadata.output_vars:
+            self.output_path.joinpath(var_name).mkdir(exist_ok=True)
+        
+        self.__save_metadata()
+
+    def __save_metadata(self) -> None:
+        filepath: pathlib.Path = pathlib.Path(self.metadata_path.joinpath("metadata.json"))
+        d: Dict[str, Any] = self.metadata.to_dict()
+        with open(file=filepath, mode="w") as file:
+            json.dump(obj=d, fp=file)
 
     def __construct_file_name(
         self,
-        sim_id: str, year: int, input_indices: List[int], output_indices: List[int]
+        sim_id: str, var_name: str, year: int, 
+        input_or_output: Literal["input", "output"],
+        sample_index: int, 
+        yearday_indices: List[int]
     ) -> str:
-        return (
-            f"{sim_id}_{year}__"
-            f"{'_'.join([self.__datestrings[i] for i in input_indices])}__"
-            f"{'_'.join([self.__datestrings[i] for i in output_indices])}.pt"
-        )
+        sample_id: str = f"{sample_index:06d}"
+        prefix: str = f"{sample_id}.{self.metadata.tp}.{input_or_output}__{sim_id}_{var_name}_{year}__"
+        suffix: str = f"{'_'.join([self.__datestrings[i] for i in yearday_indices])}"
+        return f"{prefix}{suffix}.pt"
 
-    def __write_one_sample(self, input: DataContainer, sim_id: str, year: int, sample_index: int) -> None:
-        # Input
-        input_indices: torch.Tensor = torch.tensor(
-            range(sample_index, sample_index + self.metadata.n_input_days),
+    def __write_one_sample(
+        self, 
+        var_container: VariableContainer,
+        sim_id: str, year: int,
+        yearday_index: int, sample_index: int,
+    ) -> None:
+        # Get yearday_indices
+        input_yearday_indices: torch.Tensor = torch.tensor(
+            range(yearday_index, yearday_index + self.metadata.n_input_days),
             dtype=torch.int,
             device=self.metadata.device,
         )
-        input_tensors: List[torch.Tensor] = []
-        for var_name in self.metadata.input_vars:
-            tensor: torch.Tensor = input.get(sim_id=sim_id, var_name=var_name, year=year)
-            assert tensor.shape == (365, 192, 288)
-            var_tensor: torch.Tensor = tensor[input_indices]
-            assert var_tensor.shape == (self.metadata.n_input_days, 192, 288)
-            input_tensors.append(var_tensor)
-
-        input_tensor: torch.Tensor = torch.stack(tensors=input_tensors, dim=3)
-        assert input_tensor.shape == (self.metadata.n_input_days, 192, 288, len(self.metadata.input_vars))
-
-        # Output
-        output_indices: torch.Tensor = torch.tensor(
+        output_yearday_indices: torch.Tensor = torch.tensor(
             range(
-                sample_index + self.metadata.n_input_days + self.metadata.n_lead_days,
-                sample_index + self.metadata.n_input_days + self.metadata.n_lead_days + self.metadata.n_output_days,
+                yearday_index + self.metadata.n_input_days + self.metadata.n_lead_days,
+                yearday_index + self.metadata.n_input_days + self.metadata.n_lead_days + self.metadata.n_output_days,
             ),
             dtype=torch.int,
             device=self.metadata.device,
         )
-        output_tensors: List[torch.Tensor] = []
-        for var_name in self.metadata.output_vars:
-            tensor: torch.Tensor = input.get(sim_id=sim_id, var_name=var_name, year=year)
-            assert tensor.shape == (365, 192, 288)
-            var_tensor: torch.Tensor = tensor[output_indices]
-            assert var_tensor.shape == (self.metadata.n_output_days, 192, 288)
-            output_tensors.append(var_tensor)
-
-        output_tensor: torch.Tensor = torch.stack(tensors=output_tensors, dim=3)
-        assert output_tensor.shape == (self.metadata.n_output_days, 192, 288, len(self.metadata.output_vars))
-        output_tensor = output_tensor.mean(dim=0, keepdim=True)
-        assert output_tensor.shape == (1, 192, 288, len(self.metadata.output_vars))
-
-        torch.save(
-            obj=(input_indices, output_indices, input_tensor, output_tensor),
-            f=pathlib.Path(
-                self.metadata.write_directory,
-                self.__construct_file_name(
-                    sim_id=sim_id, year=year,
-                    input_indices=input_indices, output_indices=output_indices
-                )
+        if var_container.var_name in self.metadata.input_vars:
+            # Input: Get data
+            year_tensor: torch.Tensor = var_container.get(sim_id=sim_id, year=year)
+            assert year_tensor.shape == (365, 192, 288)
+            input_tensor: torch.Tensor = year_tensor[input_yearday_indices]
+            assert input_tensor.shape == (self.metadata.n_input_days, 192, 288)
+            # Input: Write to .pt
+            filename: str = self.__construct_file_name(
+                sim_id=sim_id, var_name=var_container.var_name, year=year, 
+                input_or_output="input",
+                sample_index=sample_index, 
+                yearday_indices=input_yearday_indices.cpu().tolist(),
             )
-        )
+            torch.save(
+                obj=(input_yearday_indices, input_tensor),
+                f=self.input_path.joinpath(f"{var_container.var_name}/{filename}"),
+            )
 
-    def __call__(self, input: DataContainer) -> None:
+        if var_container.var_name in self.metadata.output_vars:
+            # Output: Get data
+            year_tensor: torch.Tensor = var_container.get(sim_id=sim_id, year=year)
+            assert year_tensor.shape == (365, 192, 288)
+            output_tensor: torch.Tensor = year_tensor[output_yearday_indices]
+            assert output_tensor.shape == (self.metadata.n_output_days, 192, 288)
+            output_tensor = output_tensor.mean(dim=0, keepdim=True)
+            assert output_tensor.shape == (1, 192, 288)
+            # Output: Write to .pt
+            filename: str = self.__construct_file_name(
+                sim_id=sim_id, var_name=var_container.var_name, year=year,
+                input_or_output="output",
+                sample_index=sample_index,
+                yearday_indices=output_yearday_indices.cpu().tolist(),
+            )
+            torch.save(
+                obj=(output_yearday_indices, output_tensor),
+                f=self.output_path.joinpath(f"{var_container.var_name}/{filename}"),
+            )
+
+    def __call__(self, var_container: VariableContainer) -> None:
+        bound: int = 365 - self.metadata.n_input_days - self.metadata.n_lead_days - self.metadata.n_output_days
+        step: int = self.metadata.n_step_days
         for sim_id in self.metadata.sim_ids:
-            bound: int = 365 - self.metadata.n_input_days - self.metadata.n_lead_days - self.metadata.n_output_days
-            step: int = self.metadata.n_step_days
             for year in self.metadata.years:
-                for i in range(0, bound, step):
-                    self.__write_one_sample(input, sim_id=sim_id, year=year, sample_index=i)
+                for t in range(0, bound, step):
+                    self.__write_one_sample(
+                        var_container=var_container, sim_id=sim_id, year=year,
+                        yearday_index=t, sample_index=DataWriter._SAMPLE_COUNTER,
+                    )
+                    DataWriter._SAMPLE_COUNTER += 1
+
+        # Reset counter
+        DataWriter._SAMPLE_COUNTER = 0
+
+
 

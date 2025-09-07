@@ -10,11 +10,15 @@ import xarray as xr
 
 class DataReader:
 
-    def __init__(self, sim_id: str, var_name: str, year: int, device: str) -> None:
-        self.sim_id: str = sim_id
+    """
+    Read from .nc to tensor
+    """
+
+    def __init__(self, var_name: str, sim_id: str, year: int, device: str) -> None:
         self.var_name: str = var_name
+        self.sim_id: str = sim_id
         self.year: int = year
-        self.device: str = device
+        self.device: torch.device = torch.device(device)
         with open("./config.yaml", mode="r") as file:
             self.root_directory: pathlib.Path = pathlib.Path(yaml.safe_load(file)["cesm2"]["root"])
 
@@ -49,8 +53,12 @@ class DataReader:
 
 class LandMaskReader:
 
+    """
+    Read from .nc to tensor
+    """
+
     def __init__(self, device: str) -> None:
-        self.device: str = device
+        self.device: torch.device = torch.device(device)
         with open("./config.yaml", mode="r") as file:
             pathstring: str = yaml.safe_load(file)["cesm2"]["root"]
             self.mask_directory: pathlib.Path = pathlib.Path(pathstring).parent.joinpath("landmask")
@@ -66,6 +74,10 @@ class LandMaskReader:
 
 
 class CoordinatesReader:
+
+    """
+    Read from .nc to tensor
+    """
 
     def __init__(self, device: str) -> None:
         self.device: torch.device = torch.device(device)

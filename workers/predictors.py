@@ -15,15 +15,15 @@ from common.plotting import MetricPlotter, PredictionPlotter
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAEEncoder, VAEDecoder, UNetDenoiser, 
-    LinearNoiseScheduler, CosineNoiseScheduler, 
-    DDPMForwardProcess, DDPMReverseProcess,
+    LinearNoiseScheduler, CosineNoiseScheduler, DDPMReverseProcess,
 )
+from .common import RequireVAEEncoders
 
 
 class _AbstractPredictor(ABC):
 
-    def __init__(self, net: CNN | UNet | ViT | VAE):
-        self.net: CNN | UNet | ViT | VAE = net
+    def __init__(self, net: CNN | UNet | ViT | VAE | UNetDenoiser):
+        self.net: CNN | UNet | ViT | VAE | UNetDenoiser = net
         if isinstance(net, (CNN, UNet, ViT)):
             self.out_features: int = net.out_features
         elif isinstance(net, VAE):
@@ -45,6 +45,10 @@ class _AbstractPredictor(ABC):
 
     def predict(self, dataset: CESM2) -> None:
         self.net.eval()
+        # Set instance variable `indices_by_context_group` (mandatory for DDPMPredictor._predict_step)
+        if isinstance(self, DDPMPredictor):
+            self.indices_by_context_group = dataset.indices_by_context_group
+            
         # Batch size should always be 1
         self.dataloader = DataLoader(dataset, batch_size=1, collate_fn=CESM2.collate_fn)
         records: Dict[str, List[torch.Tensor]] = {"predictions": [], "groundtruths": []}
@@ -161,15 +165,14 @@ class BaselinePredictor(_AbstractPredictor):
 
 class VAEPredictor(_AbstractPredictor):
 
-    def __init__(self, net: VAE, tp: Literal["context", "target"]) -> None:
+    def __init__(self, net: VAE) -> None:
         super().__init__(net=net)
-        self.tp: Literal["context", "target"] = tp
 
     #implement
     def _predict_step(self, batch: DataBatch, output_names: List[str]) -> Tuple[torch.Tensor, torch.Tensor]:
         sampleinfos, input_indices, output_indices, input_tensor, target_tensor = batch
         sampleinfo: SampleInfo = sampleinfos[0] # because batch_size=1
-        true_x: torch.Tensor = input_tensor if self.tp.lower() == "context" else target_tensor
+        true_x: torch.Tensor = input_tensor
         reconstructed_x, mu, logvar = self.net(true_x)
         # Compute metrics
         true_x = true_x.permute(0, 2, 3, 1, 4).flatten(3, 4).unsqueeze(dim=1)
@@ -225,42 +228,47 @@ class VAEPredictor(_AbstractPredictor):
 
     #implement
     def get_output_names(self, dataset: CESM2) -> List[str]:
-        if self.tp.lower() == "context":
-            days: Iterable[int] = range(1, dataset.metadata.n_input_days + 1)
-            var_names: List[str] = dataset.metadata.input_vars
-            output_names: List[str] = [f"{item[1]}_DAY{item[0]}" for item in product(days, var_names)]
-        else:
-            var_names: List[str] = dataset.metadata.output_vars
-            output_names: List[str] = [f"{item}_AVG" for item in var_names]
-
+        days: Iterable[int] = range(1, dataset.metadata.n_input_days + 1)
+        var_names: List[str] = dataset.metadata.input_vars
+        output_names: List[str] = [f"{item[1]}_DAY{item[0]}" for item in product(days, var_names)]
         return output_names
 
 
-class DDPMPredictor(_AbstractPredictor):
+class DDPMPredictor(RequireVAEEncoders, _AbstractPredictor):
 
     def __init__(
         self, 
-        denoiser: UNetDenoiser, 
-        target_encoder: VAEEncoder, 
-        target_decoder: VAEDecoder,
-        context_encoder: VAEEncoder,
+        denoiser: UNetDenoiser,
+        wind_encoder: VAEEncoder, 
+        geopotential_encoder: VAEEncoder,
+        thermaldynamic_encoder: VAEEncoder,
+        precipitation_encoder: VAEEncoder,
+        precipitation_decoder: VAEDecoder,
         noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler,
     ) -> None:
         super().__init__(net=denoiser)
         self.denoiser: UNetDenoiser = denoiser
 
-        # Freeze target encoder
-        self.target_encoder: VAEEncoder = target_encoder
-        self.target_encoder.freeze()
-        assert target_encoder.is_frozen
-        # Freeze target decoder
-        self.target_decoder: VAEDecoder = target_decoder
-        self.target_decoder.freeze()
-        assert target_decoder.is_frozen
-        # Freeze context encoder
-        self.context_encoder: VAEEncoder = context_encoder
-        self.context_encoder.freeze()
-        assert self.context_encoder.is_frozen
+        # Freeze wind_encoder
+        self.wind_encoder: VAEEncoder = wind_encoder
+        self.wind_encoder.freeze()
+        assert wind_encoder.is_frozen
+        # Freeze geopotential_encoder
+        self.geopotential_encoder: VAEEncoder = geopotential_encoder
+        self.geopotential_encoder.freeze()
+        assert self.geopotential_encoder.is_frozen
+        # Freeze thermaldynamic_encoder
+        self.thermaldynamic_encoder: VAEEncoder = thermaldynamic_encoder
+        self.thermaldynamic_encoder.freeze()
+        assert self.thermaldynamic_encoder.is_frozen
+        # Freeze thermaldynamic_encoder
+        self.precipitation_encoder: VAEEncoder = precipitation_encoder
+        self.precipitation_encoder.freeze()
+        assert self.precipitation_encoder.is_frozen
+        # Freeze precipitation_decoder
+        self.precipitation_decoder: VAEDecoder = precipitation_decoder
+        self.precipitation_decoder.freeze()
+        assert self.precipitation_decoder.is_frozen
 
         self.noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler = noise_scheduler
         self.n_denoising_steps: int = noise_scheduler.n_steps
@@ -269,10 +277,8 @@ class DDPMPredictor(_AbstractPredictor):
     def _predict_step(self, batch: DataBatch, output_names: List[str]) -> Tuple[torch.Tensor, torch.Tensor]:
         sampleinfos, _, _, condition, groundtruth = batch
         sampleinfo: SampleInfo = sampleinfos[0] # because batch_size=1
-
-        # Encode condition to latent space
-        condition_latent: torch.Tensor = VAEEncoder.reparameterize(*self.context_encoder(condition))
-        target_latent: torch.Tensor = VAEEncoder.reparameterize(*self.target_encoder(groundtruth)) # just to get shape
+        # Encode
+        condition_latent, target_latent = self.vae_encode(condition=condition, target=groundtruth)
         # Generate gaussian
         gaussian: torch.Tensor = torch.randn_like(target_latent)
         # Denoise
@@ -291,7 +297,9 @@ class DDPMPredictor(_AbstractPredictor):
         # At k=0 (last denoising step), target_latent_k = target_latent_0
         assert target_latent_k.isclose(target_latent_0).all()
         # Decode target back to physical space
-        prediction: torch.Tensor = self.target_decoder(target_latent_0)
+        # NOTE: since target and condition share the same VAE encoder/decoder, 
+        #       target_latent_0 represents n_input_days -> take mean() along the `n_days` axis (dim=1)
+        prediction: torch.Tensor = self.precipitation_decoder(target_latent_0).mean(dim=1, keepdim=True)
         assert prediction.shape == groundtruth.shape == (1, 1, 192, 288, self.out_features)
         # Error map
         error: torch.Tensor = self.error_map(prediction=prediction, groundtruth=groundtruth)

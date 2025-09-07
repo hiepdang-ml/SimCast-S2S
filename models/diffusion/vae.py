@@ -382,3 +382,6 @@ class VAE(_Freezable, NamedModel, nn.Module):
         return self.pixel_dim
 
 
+VAE_Wind = VAE_Geopotential = VAE_ThermalDynamic = VAE_Precipitation = VAE
+
+

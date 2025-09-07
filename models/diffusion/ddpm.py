@@ -1,9 +1,7 @@
 from abc import ABC, abstractmethod
-from functools import cache, cached_property
+from functools import cached_property
 
 from typing import *
-import pathlib
-import numpy as np
 import torch
 import torch.nn as nn
 from ..common import NamedModel
@@ -11,7 +9,7 @@ from ..common import NamedModel
 
 class StepSinusoidEmbedding(nn.Module):
 
-    def __init__(self, embedding_dim: int):
+    def __init__(self, embedding_dim: int) -> None:
         super().__init__()
         self.embedding_dim: int = embedding_dim
 
@@ -206,7 +204,7 @@ class _DownSample(nn.Module):
         batch_size, input_dim, H, W = input.shape
         assert input_dim == self.input_dim
         output: torch.Tensor = torch.cat([self.conv2d(input), self.maxpool2d(input)], dim=1)
-        output.shape == (batch_size, self.output_dim, H // 2, W // 2)
+        assert output.shape == (batch_size, self.output_dim, H // 2, W // 2)
         return output
 
 
@@ -233,7 +231,7 @@ class _UpSample(nn.Module):
         batch_size, input_dim, H, W = input.shape
         assert input_dim == self.input_dim
         output: torch.Tensor = torch.cat([self.convtranspose2d(input), self.up2d(input)], dim=1)
-        output.shape == (batch_size, self.output_dim, H * 2, W * 2)
+        assert output.shape == (batch_size, self.output_dim, H * 2, W * 2)
         return output
 
 
@@ -261,28 +259,32 @@ class _ScalingBlock(nn.Module):
         self.condition_dropout: float = condition_dropout
         self.type: Literal["up", "down", "mid"] = type
         # Condition
-        self.condition_projection = nn.Conv2d(in_channels=condition_in_dim, out_channels=hidden_dim, kernel_size=1, padding=0)
-        self.condition_conv_layers = nn.ModuleList([
+        self.condition_projection: nn.Module = nn.Conv2d(
+            in_channels=condition_in_dim, out_channels=hidden_dim, kernel_size=1, padding=0,
+        )
+        self.condition_conv_layers: nn.ModuleList = nn.ModuleList([
             _NormActConv(input_dim=hidden_dim, output_dim=hidden_dim) for _ in range(n_layers)
         ])
-        self.condition_res_blocks: nn.Module = nn.ModuleList([
+        self.condition_res_blocks: nn.ModuleList = nn.ModuleList([
             nn.Conv2d(in_channels=hidden_dim, out_channels=hidden_dim, kernel_size=1)
             for _ in range(n_layers)
         ])
         # Target
-        self.target_projection = nn.Conv2d(in_channels=input_dim, out_channels=hidden_dim, kernel_size=1, padding=0)
-        self.target_conv1_layers = nn.ModuleList([
+        self.target_projection: nn.Module = nn.Conv2d(
+            in_channels=input_dim, out_channels=hidden_dim, kernel_size=1, padding=0,
+        )
+        self.target_conv1_layers: nn.ModuleList = nn.ModuleList([
             _NormActConv(input_dim=hidden_dim, output_dim=hidden_dim) for _ in range(n_layers)
         ])
-        self.target_conv2_layers = nn.ModuleList([
+        self.target_conv2_layers: nn.ModuleList = nn.ModuleList([
             _NormActConv(input_dim=hidden_dim, output_dim=hidden_dim) for _ in range(n_layers)
         ])
-        self.target_res_blocks: nn.Module = nn.ModuleList([
+        self.target_res_blocks: nn.ModuleList = nn.ModuleList([
             nn.Conv2d(in_channels=hidden_dim, out_channels=hidden_dim, kernel_size=1)
             for _ in range(n_layers)
         ])
         # Attention
-        self.cross_attention_layers: nn.Module = nn.ModuleList([
+        self.cross_attention_layers: nn.ModuleList = nn.ModuleList([
             _CrossAttention(hidden_dim=hidden_dim, n_heads=n_attention_heads, dropout=condition_dropout)
             for _ in range(n_layers)
         ])
@@ -336,7 +338,7 @@ class _ScalingBlock(nn.Module):
             # Resnet block (condition)
             condition_output: torch.Tensor = self.condition_conv_layers[i](condition_output)
             condition_output = condition_output + self.condition_res_blocks[i](condition_resnet_input)
-            # Self Attention
+            # Cross Attention
             target_output = target_output + self.cross_attention_layers[i](target=target_output, condition=condition_output)
         
         assert target_output.shape == (target_N, self.hidden_dim, target_H, target_W) 
@@ -608,13 +610,13 @@ if __name__ == "__main__":
     forward_process: DDPMForwardProcess = DDPMForwardProcess(
         noise_scheduler=LinearNoiseScheduler(beta_min=1e-4, beta_max=0.02, n_steps=n_steps, device=device)
     )
-    noisy_latent: torch.Tensor = forward_process.add_noise(original, steps)
+    noisy_latent, gauusian = forward_process.add_noise(original, steps)
     print(f"noisy_latent.shape: {noisy_latent.shape}")
 
     forward_process: DDPMForwardProcess = DDPMForwardProcess(
-        noise_scheduler=CosineNoiseScheduler(n_steps=n_steps)
+        noise_scheduler=CosineNoiseScheduler(n_steps=n_steps, device=device)
     )
-    noisy_latent: torch.Tensor = forward_process.add_noise(original, steps)
+    noisy_latent, gauusian = forward_process.add_noise(original, steps)
     print(f"noisy_latent.shape: {noisy_latent.shape}")
     print(f"--------")
 
@@ -632,7 +634,7 @@ if __name__ == "__main__":
     print(f"predicted_target_0.shape: {predicted_target_0.shape}")
 
     reverse_process: DDPMReverseProcess = DDPMReverseProcess(
-        noise_scheduler=CosineNoiseScheduler(n_steps=n_steps)
+        noise_scheduler=CosineNoiseScheduler(n_steps=n_steps, device=device)
     )
     denoised_target, predicted_target_0 = reverse_process.sample(target_k, predicted_noise, step)
     print(f"denoised_target.shape: {denoised_target.shape}")

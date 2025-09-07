@@ -8,7 +8,7 @@ import torch
 class _BasePlotter:
 
     def __init__(self) -> None:
-        self.destination_directory: pathlib.Path = pathlib.Path('./plots/prediction')
+        self.destination_directory: pathlib.Path = pathlib.Path('./results/prediction')
         self.destination_directory.mkdir(parents=True, exist_ok=True)
 
     def plot_layer(
@@ -109,10 +109,7 @@ class MetricPlotter(_BasePlotter):
         aspect_ratio: float = H / W
         figwidth: float = 5.5
 
-        fig, axs = plt.subplots(
-            2, 1, figsize=(figwidth, 2 * figwidth * aspect_ratio),
-            subplot_kw={'projection': self.projection},
-        )
+        fig, axs = plt.subplots(2, 1, figsize=(figwidth, 2 * figwidth * aspect_ratio))
         self.plot_layer(ax=axs[0], data=mae_frame, coords=coordinates, title="MAE Map", cmap="Oranges", vmin=0., vmax=0.05)
         self.plot_layer(ax=axs[1], data=rsquared_frame, coords=coordinates, title="R-squared Map", cmap="Blues", vmin=0., vmax=1.)
         self.add_landmask(axs=axs, landmask=landmask, coords=coordinates)

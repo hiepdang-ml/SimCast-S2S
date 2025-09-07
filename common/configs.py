@@ -8,7 +8,7 @@ from typing import *
 
 class BaseConfig(ABC):
 
-    def __init__(self):
+    def __init__(self) -> None:
         raise SyntaxError(f"{self.__class__.__name__} is not meant for initilization")
 
     @abstractmethod
@@ -21,16 +21,37 @@ class BaseConfig(ABC):
 
 class MetaData(BaseConfig):
 
-    def __init__(self, dataset_name: Literal["cesm2", "era5"], tp: Literal["train", "val", "test"]):
+    VAR_LOOKUP_TABLE: Dict[str, Dict[str, List[str]]] = {
+        "cesm2": {
+            "wind": ["U200", "V200", "U500", "V500", "OMEGA500", "U850", "V850"],
+            "geopotential": ["Z200", "Z850", "Z500"],
+            "thermaldynamic": ["FLUT", "TS", "PSL"],
+            "precipitation": ["PRECT"],
+        },
+        "era5": {
+            "wind": ["u_200", "v_200", "u_500", "v_500", "w_500", "u_850", "v_850"],
+            "geopotential": ["z_200", "z_500", "z_850"],
+            "thermaldynamic": ["avg_tnlwrf", "t2m", "msl"],
+            "precipitation": ["tp"],
+        }
+    }
+
+    def __init__(self, dataset_name: Literal["cesm2", "era5"], tp: Literal["train", "val", "test"]) -> None:
         self.dataset_name: Literal["cesm2", "era5"] = dataset_name
         self.tp: Literal["train", "val", "test"] = tp
+        self.var_table: Dict[str, List[str]] = MetaData.VAR_LOOKUP_TABLE[dataset_name]
         with open("./config.yaml", mode="r") as file:
             self.__config: Dict[str, Any] = yaml.safe_load(file)[dataset_name]
 
         self._load()
-        self.var_names: List[str] = sorted(set(self.input_vars + self.output_vars))
+        # Note: must preserve order
+        self.var_names: List[str] = []
+        for var_name in self.input_vars + self.output_vars:
+            if var_name not in self.var_names:
+                self.var_names.append(var_name)
+
         self.years: List[int] = list(range(self.start_year, self.end_year + 1))
-        self.combinations: List[Tuple[str, str, int]] = list(product(self.sim_ids, self.var_names, self.years))
+        self.combinations: List[Tuple[str, int]] = list(product(self.sim_ids, self.years))
         self.n_years: int = len(self.years)
 
     def _load(self) -> None:
@@ -80,11 +101,22 @@ class MetaData(BaseConfig):
             "n_step_days": self.n_step_days,
             "climatological_window_size": self.climatological_window_size,
         }
+    
+    def with_var_subset(
+        self, 
+        context_group: Literal["wind", "geopotential", "thermaldynamic", "precipitation"],
+    ) -> "MetaData":
+        input_subset: List[str] = self.var_table[context_group]
+        assert set(input_subset).issubset(set(self.input_vars))
+        # override, preserve order
+        self.input_vars = [v for v in self.input_vars if v in input_subset]
+        self.var_names = [v for v in self.var_names if v in (input_subset + self.output_vars)]
+        return self
 
 
 class CNNConfig(BaseConfig):
 
-    def __init__(self):
+    def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
             self.__config: Dict[str, Any] = yaml.safe_load(file)["cnn"]
         
@@ -127,7 +159,7 @@ class CNNConfig(BaseConfig):
 
 class UnetConfig(BaseConfig):
 
-    def __init__(self):
+    def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
             self.__config: Dict[str, Any] = yaml.safe_load(file)["unet"]
         
@@ -168,7 +200,7 @@ class UnetConfig(BaseConfig):
 
 class ViTConfig(BaseConfig):
 
-    def __init__(self):
+    def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
             self.__config: Dict[str, Any] = yaml.safe_load(file)["vit"]
         
@@ -216,11 +248,13 @@ class ViTConfig(BaseConfig):
         }
 
 
-class VAEContextConfig(BaseConfig):
+class VAEConfig(BaseConfig):
 
-    def __init__(self):
+    def __init__(self, context_group: Literal["wind", "geopotential", "thermaldynamic", "precipitation"]):
+        self.context_group: Literal["wind", "geopotential", "thermaldynamic", "precipitation"] = context_group
+
         with open("./config.yaml", mode="r") as file:
-            self.__config: Dict[str, Any] = yaml.safe_load(file)["vae-context"]
+            self.__config: Dict[str, Any] = yaml.safe_load(file)[f"vae-{context_group}"]
         
         self._load()
 
@@ -264,57 +298,9 @@ class VAEContextConfig(BaseConfig):
         }
     
 
-class VAETargetConfig(BaseConfig):
-
-    def __init__(self):
-        with open("./config.yaml", mode="r") as file:
-            self.__config: Dict[str, Any] = yaml.safe_load(file)["vae-target"]
-        
-        self._load()
-
-    def _load(self) -> None:
-        self.device: str = self.__config["device"]
-        self.latent_dim: int = self.__config["latent_dim"]
-        self.hidden_dim: int = self.__config["hidden_dim"]
-        self.n_scaling_blocks: int = self.__config["n_scaling_blocks"]
-        self.n_convstack_layers: int = self.__config["n_convstack_layers"]
-        self.n_convhead_layers: int = self.__config["n_convhead_layers"]
-        
-        self.lambda_: float = self.__config["lambda"]
-        self.learning_rate: float = float(self.__config["learning_rate"])
-        self.train_batch_size: int = self.__config["train_batch_size"]
-        self.val_batch_size: int = self.__config["val_batch_size"]
-        self.n_epochs: int = self.__config["n_epochs"]
-        self.patience: float = self.__config["patience"]
-        self.tolerance: float = float(self.__config["tolerance"])
-        self.save_frequency: int = self.__config["save_frequency"]
-        self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
-        self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "device": self.device,
-            "latent_dim": self.latent_dim,
-            "hidden_dim": self.hidden_dim,
-            "n_scaling_blocks": self.n_scaling_blocks,
-            "n_convstack_layers": self.n_convstack_layers,
-            "n_convhead_layers": self.n_convhead_layers,
-            "lambda_": self.lambda_,
-            "learning_rate": self.learning_rate,
-            "train_batch_size": self.train_batch_size,
-            "val_batch_size": self.val_batch_size,
-            "n_epochs": self.n_epochs,
-            "patience": self.patience,
-            "tolerance": self.tolerance,
-            "save_frequency": self.save_frequency,
-            "from_checkpoint": self.from_checkpoint,
-            "saved_checkpoint_directory": self.saved_checkpoint_directory,
-        }
-
-
 class DDPMConfig(BaseConfig):
 
-    def __init__(self):
+    def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
             self.__config: Dict[str, Any] = yaml.safe_load(file)["ddpm"]
         
@@ -348,8 +334,10 @@ class DDPMConfig(BaseConfig):
         self.tolerance: float = float(self.__config["tolerance"])
         self.save_frequency: int = self.__config["save_frequency"]
 
-        self.target_vae_checkpoint: pathlib.Path = pathlib.Path(self.__config["target_vae_checkpoint"])
-        self.context_vae_checkpoint: pathlib.Path = pathlib.Path(self.__config["context_vae_checkpoint"])
+        self.wind_vae_checkpoint: pathlib.Path = pathlib.Path(self.__config["wind_vae_checkpoint"])
+        self.geopotential_vae_checkpoint: pathlib.Path = pathlib.Path(self.__config["geopotential_vae_checkpoint"])
+        self.thermaldynamic_vae_checkpoint: pathlib.Path = pathlib.Path(self.__config["thermaldynamic_vae_checkpoint"])
+        self.precipitation_vae_checkpoint: pathlib.Path = pathlib.Path(self.__config["precipitation_vae_checkpoint"])
         self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
         self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
 
@@ -380,8 +368,10 @@ class DDPMConfig(BaseConfig):
             "patience": self.patience,
             "tolerance": self.tolerance,
             "save_frequency": self.save_frequency,
-            "target_vae_checkpoint": self.target_vae_checkpoint,
-            "context_vae_checkpoint": self.context_vae_checkpoint,
+            "wind_vae_checkpoint": self.wind_vae_checkpoint,
+            "geopotential_vae_checkpoint": self.geopotential_vae_checkpoint,
+            "thermaldynamic_vae_checkpoint": self.thermaldynamic_vae_checkpoint,
+            "precipitation_vae_checkpoint": self.precipitation_vae_checkpoint,
             "from_checkpoint": self.from_checkpoint,
             "saved_checkpoint_directory": self.saved_checkpoint_directory,
         }

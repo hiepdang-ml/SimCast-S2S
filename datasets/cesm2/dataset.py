@@ -1,7 +1,7 @@
 import json
 import pathlib
-from functools import cached_property
 from typing import *
+from functools import cached_property
 
 import torch
 from torch.utils.data import Dataset
@@ -11,57 +11,101 @@ from common.configs import MetaData
 
 class CESM2(Dataset):
 
+    __index_by_var: Dict[str, int] = {}
+
     def __init__(self, metadata: MetaData):
         super().__init__()
         assert metadata.dataset_name == "cesm2"
         self.metadata: MetaData = metadata
         meta_dict: Dict[str, Any] = self.metadata.to_dict()
         # validate consistent write/read metadata
-        for sim_id in metadata.sim_ids:
-            with open(self.metadata.write_directory.joinpath(f"metadata/{sim_id}.json"), mode="r") as file:
-                loaded_dict: Dict[str, Any] = json.load(fp=file)
-                loaded_dict.pop("sim_ids")
-                for k in loaded_dict.keys():
-                    if meta_dict[k] != loaded_dict[k]:
-                        raise RuntimeError(
-                            f"Inconsistent value for '{k}': "
-                            f"loaded .pt file has {k} = {loaded_dict[k]!r}, but metadata has {k} = {meta_dict[k]!r}."
-                        )
+        with open(self.metadata.write_directory.joinpath(f"metadata/metadata.json"), mode="r") as file:
+            loaded_dict: Dict[str, Any] = json.load(fp=file)
+            loaded_dict["resolution"] = tuple(loaded_dict["resolution"])
+            loaded_dict.pop("input_vars")
+            for k in loaded_dict.keys():
+                if meta_dict[k] != loaded_dict[k]:
+                    raise RuntimeError(
+                        f"Inconsistent value for '{k}': "
+                        f"loaded .pt file has {k} = {loaded_dict[k]!r}, but metadata has {k} = {meta_dict[k]!r}."
+                    )
+
+        # Pick any input var_name to count n samples
+        self.n_samples: int = len(list(self.metadata.write_directory.glob(f"input/{self.metadata.var_names[0]}/*.pt")))
+        # Preload filepaths for efficiency
+        self.__input_filepaths: Dict[str, List[pathlib.Path]] = {
+            var_name: sorted(self.metadata.write_directory.glob(f"input/{var_name}/*.pt"), key=lambda x: x.name[:6])
+            for var_name in self.metadata.input_vars
+        }
+        self.__output_filepaths: Dict[str, List[pathlib.Path]] = {
+            var_name: sorted(self.metadata.write_directory.glob(f"output/{var_name}/*.pt"), key=lambda x: x.name[:6])
+            for var_name in self.metadata.output_vars
+        }
 
     @cached_property
-    def filepaths(self) -> List[pathlib.Path]:
-        return sorted(self.metadata.write_directory.glob("*.pt"))
+    def indices_by_context_group(self) -> Dict[str, List[int]]:
+        # Precompute variable indices by context_group
+        result: Dict[str, List[int]] = {}   # context_group: [indices]
+        for context_group, var_names in MetaData.VAR_LOOKUP_TABLE[type(self).__name__.lower()].items():
+            result[context_group] = [i for i, name in enumerate(self.metadata.input_vars) if name in var_names]
+        return result
     
     @staticmethod
-    def _get_sample_info(filename: str) -> SampleInfo:
-        parts: List[str] = filename.removesuffix(".pt").split("__")
-        year: str = parts[0][-4:]
-        in_parts: List[str] = parts[1].split("_")
-        out_parts: List[str] = parts[2].split("_")
+    def _get_sample_info(input_filename: str, output_filename) -> SampleInfo:
+        input_parts: List[str] = input_filename.removesuffix(".pt").split("__")
+        output_parts: List[str] = output_filename.removesuffix(".pt").split("__")
+        assert input_parts[0][:6] == output_parts[0][:6]  # sample_id
+        assert input_parts[0].split(".")[1] == output_parts[0].split(".")[1] # tp ("train", "val", "test")
+        assert input_parts[0].split(".")[-1] == "input" and output_parts[0].split(".")[-1] == "output"
+
+        year: str = input_parts[1][-4:]
+        input_days: List[str] = input_parts[2].split("_")
+        output_days: List[str] = output_parts[2].split("_")
         return SampleInfo(
-            sim_id=filename[:8],
-            in_startdate=f"{year}/{in_parts[0][:2]}/{in_parts[0][-2:]}",
-            in_enddate=f"{year}/{in_parts[-1][:2]}/{in_parts[-1][-2:]}",
-            out_startdate=f"{year}/{out_parts[0][:2]}/{out_parts[0][-2:]}",
-            out_enddate=f"{year}/{out_parts[-1][:2]}/{out_parts[-1][-2:]}",
+            sim_id=input_parts[1][:8],
+            in_startdate=f"{year}/{input_days[0][:2]}/{input_days[0][-2:]}",
+            in_enddate=f"{year}/{input_days[-1][:2]}/{input_days[-1][-2:]}",
+            out_startdate=f"{year}/{output_days[0][:2]}/{output_days[0][-2:]}",
+            out_enddate=f"{year}/{output_days[-1][:2]}/{output_days[-1][-2:]}",
         )
 
     def __getitem__(self, idx: int) -> Tuple[SampleInfo, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        filepath: pathlib.Path = self.filepaths[idx]
-        filename: str = filepath.name
-        sampleinfo: SampleInfo = CESM2._get_sample_info(filename=filename)
-        input_indices, output_indices, input_tensor, output_tensor = torch.load(
-            filepath, weights_only=True, map_location=self.metadata.device
+        input_var_tensors: List[torch.Tensor] = []
+        for var_name in self.metadata.input_vars:
+            # Note: input_yearday_indices remains the same regardless of var_name
+            input_path: pathlib.Path = self.__input_filepaths[var_name][idx]
+            input_yearday_indices, input_var_tensor = torch.load(
+                f=input_path, weights_only=True, map_location=self.metadata.device
+            )
+            assert input_yearday_indices.shape == (self.metadata.n_input_days,)
+            assert input_var_tensor.shape == (self.metadata.n_input_days, 192, 288)
+            input_var_tensors.append(input_var_tensor)
+        
+        output_var_tensors: List[torch.Tensor] = []
+        for var_name in self.metadata.output_vars:
+            # Note: output_yearday_indices remains the same regardless of var_name
+            output_path: pathlib.Path = self.__output_filepaths[var_name][idx]
+            output_yearday_indices, output_var_tensor = torch.load(
+                f=output_path, weights_only=True, map_location=self.metadata.device
+            )
+            assert output_yearday_indices.shape == (self.metadata.n_output_days,)
+            assert output_var_tensor.shape == (1, 192, 288)
+            output_var_tensors.append(output_var_tensor)
+    
+        sampleinfo: SampleInfo = CESM2._get_sample_info(
+            input_filename=input_path.name, output_filename=output_path.name
         )
+        input_tensor: torch.Tensor = torch.stack(tensors=input_var_tensors, dim=-1)
+        output_tensor: torch.Tensor = torch.stack(tensors=output_var_tensors, dim=-1)
         # validate before return
-        assert input_indices.shape == (self.metadata.n_input_days,)
-        assert output_indices.shape == (self.metadata.n_output_days,)
+        assert input_yearday_indices.shape == (self.metadata.n_input_days,)
+        assert output_yearday_indices.shape == (self.metadata.n_output_days,)
         assert input_tensor.shape == (self.metadata.n_input_days, 192, 288, len(self.metadata.input_vars))
         assert output_tensor.shape == (1, 192, 288, len(self.metadata.output_vars))
-        return sampleinfo, input_indices, output_indices, input_tensor, output_tensor
+        return sampleinfo, input_yearday_indices, output_yearday_indices, input_tensor, output_tensor
 
     def __len__(self) -> int:
-        return len(self.filepaths)
+        return self.n_samples
 
     @staticmethod
     def collate_fn(
@@ -78,9 +122,8 @@ class CESM2(Dataset):
         )
 
 
-
 if __name__ == "__main__":
-    metadata = MetaData(tp="test")
+    metadata = MetaData(dataset_name="cesm2", tp="test")
     dataset = CESM2(metadata)
 
     from torch.utils.data import DataLoader

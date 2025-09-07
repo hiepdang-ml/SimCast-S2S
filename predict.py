@@ -5,17 +5,21 @@ from torch.nn import DataParallel
 from datasets.cesm2 import CESM2
 from common.utils import CheckpointLoader
 from workers import BaselinePredictor, VAEPredictor, DDPMPredictor
-from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEContextConfig, VAETargetConfig, DDPMConfig
+from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DDPMConfig
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAEEncoder, VAEDecoder, UNetDenoiser, 
+    VAE, VAE_Wind, VAE_Geopotential, VAE_ThermalDynamic, VAE_Precipitation, 
+    VAEEncoder, VAEDecoder, UNetDenoiser, 
     LinearNoiseScheduler, CosineNoiseScheduler, 
     DDPMForwardProcess, DDPMReverseProcess,
 )
 
 
 def main(
-    model: Literal["cnn", "unet", "vit", "vae-context", "vae-target"],
+    model: Literal[
+        "cnn", "unet", "vit", 
+        "vae-wind", "vae-geopotential", "vae-thermaldynamic", "vae-precipitation", "ddpm"
+    ],
     dataset: Literal["cesm2", "era5"]
 ) -> None:
 
@@ -33,56 +37,116 @@ def main(
     # Model
     if model.lower() == "cnn":
         model_config: CNNConfig = CNNConfig()
-        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint)
+        assert model_config.from_checkpoint is not None
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
         net: CNN = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
         assert isinstance(net, CNN)
         assert net.n_input_days == test_metadata.n_input_days
+        predictor = BaselinePredictor(net=net)
+        predictor.predict(dataset=test_dataset)
 
     elif model.lower() == "unet":
         model_config: UnetConfig = UnetConfig()
-        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint)
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
         net: UNet = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
         assert isinstance(net, UNet)
         assert net.n_input_days == test_metadata.n_input_days
+        predictor = BaselinePredictor(net=net)
+        predictor.predict(dataset=test_dataset)
 
     elif model.lower() == "vit":
-        model_config: UnetConfig = ViTConfig()
-        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint)
+        model_config: ViTConfig = ViTConfig()
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
         net: ViT = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
         assert isinstance(net, ViT)
         assert net.n_input_days == test_metadata.n_input_days
+        predictor = BaselinePredictor(net=net)
+        predictor.predict(dataset=test_dataset)
 
-    elif model.lower() == "vae-context":
-        model_config: UnetConfig = VAEContextConfig()
-        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint)
-        net: VAE = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
-        assert isinstance(net, VAE)
+    elif model.lower() == "vae-wind":
+        test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
+        test_metadata = test_metadata.with_var_subset(context_group="wind")
+        if dataset == "cesm2":
+            test_dataset: CESM2 = CESM2(metadata=test_metadata)
+
+        model_config: VAEConfig = VAEConfig(context_group="wind")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        net: VAE_Wind = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
+        assert isinstance(net, VAE_Wind)
         assert net.pixel_dim == test_metadata.n_input_days * len(test_metadata.input_vars)
+        predictor = VAEPredictor(net=net)
+        predictor.predict(dataset=test_dataset)
 
-    elif model.lower() == "vae-target":
-        model_config: UnetConfig = VAETargetConfig()
-        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint)
-        net: VAE = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
-        assert isinstance(net, VAE)
-        assert net.pixel_dim == 1 * len(test_metadata.output_vars)
+    elif model.lower() == "vae-geopotential":
+        test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
+        test_metadata = test_metadata.with_var_subset(context_group="geopotential")
+        if dataset == "cesm2":
+            test_dataset: CESM2 = CESM2(metadata=test_metadata)
+    
+        model_config: VAEConfig = VAEConfig(context_group="geopotential")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        net: VAE_Geopotential = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
+        assert isinstance(net, VAE_Geopotential)
+        assert net.pixel_dim == test_metadata.n_input_days * len(test_metadata.input_vars)
+        predictor = VAEPredictor(net=net)
+        predictor.predict(dataset=test_dataset)
+
+    elif model.lower() == "vae-thermaldynamic":
+        test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
+        test_metadata = test_metadata.with_var_subset(context_group="thermaldynamic")
+        if dataset == "cesm2":
+            test_dataset: CESM2 = CESM2(metadata=test_metadata)
+
+        model_config: VAEConfig = VAEConfig(context_group="thermaldynamic")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        net: VAE_ThermalDynamic = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
+        assert isinstance(net, VAE_ThermalDynamic)
+        assert net.pixel_dim == test_metadata.n_input_days * len(test_metadata.input_vars)
+        predictor = VAEPredictor(net=net)
+        predictor.predict(dataset=test_dataset)
+
+    elif model.lower() == "vae-precipitation":
+        test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
+        test_metadata = test_metadata.with_var_subset(context_group="precipitation")
+        if dataset == "cesm2":
+            test_dataset: CESM2 = CESM2(metadata=test_metadata)
+
+        model_config: VAEConfig = VAEConfig(context_group="precipitation")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        net: VAE_Precipitation = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
+        assert isinstance(net, VAE_Precipitation)
+        assert net.pixel_dim == test_metadata.n_input_days * len(test_metadata.input_vars)
+        predictor = VAEPredictor(net=net)
+        predictor.predict(dataset=test_dataset)
 
     elif model.lower() == "ddpm":
         model_config: DDPMConfig = DDPMConfig()
         # Denoiser
-        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint)
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
         net: UNetDenoiser = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
         assert isinstance(net, UNetDenoiser)
-        # Target encoder/decoder
-        print(f"Loading target_encoder and target_decoder from {model_config.target_vae_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.target_vae_checkpoint)
-        target_vae: VAE = checkpoint_loader.load(scope=globals())
-        target_encoder: VAEEncoder = target_vae.encoder.to(device=model_config.device)
-        target_decoder: VAEDecoder = target_vae.decoder.to(device=model_config.device)
-        # Context encoder
-        print(f"Loading context_encoder from {model_config.context_vae_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.context_vae_checkpoint)
-        context_vae: VAE = checkpoint_loader.load(scope=globals())
-        context_encoder: VAEEncoder = context_vae.encoder.to(device=model_config.device)
+        # Wind encoder
+        print(f"Loading wind_encoder from {model_config.wind_vae_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.wind_vae_checkpoint))
+        wind_vae: VAE = checkpoint_loader.load(scope=globals())
+        wind_encoder: VAEEncoder = wind_vae.encoder.to(device=model_config.device)
+        # Geopotential encoder
+        print(f"Loading geopotential_encoder from {model_config.geopotential_vae_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.geopotential_vae_checkpoint))
+        geopotential_vae: VAE = checkpoint_loader.load(scope=globals())
+        geopotential_encoder: VAEEncoder = geopotential_vae.encoder.to(device=model_config.device)
+        # Thermaldynamic encoder
+        print(f"Loading thermaldynamic_encoder from {model_config.thermaldynamic_vae_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.thermaldynamic_vae_checkpoint))
+        thermaldynamic_vae: VAE = checkpoint_loader.load(scope=globals())
+        thermaldynamic_encoder: VAEEncoder = thermaldynamic_vae.encoder.to(device=model_config.device)
+        # Precipitation encoder/decoder
+        print(f"Loading precipitation_encoder from {model_config.precipitation_vae_checkpoint}")
+        print(f"Loading precipitation_decoder from {model_config.precipitation_vae_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.precipitation_vae_checkpoint))
+        precipitation_vae: VAE = checkpoint_loader.load(scope=globals())
+        precipitation_encoder: VAEEncoder = precipitation_vae.encoder.to(device=model_config.device)
+        precipitation_decoder: VAEEncoder = precipitation_vae.decoder.to(device=model_config.device)
         # Noise scheduler
         if model_config.noise_scheduler_scheme.lower() == "linear":
             noise_scheduler = LinearNoiseScheduler(
@@ -95,27 +159,13 @@ def main(
             noise_scheduler = CosineNoiseScheduler(n_steps=model_config.n_steps, device=model_config.device)
         else:
             raise ValueError(f"Invalid noiser_scheduler_scheme in config {model_config.noise_scheduler_scheme}")
-
-    else:
-        raise NotImplementedError(f"Unknown model: {model}")
-
-    if model.lower() in ["cnn", "unet", "vit"]:
-        predictor = BaselinePredictor(net=net)
-        predictor.predict(dataset=test_dataset)
-
-    elif model.lower() == "vae-context":
-        predictor = VAEPredictor(net=net, tp="context")
-        predictor.predict(dataset=test_dataset)
-
-    elif model.lower() == "vae-target":
-        predictor = VAEPredictor(net=net, tp="target")
-        predictor.predict(dataset=test_dataset)
-
-    elif model.lower() == "ddpm":
+        
         predictor = DDPMPredictor(
             denoiser=net, 
-            target_encoder=target_encoder, target_decoder=target_decoder, 
-            context_encoder=context_encoder, noise_scheduler=noise_scheduler,
+            wind_encoder=wind_encoder, 
+            geopotential_encoder=geopotential_encoder, thermaldynamic_encoder=thermaldynamic_encoder, 
+            precipitation_encoder=precipitation_encoder, precipitation_decoder=precipitation_decoder,
+            noise_scheduler=noise_scheduler,
         )
         predictor.predict(dataset=test_dataset)
 
@@ -126,11 +176,16 @@ def main(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--model", type=str, choices=["cnn", "unet", "vit", "vae-context", "vae-target", "ddpm"],
+        "--model", 
+        type=str, choices=[
+            "cnn", "unet", "vit", 
+            "vae-wind", "vae-geopotential", "vae-thermaldynamic", "vae-precipitation", "ddpm"
+        ],
         required=True,
     )
     parser.add_argument(
-        "--dataset", type=str, choices=["cesm2", "era5"],
+        "--dataset", 
+        type=str, choices=["cesm2", "era5"],
         required=True,
     )
     args: argparse.Namespace = parser.parse_args()
