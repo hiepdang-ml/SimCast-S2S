@@ -1,5 +1,3 @@
-from typing import *
-
 import pathlib
 import matplotlib.pyplot as plt
 import torch
@@ -8,13 +6,13 @@ import torch
 class _BasePlotter:
 
     def __init__(self) -> None:
-        self.destination_directory: pathlib.Path = pathlib.Path('./results/prediction')
+        self.destination_directory: pathlib.Path = pathlib.Path('./results')
         self.destination_directory.mkdir(parents=True, exist_ok=True)
 
     def plot_layer(
         self, 
         ax, data: torch.Tensor, 
-        coords: Tuple[torch.Tensor, torch.Tensor], 
+        coords: tuple[torch.Tensor, torch.Tensor], 
         title: str,
         cmap: str,
         vmin: float, vmax: float, 
@@ -30,7 +28,7 @@ class _BasePlotter:
         cbar.ax.tick_params(labelsize=10)
         self._clean_axes(ax)
 
-    def add_landmask(self, axs, landmask: torch.Tensor, coords: Tuple[torch.Tensor, torch.Tensor]) -> None:
+    def add_landmask(self, axs, landmask: torch.Tensor, coords: tuple[torch.Tensor, torch.Tensor]) -> None:
         for ax in axs:
             ax.contour(
                 coords[1], coords[0], landmask,
@@ -51,7 +49,7 @@ class PredictionPlotter(_BasePlotter):
         prediction_frame: torch.Tensor,
         error_frame: torch.Tensor,
         landmask: torch.Tensor,
-        coordinates: Tuple[torch.Tensor, torch.Tensor],
+        coordinates: tuple[torch.Tensor, torch.Tensor],
         title: str,
         filename: str,
     ) -> None:
@@ -93,7 +91,7 @@ class MetricPlotter(_BasePlotter):
         mae_frame: torch.Tensor,
         rsquared_frame: torch.Tensor,
         landmask: torch.Tensor,
-        coordinates: Tuple[torch.Tensor, torch.Tensor],
+        coordinates: tuple[torch.Tensor, torch.Tensor],
         title: str,
         filename: str,
     ) -> None:

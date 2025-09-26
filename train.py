@@ -1,6 +1,8 @@
+import os
 import argparse
-from typing import *
-from torch.nn import DataParallel
+from typing import Literal
+import torch
+import torch.distributed as dist
 
 from datasets import CESM2
 from common.utils import CheckpointLoader
@@ -163,11 +165,11 @@ def main(
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: VAE_Wind = checkpoint_loader.load(scope=globals()).to(device=vae_config.device)
             assert isinstance(net, VAE_Wind)
-            assert net.pixel_dim == train_metadata.n_input_days * len(train_metadata.input_vars)
+            assert net.pixel_dim == len(train_metadata.input_vars)
         else:
             print("Training from scratch")
             net: VAE_Wind = VAE_Wind(
-                n_days=train_metadata.n_input_days,
+                n_days=1,
                 n_features=len(train_metadata.input_vars),
                 latent_dim=vae_config.latent_dim,
                 hidden_dim=vae_config.hidden_dim,
@@ -199,7 +201,7 @@ def main(
         val_metadata: MetaData = MetaData(dataset_name=dataset, tp="val")
         if dataset == "cesm2":
             print(f"Training {model} on {dataset}")
-            input_subset: List[str] = ["Z200", "Z850", "Z500"]
+            input_subset: list[str] = ["Z200", "Z850", "Z500"]
             train_metadata = train_metadata.with_var_subset(context_group=vae_config.context_group)
             val_metadata = val_metadata.with_var_subset(context_group=vae_config.context_group)
             train_dataset: CESM2 = CESM2(metadata=train_metadata)
@@ -216,11 +218,11 @@ def main(
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: VAE_Geopotential = checkpoint_loader.load(scope=globals()).to(device=vae_config.device)
             assert isinstance(net, VAE_Geopotential)
-            assert net.pixel_dim == train_metadata.n_input_days * len(train_metadata.input_vars)
+            assert net.pixel_dim == len(train_metadata.input_vars)
         else:
             print("Training from scratch")
             net: VAE_Geopotential = VAE_Geopotential(
-                n_days=train_metadata.n_input_days,
+                n_days=1,
                 n_features=len(train_metadata.input_vars),
                 latent_dim=vae_config.latent_dim,
                 hidden_dim=vae_config.hidden_dim,
@@ -268,11 +270,11 @@ def main(
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: VAE_ThermalDynamic = checkpoint_loader.load(scope=globals()).to(device=vae_config.device)
             assert isinstance(net, VAE_ThermalDynamic)
-            assert net.pixel_dim == train_metadata.n_input_days * len(train_metadata.input_vars)
+            assert net.pixel_dim == len(train_metadata.input_vars)
         else:
             print("Training from scratch")
             net: VAE_ThermalDynamic = VAE_ThermalDynamic(
-                n_days=train_metadata.n_input_days,
+                n_days=1,
                 n_features=len(train_metadata.input_vars),
                 latent_dim=vae_config.latent_dim,
                 hidden_dim=vae_config.hidden_dim,
@@ -320,11 +322,11 @@ def main(
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: VAE_Precipitation = checkpoint_loader.load(scope=globals()).to(device=vae_config.device)
             assert isinstance(net, VAE_Precipitation)
-            assert net.pixel_dim == train_metadata.n_input_days * len(train_metadata.input_vars)
+            assert net.pixel_dim == len(train_metadata.input_vars)
         else:
             print("Training from scratch")
             net: VAE_Precipitation = VAE_Precipitation(
-                n_days=train_metadata.n_input_days,
+                n_days=1,
                 n_features=len(train_metadata.input_vars),
                 latent_dim=vae_config.latent_dim,
                 hidden_dim=vae_config.hidden_dim,
@@ -362,9 +364,15 @@ def main(
         else:
             print("Training UNetDenoiser from scratch")
             net: UNetDenoiser = UNetDenoiser(
-                target_in_dim=ddpm_config.target_in_dim,
-                condition_in_dim=ddpm_config.condition_in_dim,
-                step_in_dim=ddpm_config.step_in_dim,
+                target_dim=ddpm_config.target_dim,
+                wind_dim=ddpm_config.wind_dim,
+                geopotential_dim=ddpm_config.geopotential_dim,
+                thermaldynamic_dim=ddpm_config.thermaldynamic_dim,
+                precipitation_dim=ddpm_config.precipitation_dim,
+                step_dim=ddpm_config.step_dim,
+                condition_latent_embedding_dim=ddpm_config.condition_latent_embedding_dim,
+                n_latent_embedding_layers=ddpm_config.n_latent_embedding_layers,
+                n_condition_days=ddpm_config.n_condition_days,
                 down_out_dims=ddpm_config.down_out_dims,
                 down_hidden_dims=ddpm_config.down_hidden_dims,
                 mid_out_dims=ddpm_config.mid_out_dims,
@@ -375,6 +383,8 @@ def main(
                 n_layers_per_mid_block=ddpm_config.n_layers_per_mid_block,
                 n_attention_heads=ddpm_config.n_attention_heads,
                 condition_dropout=ddpm_config.condition_dropout,
+                # projection_head_hidden_dim=ddpm_config.projection_head_hidden_dim,
+                # n_head_layers=ddpm_config.n_head_layers,
             ).to(device=ddpm_config.device)
         
         # Wind encoder
@@ -433,9 +443,22 @@ def main(
 
 if __name__ == "__main__":
     import torch.multiprocessing as mp
-    mp.set_start_method('spawn', force=True)
+    mp.set_start_method("spawn", force=True)
 
-    parser = argparse.ArgumentParser()
+    def setup_ddp() -> int:
+        assert "RANK" in os.environ
+        assert "WORLD_SIZE" in os.environ
+        local_rank: int = int(os.environ["LOCAL_RANK"])
+        torch.cuda.set_device(device=local_rank)
+        dist.init_process_group(backend="nccl")
+        return local_rank
+
+    def cleanup_ddp() -> None:
+        if dist.is_initialized():
+            dist.barrier()
+            dist.destroy_process_group()
+
+    parser: argparse.ArgumentParser = argparse.ArgumentParser()
     parser.add_argument(
         "--model", type=str, choices=[
             "cnn", "unet", "vit", 
@@ -448,5 +471,10 @@ if __name__ == "__main__":
         required=True,
     )
     args: argparse.Namespace = parser.parse_args()
-    main(model=args.model, dataset=args.dataset)
+
+    local_rank: int = setup_ddp()
+    try:
+        main(model=args.model, dataset=args.dataset)
+    finally:
+        cleanup_ddp()
 

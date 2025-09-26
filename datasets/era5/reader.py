@@ -1,4 +1,4 @@
-from typing import *
+from typing import Literal, Any
 import yaml
 import pathlib
 from collections import defaultdict
@@ -23,13 +23,13 @@ class ZipExtractor:
 
     def _extract(self, year: int, tp: Literal["pressure_levels", "single_level"]) -> xr.Dataset:
         if tp == "pressure_levels":
-            filepaths: List[pathlib.Path] = sorted(self.pressurelevels_zip_root.glob(f"{year}*.zip"), key=lambda x: x.name)
-            required_dims: List[str] = ["valid_time", "pressure_level", "latitude", "longitude"]
+            filepaths: list[pathlib.Path] = sorted(self.pressurelevels_zip_root.glob(f"{year}*.zip"), key=lambda x: x.name)
+            required_dims: list[str] = ["valid_time", "pressure_level", "latitude", "longitude"]
         else:
-            filepaths: List[pathlib.Path] = sorted(self.singlelevel_zip_root.glob(f"{year}*.zip"), key=lambda x: x.name)
-            required_dims: List[str] = ["valid_time", "latitude", "longitude"]
+            filepaths: list[pathlib.Path] = sorted(self.singlelevel_zip_root.glob(f"{year}*.zip"), key=lambda x: x.name)
+            required_dims: list[str] = ["valid_time", "latitude", "longitude"]
 
-        records: Dict[str, List[xr.DataArray]] = defaultdict(list)
+        records: dict[str, list[xr.DataArray]] = defaultdict(list)
         for filepath in filepaths:
             print(f"Extracting: {filepath}")
             with ZipFile(filepath, mode="r") as zipfile:
@@ -39,7 +39,7 @@ class ZipExtractor:
                         da: xr.DataArray = xr.load_dataarray(file)
                         records[da.name].append(da)
 
-        records: Dict[str, xr.DataArray] = {
+        records: dict[str, xr.DataArray] = {
             var_name: xr.concat(records[var_name], dim="valid_time")
             for var_name in records.keys()
         }
@@ -49,7 +49,7 @@ class ZipExtractor:
 
     def from_pressure_levels(self, year: int) -> xr.Dataset:
         ds: xr.Dataset = self._extract(year=year, tp="pressure_levels")
-        flattened_vars: Dict[str, xr.DataArray] = {}
+        flattened_vars: dict[str, xr.DataArray] = {}
         for var_name in ds.data_vars.keys():
             da: xr.DataArray = ds[var_name]
             for level in da.pressure_level.values:
@@ -83,12 +83,12 @@ class ZipExtractor:
 
 class DataReader:
 
-    def __init__(self, resolution: Tuple[int, int] | None, device: str) -> None:
-        self.resolution: Tuple[int, int] = resolution
+    def __init__(self, resolution: tuple[int, int] | None, device: str) -> None:
+        self.resolution: tuple[int, int] = resolution
         self.H, self.W = self.resolution
         self.device: torch.device = torch.device(device)
         with open("./config.yaml", mode="r") as file:
-            data_config: Dict[str, Any] = yaml.safe_load(file)["era5"]
+            data_config: dict[str, Any] = yaml.safe_load(file)["era5"]
             self.array_directory: pathlib.Path = pathlib.Path(data_config["array_root"])
             self.zip_directory: pathlib.Path = pathlib.Path(data_config["zip_root"])
 
@@ -142,8 +142,8 @@ class DataReader:
 
 class LandmaskReader:
 
-    def __init__(self, resolution: Tuple[int, int], device: str) -> None:
-        self.resolution: Tuple[int, int]= resolution
+    def __init__(self, resolution: tuple[int, int], device: str) -> None:
+        self.resolution: tuple[int, int]= resolution
         self.H, self.W = self.resolution
         self.device: torch.device = torch.device(device)
         with open("./config.yaml", mode="r") as file:
@@ -175,13 +175,13 @@ class LandmaskReader:
 
 class CoordinatesReader:
 
-    def __init__(self, resolution: Tuple[int, int], device: str) -> None:
-        self.resolution: Tuple[int, int] = resolution
+    def __init__(self, resolution: tuple[int, int], device: str) -> None:
+        self.resolution: tuple[int, int] = resolution
         self.H, self.W = self.resolution
         self.device: torch.device = torch.device(device)
 
     @cached_property
-    def tensors(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def tensors(self) -> tuple[torch.Tensor, torch.Tensor]:
         lat_tensor: torch.Tensor = torch.arange(start=-90., end=90.01, step=180 / (self.H - 1))
         lon_tensor: torch.Tensor = torch.arange(start=0., end=360., step=360 / self.W)
         assert lat_tensor.shape == (self.H,)

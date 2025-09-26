@@ -1,8 +1,7 @@
 import argparse
-from typing import *
 import cdsapi
 
-def main(year: int, months: List[int]) -> None:
+def main(year: int, months: list[int]) -> None:
     dataset = "derived-era5-pressure-levels-daily-statistics"
     request = {
         "product_type": "reanalysis",

@@ -1,6 +1,6 @@
 import json
 import pathlib
-from typing import *
+from typing import Any
 from functools import cached_property
 
 import torch
@@ -11,16 +11,14 @@ from common.configs import MetaData
 
 class CESM2(Dataset):
 
-    __index_by_var: Dict[str, int] = {}
-
     def __init__(self, metadata: MetaData):
         super().__init__()
         assert metadata.dataset_name == "cesm2"
         self.metadata: MetaData = metadata
-        meta_dict: Dict[str, Any] = self.metadata.to_dict()
+        meta_dict: dict[str, Any] = self.metadata.to_dict()
         # validate consistent write/read metadata
         with open(self.metadata.write_directory.joinpath(f"metadata/metadata.json"), mode="r") as file:
-            loaded_dict: Dict[str, Any] = json.load(fp=file)
+            loaded_dict: dict[str, Any] = json.load(fp=file)
             loaded_dict["resolution"] = tuple(loaded_dict["resolution"])
             loaded_dict.pop("input_vars")
             for k in loaded_dict.keys():
@@ -33,34 +31,34 @@ class CESM2(Dataset):
         # Pick any input var_name to count n samples
         self.n_samples: int = len(list(self.metadata.write_directory.glob(f"input/{self.metadata.var_names[0]}/*.pt")))
         # Preload filepaths for efficiency
-        self.__input_filepaths: Dict[str, List[pathlib.Path]] = {
+        self.__input_filepaths: dict[str, list[pathlib.Path]] = {
             var_name: sorted(self.metadata.write_directory.glob(f"input/{var_name}/*.pt"), key=lambda x: x.name[:6])
             for var_name in self.metadata.input_vars
         }
-        self.__output_filepaths: Dict[str, List[pathlib.Path]] = {
+        self.__output_filepaths: dict[str, list[pathlib.Path]] = {
             var_name: sorted(self.metadata.write_directory.glob(f"output/{var_name}/*.pt"), key=lambda x: x.name[:6])
             for var_name in self.metadata.output_vars
         }
 
     @cached_property
-    def indices_by_context_group(self) -> Dict[str, List[int]]:
+    def indices_by_context_group(self) -> dict[str, list[int]]:
         # Precompute variable indices by context_group
-        result: Dict[str, List[int]] = {}   # context_group: [indices]
+        result: dict[str, list[int]] = {}   # context_group: [indices]
         for context_group, var_names in MetaData.VAR_LOOKUP_TABLE[type(self).__name__.lower()].items():
             result[context_group] = [i for i, name in enumerate(self.metadata.input_vars) if name in var_names]
         return result
     
     @staticmethod
     def _get_sample_info(input_filename: str, output_filename) -> SampleInfo:
-        input_parts: List[str] = input_filename.removesuffix(".pt").split("__")
-        output_parts: List[str] = output_filename.removesuffix(".pt").split("__")
+        input_parts: list[str] = input_filename.removesuffix(".pt").split("__")
+        output_parts: list[str] = output_filename.removesuffix(".pt").split("__")
         assert input_parts[0][:6] == output_parts[0][:6]  # sample_id
         assert input_parts[0].split(".")[1] == output_parts[0].split(".")[1] # tp ("train", "val", "test")
         assert input_parts[0].split(".")[-1] == "input" and output_parts[0].split(".")[-1] == "output"
 
         year: str = input_parts[1][-4:]
-        input_days: List[str] = input_parts[2].split("_")
-        output_days: List[str] = output_parts[2].split("_")
+        input_days: list[str] = input_parts[2].split("_")
+        output_days: list[str] = output_parts[2].split("_")
         return SampleInfo(
             sim_id=input_parts[1][:8],
             in_startdate=f"{year}/{input_days[0][:2]}/{input_days[0][-2:]}",
@@ -69,24 +67,24 @@ class CESM2(Dataset):
             out_enddate=f"{year}/{output_days[-1][:2]}/{output_days[-1][-2:]}",
         )
 
-    def __getitem__(self, idx: int) -> Tuple[SampleInfo, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        input_var_tensors: List[torch.Tensor] = []
+    def __getitem__(self, idx: int) -> tuple[SampleInfo, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        input_var_tensors: list[torch.Tensor] = []
         for var_name in self.metadata.input_vars:
             # Note: input_yearday_indices remains the same regardless of var_name
             input_path: pathlib.Path = self.__input_filepaths[var_name][idx]
             input_yearday_indices, input_var_tensor = torch.load(
-                f=input_path, weights_only=True, map_location=self.metadata.device
+                f=input_path, weights_only=True, map_location="cpu"
             )
             assert input_yearday_indices.shape == (self.metadata.n_input_days,)
             assert input_var_tensor.shape == (self.metadata.n_input_days, 192, 288)
             input_var_tensors.append(input_var_tensor)
         
-        output_var_tensors: List[torch.Tensor] = []
+        output_var_tensors: list[torch.Tensor] = []
         for var_name in self.metadata.output_vars:
             # Note: output_yearday_indices remains the same regardless of var_name
             output_path: pathlib.Path = self.__output_filepaths[var_name][idx]
             output_yearday_indices, output_var_tensor = torch.load(
-                f=output_path, weights_only=True, map_location=self.metadata.device
+                f=output_path, weights_only=True, map_location="cpu"
             )
             assert output_yearday_indices.shape == (self.metadata.n_output_days,)
             assert output_var_tensor.shape == (1, 192, 288)
@@ -109,7 +107,7 @@ class CESM2(Dataset):
 
     @staticmethod
     def collate_fn(
-        batch: List[Tuple[SampleInfo, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]
+        batch: list[tuple[SampleInfo, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]
     ) -> DataBatch:
         # get iterables of objects of the same kind
         sampleinfos, input_indices, output_indices, input_tensors, output_tensors = zip(*batch)

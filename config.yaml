@@ -155,108 +155,116 @@ vit:
 vae-wind:
 
   device: "cuda"
-  latent_dim: 784
-  hidden_dim: 1024
+  latent_dim: 28
+  hidden_dim: 256
   n_scaling_blocks: 3
-  n_convstack_layers: 6
-  n_convhead_layers: 4
+  n_convstack_layers: 3
+  n_convhead_layers: 2
 
   lambda: 0.999
   learning_rate: 1e-6
-  train_batch_size: 16
-  val_batch_size: 16
+  train_batch_size: 32
+  val_batch_size: 32
   n_epochs: 1000
   patience: 10
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/vae1.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/vae7.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times"
 
 
 vae-geopotential:
 
   device: "cuda"
-  latent_dim: 336
-  hidden_dim: 512
+  latent_dim: 12
+  hidden_dim: 128
   n_scaling_blocks: 3
-  n_convstack_layers: 6
-  n_convhead_layers: 4
+  n_convstack_layers: 3
+  n_convhead_layers: 2
 
   lambda: 0.999
   learning_rate: 1e-6
-  train_batch_size: 16
-  val_batch_size: 8
+  train_batch_size: 64
+  val_batch_size: 64
   n_epochs: 1000
   patience: 10
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_geopotential_16times/vae36.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_geopotential_16times/vae41.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_geopotential_16times"
 
 
 vae-thermaldynamic:
 
   device: "cuda"
-  latent_dim: 336
-  hidden_dim: 512
+  latent_dim: 12
+  hidden_dim: 128
   n_scaling_blocks: 3
-  n_convstack_layers: 6
-  n_convhead_layers: 4
+  n_convstack_layers: 3
+  n_convhead_layers: 2
 
   lambda: 0.999
-  learning_rate: 1e-6
-  train_batch_size: 16
-  val_batch_size: 8
+  learning_rate: 1e-7
+  train_batch_size: 64
+  val_batch_size: 64
   n_epochs: 1000
   patience: 10
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermaldynamic_16times/vae74.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermaldynamic_16times/vae19.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_thermaldynamic_16times"
 
 
 vae-precipitation:
 
   device: "cuda"
-  latent_dim: 112
-  hidden_dim: 512
+  latent_dim: 32
+  hidden_dim: 256
   n_scaling_blocks: 3
-  n_convstack_layers: 6
-  n_convhead_layers: 4
+  n_convstack_layers: 3
+  n_convhead_layers: 2
 
   lambda: 0.999
-  learning_rate: 5e-7
-  train_batch_size: 16
-  val_batch_size: 8
+  learning_rate: 1e-6
+  train_batch_size: 64
+  val_batch_size: 64
   n_epochs: 1000
   patience: 10
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precipitation_16times/vae84.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precipitation_16times/vae16.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_precipitation_16times"
 
 
 ddpm:
 
   device: "cuda"
-  target_in_dim: 112  # fixed, must be vae-precipitation.latent_dim
-  condition_in_dim: 1568  # fixed, vae-wind.latent_dim + vae-geopotential.latent_dim + vae-thermaldynamic.latent_dim + vae-previpitation.latent_dim
-  step_in_dim: 32
+  target_dim: 32  # fixed, vae-precipitation.latent_dim
+  wind_dim: 28  # fixed, vae-wind.latent_dim
+  geopotential_dim: 12  # fixed, vae-geopotential.latent_dim
+  thermaldynamic_dim: 12 # fixed, vae-thermaldynamic.latent_dim
+  precipitation_dim: 32  # fixed, vae-precipitation.latent_dim
+  n_condition_days: 28  # fixed, dataset.n_input_days
+  step_dim: 512
   # Unet configurations
-  down_out_dims: [128, 256]
+  n_latent_embedding_layers: 4
+  condition_latent_embedding_dim: 2048  # (condition_latent_embedding_dim // 4) must be greater than any condition dim
   down_hidden_dims: [2048, 2048]
-  mid_out_dims: [256, 256]
-  mid_hidden_dims: [2048, 2048]
-  up_out_dims: [128, 64]
-  up_hidden_dims: [2048, 2048]
-  n_layers_per_scaling_block: 2
-  n_layers_per_mid_block: 2
-  n_attention_heads: 8
-  condition_dropout: 0.2
+  down_out_dims: [512, 1024]
+  mid_hidden_dims: [1024, 1024]
+  mid_out_dims: [1024, 1024]
+  up_hidden_dims: [1024, 1024]
+  up_out_dims: [512, 512]
+  n_layers_per_scaling_block: 5
+  n_layers_per_mid_block: 3
+  n_attention_heads: 16
+  condition_dropout: 0.
+  # projection_head_hidden_dim: 1024
+  # n_head_layers: 4
   # DDPM configurations
   n_steps: 1000
   noise_scheduler_scheme: "cosine" # "linear" or "cosine"
@@ -264,19 +272,19 @@ ddpm:
   beta_max: 0.02  # only applicable for "linear"
 
   # Training
-  learning_rate: 1e-5
-  train_batch_size: 16
-  val_batch_size: 16
+  learning_rate: 1e-6
+  train_batch_size: 4
+  
+  val_batch_size: 4
   n_epochs: 1000
   patience: 20
   tolerance: 0.
   save_frequency: 1
 
-  wind_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/vae1.pt"
-  geopotential_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_geopotential_16times/vae36.pt"
-  thermaldynamic_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermaldynamic_16times/vae74.pt"
-  precipitation_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precipitation_16times/vae84.pt"
-  from_checkpoint: null
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/ddpm"
-
+  wind_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/vae7.pt"
+  geopotential_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_geopotential_16times/vae41.pt"
+  thermaldynamic_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermaldynamic_16times/vae19.pt"
+  precipitation_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precipitation_16times/vae16.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/ddpm_v4/ddpm17.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/ddpm_v4"
 

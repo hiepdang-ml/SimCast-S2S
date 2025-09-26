@@ -1,5 +1,3 @@
-from typing import *
-
 import torch
 import torch.nn as nn
 from ..common import NamedModel
@@ -88,7 +86,7 @@ class Decoder(nn.Module):
         n_layers: int = self.patch_size.bit_length() - 1
         
         self.hidden_dim: int = 4096
-        layers: List[nn.Module] = [
+        layers: list[nn.Module] = [
             nn.ConvTranspose2d(
                 in_channels=embedding_dim * n_input_days, out_channels=self.hidden_dim, kernel_size=3, stride=2, padding=1, output_padding=1
             ),

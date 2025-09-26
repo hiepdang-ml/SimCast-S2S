@@ -1,13 +1,13 @@
 from abc import ABC, abstractmethod
 from functools import cached_property
 
-from typing import *
+from typing import Callable, Literal
 import torch
 import torch.nn as nn
 from ..common import NamedModel
 
 
-class StepSinusoidEmbedding(nn.Module):
+class _StepSinusoidEmbedding(nn.Module):
 
     def __init__(self, embedding_dim: int) -> None:
         super().__init__()
@@ -26,6 +26,7 @@ class StepSinusoidEmbedding(nn.Module):
     def forward(self, step: torch.Tensor) -> torch.Tensor:
         batch_size: int = step.shape[0]
         assert step.shape == (batch_size, 1)
+        step = step.to(dtype=torch.float32)
         sinusoid: torch.Tensor = torch.zeros(
             (batch_size, self.embedding_dim), dtype=torch.float32, device=step.device,
         )
@@ -105,17 +106,52 @@ class CosineNoiseScheduler(_NoiseScheduler):
         return torch.cat([torch.tensor([0.0], dtype=torch.float32, device=self.device), betas])
 
 
+class _LatentTransformerEncoder(nn.Module):
+
+    def __init__(
+        self, 
+        in_dim: int, out_dim: int, 
+        n_condition_days: int, n_heads: int, n_layers: int
+    ) -> None:
+        super().__init__()
+        self.in_dim: int = in_dim
+        self.out_dim: int = out_dim
+        self.n_condition_days: int = n_condition_days
+        self.n_heads: int = n_heads
+        self.n_layers: int = n_layers
+        self.linear_projection: nn.Module = nn.Linear(in_features=in_dim, out_features=out_dim)
+        encoder_layer: nn.Module = nn.TransformerEncoderLayer(d_model=out_dim, nhead=n_heads, batch_first=True)
+        self.encoder: nn.Module = nn.TransformerEncoder(encoder_layer=encoder_layer, num_layers=n_layers)
+        self.positional_encoding: nn.Parameter = nn.Parameter(
+            torch.randn(1, n_condition_days, out_dim)
+        )
+
+    def forward(self, condition: torch.Tensor) -> torch.Tensor:
+        batch_size, condition_dim, T, H, W = condition.shape
+        assert self.in_dim == condition_dim
+        assert self.n_condition_days == T
+        output: torch.Tensor = condition.permute(0, 3, 4, 2, 1).flatten(0, 2)
+        assert output.shape == (batch_size * H * W, T, condition_dim)
+        output = self.linear_projection(output) + self.positional_encoding
+        output = self.encoder(output)
+        assert output.shape == (batch_size * H * W, T, self.out_dim)
+        output = output.mean(dim=1, keepdim=False) # temporal pooling
+        output = output.reshape(batch_size, H, W, self.out_dim).permute(0, 3, 1, 2)
+        assert output.shape == (batch_size, self.out_dim, H, W)
+        return output
+
+
 class _StepEmbedding(nn.Module):
 
-    def __init__(self, step_in_dim: int, step_out_dim: int):
+    def __init__(self, step_dim: int, step_out_dim: int):
         super().__init__()
-        self.step_in_dim: int = step_in_dim
+        self.step_dim: int = step_dim
         self.step_out_dim: int = step_out_dim
-        self.step_embedding_block = nn.Sequential(nn.SiLU(), nn.Linear(step_in_dim, step_out_dim))
+        self.step_embedding_block = nn.Sequential(nn.SiLU(), nn.Linear(step_dim, step_out_dim))
 
     def forward(self, step: torch.Tensor) -> torch.Tensor:
         batch_size, t_in_dim = step.shape
-        assert t_in_dim == self.step_in_dim
+        assert t_in_dim == self.step_dim
         output: torch.Tensor = self.step_embedding_block(step)
         assert output.shape == (batch_size, self.step_out_dim)
         return output
@@ -123,11 +159,12 @@ class _StepEmbedding(nn.Module):
 
 class _NormActConv(nn.Module):
 
-    def __init__(self, input_dim: int, output_dim: int):
+    def __init__(self, input_dim: int, output_dim: int, n_heads: int):
         super().__init__()
         self.input_dim: int = input_dim
         self.output_dim: int = output_dim
-        self.group_norm: nn.Module = nn.GroupNorm(num_groups=8, num_channels=input_dim)
+        self.n_heads: int = n_heads
+        self.group_norm: nn.Module = nn.GroupNorm(num_groups=n_heads, num_channels=input_dim)
         self.activation: nn.Module = nn.SiLU()
         self.conv2d: nn.Module = nn.Conv2d(
             in_channels=input_dim, out_channels=output_dim, kernel_size=3, padding=1,
@@ -150,10 +187,7 @@ class _CrossAttention(nn.Module):
         self.dropout: float = dropout
         self.target_group_norm: nn.Module = nn.GroupNorm(num_groups=n_heads, num_channels=hidden_dim)
         self.condition_group_norm: nn.Module = nn.GroupNorm(num_groups=n_heads, num_channels=hidden_dim)
-        self.attention = nn.MultiheadAttention(
-            embed_dim=hidden_dim, num_heads=n_heads,
-            dropout=dropout, batch_first=True,
-        )
+        self.attention = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=n_heads, dropout=dropout, batch_first=True)
 
     def forward(self, target: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
         target_N, target_D, target_H, target_W = target.shape
@@ -243,15 +277,15 @@ class _ScalingBlock(nn.Module):
 
     def __init__(
         self,
-        input_dim: int, condition_in_dim: int, step_in_dim: int, 
+        input_dim: int, condition_dim: int, step_dim: int, 
         hidden_dim: int, output_dim: int, 
         n_layers: int, n_attention_heads: int, condition_dropout: float,
         type: Literal["up", "down", "mid"],
     ):
         super().__init__()
         self.input_dim: int = input_dim
-        self.condition_in_dim: int = condition_in_dim
-        self.step_in_dim: int = step_in_dim
+        self.condition_dim: int = condition_dim
+        self.step_dim: int = step_dim
         self.hidden_dim: int = hidden_dim
         self.output_dim: int = output_dim
         self.n_layers: int = n_layers
@@ -260,10 +294,10 @@ class _ScalingBlock(nn.Module):
         self.type: Literal["up", "down", "mid"] = type
         # Condition
         self.condition_projection: nn.Module = nn.Conv2d(
-            in_channels=condition_in_dim, out_channels=hidden_dim, kernel_size=1, padding=0,
+            in_channels=condition_dim, out_channels=hidden_dim, kernel_size=1, padding=0,
         )
         self.condition_conv_layers: nn.ModuleList = nn.ModuleList([
-            _NormActConv(input_dim=hidden_dim, output_dim=hidden_dim) for _ in range(n_layers)
+            _NormActConv(input_dim=hidden_dim, output_dim=hidden_dim, n_heads=n_attention_heads) for _ in range(n_layers)
         ])
         self.condition_res_blocks: nn.ModuleList = nn.ModuleList([
             nn.Conv2d(in_channels=hidden_dim, out_channels=hidden_dim, kernel_size=1)
@@ -274,10 +308,10 @@ class _ScalingBlock(nn.Module):
             in_channels=input_dim, out_channels=hidden_dim, kernel_size=1, padding=0,
         )
         self.target_conv1_layers: nn.ModuleList = nn.ModuleList([
-            _NormActConv(input_dim=hidden_dim, output_dim=hidden_dim) for _ in range(n_layers)
+            _NormActConv(input_dim=hidden_dim, output_dim=hidden_dim, n_heads=n_attention_heads) for _ in range(n_layers)
         ])
         self.target_conv2_layers: nn.ModuleList = nn.ModuleList([
-            _NormActConv(input_dim=hidden_dim, output_dim=hidden_dim) for _ in range(n_layers)
+            _NormActConv(input_dim=hidden_dim, output_dim=hidden_dim, n_heads=n_attention_heads) for _ in range(n_layers)
         ])
         self.target_res_blocks: nn.ModuleList = nn.ModuleList([
             nn.Conv2d(in_channels=hidden_dim, out_channels=hidden_dim, kernel_size=1)
@@ -289,9 +323,9 @@ class _ScalingBlock(nn.Module):
             for _ in range(n_layers)
         ])
         # Step
-        self.step_projection = nn.Linear(in_features=step_in_dim, out_features=hidden_dim)
+        self.step_projection = nn.Linear(in_features=step_dim, out_features=hidden_dim)
         self.step_embedding_blocks = nn.ModuleList([
-            _StepEmbedding(step_in_dim=hidden_dim, step_out_dim=hidden_dim)
+            _StepEmbedding(step_dim=hidden_dim, step_out_dim=hidden_dim)
             for _ in range(n_layers)
         ])
         # Scaling block
@@ -313,12 +347,12 @@ class _ScalingBlock(nn.Module):
         # print(f"target.shape={target.shape}")
         # print(f"self.input_dim={self.input_dim}")
         # print(f"condition.shape={condition.shape}")
-        # print(f"self.condition_in_dim={self.condition_in_dim}")
+        # print(f"self.condition_dim={self.condition_dim}")
         # print("----------")
         assert target_N == condition_N == step_N
         assert target_D == self.input_dim
-        assert condition_D == self.condition_in_dim
-        assert step_D == self.step_in_dim
+        assert condition_D == self.condition_dim
+        assert step_D == self.step_dim
         
         # Linear projection
         target = self.target_projection(target)
@@ -360,12 +394,12 @@ class _DownBlock(_ScalingBlock):
 
     def __init__(
         self,
-        input_dim: int, condition_in_dim: int, step_in_dim: int, 
+        input_dim: int, condition_dim: int, step_dim: int, 
         hidden_dim: int, output_dim: int, 
         n_layers: int, n_attention_heads: int, condition_dropout: float,
     ):
         super().__init__(
-            input_dim=input_dim, condition_in_dim=condition_in_dim, step_in_dim=step_in_dim, 
+            input_dim=input_dim, condition_dim=condition_dim, step_dim=step_dim, 
             hidden_dim=hidden_dim, output_dim=output_dim, 
             n_layers=n_layers, n_attention_heads=n_attention_heads, condition_dropout=condition_dropout,
             type="down",
@@ -376,12 +410,12 @@ class _UpBlock(_ScalingBlock):
 
     def __init__(
         self,
-        input_dim: int, down_output_dim: int, condition_in_dim: int, step_in_dim: int, 
+        input_dim: int, down_output_dim: int, condition_dim: int, step_dim: int, 
         hidden_dim: int, output_dim: int, 
         n_layers: int, n_attention_heads: int, condition_dropout: float,
     ):
         super().__init__(
-            input_dim=input_dim + down_output_dim, condition_in_dim=condition_in_dim, step_in_dim=step_in_dim, 
+            input_dim=input_dim + down_output_dim, condition_dim=condition_dim, step_dim=step_dim, 
             hidden_dim=hidden_dim, output_dim=output_dim, 
             n_layers=n_layers, n_attention_heads=n_attention_heads, condition_dropout=condition_dropout,
             type="up",
@@ -392,56 +426,127 @@ class _MidBlock(_ScalingBlock):
 
     def __init__(
         self,
-        input_dim: int, condition_in_dim: int, step_in_dim: int, 
+        input_dim: int, condition_dim: int, step_dim: int, 
         hidden_dim: int, output_dim: int, 
         n_layers: int, n_attention_heads: int, condition_dropout: float,
     ):
         super().__init__(
-            input_dim=input_dim, condition_in_dim=condition_in_dim, step_in_dim=step_in_dim, 
+            input_dim=input_dim, condition_dim=condition_dim, step_dim=step_dim, 
             hidden_dim=hidden_dim, output_dim=output_dim, 
             n_layers=n_layers, n_attention_heads=n_attention_heads, condition_dropout=condition_dropout,
             type="mid",
         )
 
 
+class _ProjectionHead(nn.Module):
+
+    def __init__(self, in_dim: int, hidden_dim: int, out_dim: int, n_layers: int) -> None:
+        super().__init__()
+        self.in_dim: int = in_dim
+        self.hidden_dim: int = hidden_dim
+        self.out_dim: int = out_dim
+        self.n_layers: int = n_layers
+        assert n_layers >= 3, f"There must be at least 3 layers in the projection head"
+
+        layers: list[nn.Module] = []
+        for i in range(n_layers):
+            if i == 0:
+                _in_channels: int = in_dim
+                _out_channels: int = hidden_dim
+            elif i == n_layers - 1:
+                _in_channels: int = hidden_dim
+                _out_channels: int = out_dim
+            else:
+                _in_channels = _out_channels = hidden_dim
+
+            layers.extend([
+                nn.Conv2d(in_channels=_in_channels, out_channels=_out_channels, kernel_size=1),
+                nn.ReLU(),
+            ])
+
+        self.head: nn.Module = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        N, C, H, W = x.shape
+        assert C == self.in_dim
+        return self.head(x)
+
+
 class UNetDenoiser(NamedModel, nn.Module):
 
     def __init__(
         self,
-        target_in_dim: int, condition_in_dim: int, step_in_dim: int, 
-        down_out_dims: List[int], down_hidden_dims: List[int], 
-        mid_out_dims: List[int], mid_hidden_dims: List[int], 
-        up_out_dims: List[int], up_hidden_dims: List[int], 
+        target_dim: int, 
+        wind_dim: int, geopotential_dim: int, 
+        thermaldynamic_dim: int, precipitation_dim: int, 
+        step_dim: int, 
+        condition_latent_embedding_dim: int,
+        n_latent_embedding_layers: int,
+        n_condition_days: int,
+        down_out_dims: list[int], down_hidden_dims: list[int], 
+        mid_out_dims: list[int], mid_hidden_dims: list[int], 
+        up_out_dims: list[int], up_hidden_dims: list[int], 
         n_layers_per_scaling_block: int, n_layers_per_mid_block: int,
         n_attention_heads: int, condition_dropout: float,
+        # projection_head_hidden_dim: int, n_head_layers: int
     ):
         super().__init__()
-        self.target_in_dim: int = target_in_dim
-        self.condition_in_dim: int = condition_in_dim
-        self.step_in_dim: int = step_in_dim
-        self.down_out_dims: List[int] = down_out_dims
-        self.down_hidden_dims: List[int] = down_hidden_dims
-        self.mid_out_dims: List[int] = mid_out_dims
-        self.mid_hidden_dims: List[int] = mid_hidden_dims
-        self.up_out_dims: List[int] = up_out_dims
-        self.up_hidden_dims: List[int] = up_hidden_dims
+        self.target_dim: int = target_dim
+        self.wind_dim: int = wind_dim
+        self.geopotential_dim: int = geopotential_dim
+        self.thermaldynamic_dim: int = thermaldynamic_dim
+        self.precipitation_dim: int = precipitation_dim
+        self.step_dim: int = step_dim
+        self.condition_latent_embedding_dim: int = condition_latent_embedding_dim
+        self.n_latent_embedding_layers: int = n_latent_embedding_layers
+        self.n_condition_days: int = n_condition_days
+        self.down_out_dims: list[int] = down_out_dims
+        self.down_hidden_dims: list[int] = down_hidden_dims
+        self.mid_out_dims: list[int] = mid_out_dims
+        self.mid_hidden_dims: list[int] = mid_hidden_dims
+        self.up_out_dims: list[int] = up_out_dims
+        self.up_hidden_dims: list[int] = up_hidden_dims
         self.n_layers_per_scaling_block: int = n_layers_per_scaling_block
         self.n_layers_per_mid_block: int = n_layers_per_mid_block
         self.n_attention_heads: int = n_attention_heads
         self.condition_dropout: float = condition_dropout
+        # self.projection_head_hidden_dim: int = projection_head_hidden_dim
+        # self.n_head_layers: int = n_head_layers
 
         assert len(down_hidden_dims) == len(down_out_dims) == len(up_hidden_dims) == len(up_out_dims)
         assert len(mid_hidden_dims) == len(mid_out_dims)
+        assert condition_latent_embedding_dim % 4 == 0, (
+            f"condition_latent_embedding_dim must be divisible by 4 for "
+            f"4 condition groups: ['wind', 'geopotential', 'thermaldynamic', 'precipitation'],"
+            f"getting condition_latent_embedding_dim={condition_latent_embedding_dim}"
+        )
 
         self.n_scaling_blocks: int = len(down_out_dims)
         self.n_mid_blocks: int = len(mid_out_dims)
 
-        self.step_embedding_layer: nn.Module = StepSinusoidEmbedding(embedding_dim=step_in_dim)
+        self.wind_latent_encoder: nn.Module = _LatentTransformerEncoder(
+            in_dim=wind_dim, out_dim=condition_latent_embedding_dim // 4, 
+            n_condition_days=n_condition_days, n_heads=n_attention_heads, n_layers=n_latent_embedding_layers,
+        )
+        self.geopotential_latent_encoder: nn.Module = _LatentTransformerEncoder(
+            in_dim=geopotential_dim, out_dim=condition_latent_embedding_dim // 4, 
+            n_condition_days=n_condition_days, n_heads=n_attention_heads, n_layers=n_latent_embedding_layers,
+        )
+        self.thermaldynamic_latent_encoder: nn.Module = _LatentTransformerEncoder(
+            in_dim=thermaldynamic_dim, out_dim=condition_latent_embedding_dim // 4, 
+            n_condition_days=n_condition_days, n_heads=n_attention_heads, n_layers=n_latent_embedding_layers,
+        )
+        self.precipitation_latent_encoder: nn.Module = _LatentTransformerEncoder(
+            in_dim=precipitation_dim, out_dim=condition_latent_embedding_dim // 4, 
+            n_condition_days=n_condition_days, n_heads=n_attention_heads, n_layers=n_latent_embedding_layers,
+        )
+        self.step_embedding_layer: nn.Module = _StepSinusoidEmbedding(embedding_dim=step_dim)
         self.down_blocks = nn.ModuleList([
             _DownBlock(
-                input_dim=target_in_dim if i == 0 else down_out_dims[i - 1], 
-                condition_in_dim=condition_in_dim, step_in_dim=step_in_dim,
-                hidden_dim=down_hidden_dims[i], output_dim=down_out_dims[i], 
+                input_dim=target_dim if i == 0 else down_out_dims[i - 1], 
+                condition_dim=self.condition_latent_embedding_dim, 
+                step_dim=step_dim,
+                hidden_dim=down_hidden_dims[i], output_dim=down_out_dims[i],
                 n_layers=n_layers_per_scaling_block, n_attention_heads=n_attention_heads,
                 condition_dropout=condition_dropout,
             )
@@ -451,7 +556,7 @@ class UNetDenoiser(NamedModel, nn.Module):
             _UpBlock(
                 input_dim=mid_out_dims[-1] if i == 0 else up_out_dims[i - 1], 
                 down_output_dim=down_out_dims[-i - 1],
-                condition_in_dim=condition_in_dim, step_in_dim=step_in_dim,
+                condition_dim=self.condition_latent_embedding_dim, step_dim=step_dim,
                 hidden_dim=up_hidden_dims[i], output_dim=up_out_dims[i], 
                 n_layers=n_layers_per_scaling_block, n_attention_heads=n_attention_heads, 
                 condition_dropout=condition_dropout,
@@ -461,22 +566,43 @@ class UNetDenoiser(NamedModel, nn.Module):
         self.mid_blocks = nn.ModuleList([
             _MidBlock(
                 input_dim=down_out_dims[-1] if i == 0 else mid_out_dims[i - 1],
-                condition_in_dim=condition_in_dim, step_in_dim=step_in_dim,
+                condition_dim=self.condition_latent_embedding_dim, step_dim=step_dim,
                 hidden_dim=mid_hidden_dims[i], output_dim=mid_out_dims[i],
                 n_layers=n_layers_per_mid_block, n_attention_heads=n_attention_heads,
                 condition_dropout=condition_dropout,
             )
             for i in range(self.n_mid_blocks)
         ])
-        self.output_projection: nn.Module = _NormActConv(input_dim=self.up_out_dims[-1], output_dim=self.target_in_dim)
+        self.head: nn.Module = nn.Conv2d(
+            in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1,
+        )
+        # self.output_projection: nn.Module = _ProjectionHead(
+        #     in_dim=self.up_out_dims[-1], 
+        #     hidden_dim=projection_head_hidden_dim, 
+        #     out_dim=target_dim, 
+        #     n_layers=n_head_layers,
+        # )
 
-    def forward(self, target: torch.Tensor, condition: torch.Tensor, step: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, 
+        target: torch.Tensor, 
+        wind_condition: torch.Tensor, 
+        geopotential_condition: torch.Tensor, 
+        thermaldynamic_condition: torch.Tensor, 
+        precipitation_condition: torch.Tensor, 
+        step: torch.Tensor
+    ) -> torch.Tensor:
         target_N, target_D, target_H, target_W = target.shape
-        condition_N, condition_D, condition_H, condition_W = condition.shape
+        wind_N, wind_D, wind_T, wind_H, wind_W = wind_condition.shape
+        geopotential_N, geopotential_D, geopotential_T, geopotential_H, geopotential_W = geopotential_condition.shape
+        thermaldynamic_N, thermaldynamic_D, thermaldynamic_T, thermaldynamic_H, thermaldynamic_W = thermaldynamic_condition.shape
+        precipitation_N, precipitation_D, precipitation_T, precipitation_H, precipitation_W = precipitation_condition.shape
         step_N, step_D = step.shape
-        assert target_N == condition_N == step_N
-        assert target_D == self.target_in_dim
-        assert condition_D == self.condition_in_dim
+        assert target_N == wind_N == geopotential_N == thermaldynamic_N == precipitation_N == step_N
+        assert wind_T == geopotential_T == thermaldynamic_T == precipitation_T
+        assert wind_H == geopotential_H == thermaldynamic_H == precipitation_H
+        assert wind_W == geopotential_W == thermaldynamic_W == precipitation_W
+        assert target_D == self.target_dim
         assert step_D == 1
         
         # Check if too many scaling blocks on low-dim inputs
@@ -485,11 +611,25 @@ class UNetDenoiser(NamedModel, nn.Module):
             f"too many scaling blocks (self.n_scaling_blocks={self.n_scaling_blocks}) "
             f"for target dimension: {(target_H, target_W)}"
         )
+        # Temporal encoding
+        wind_condition: torch.Tensor = self.wind_latent_encoder(condition=wind_condition)
+        geopotential_condition: torch.Tensor = self.geopotential_latent_encoder(condition=geopotential_condition)
+        thermaldynamic_condition: torch.Tensor = self.thermaldynamic_latent_encoder(condition=thermaldynamic_condition)
+        precipitation_condition: torch.Tensor = self.precipitation_latent_encoder(condition=precipitation_condition)
+        # print(f"wind_condition: {wind_condition.shape}")
+        # print(f"geopotential_condition: {geopotential_condition.shape}")
+        # print(f"thermaldynamic_condition: {thermaldynamic_condition.shape}")
+        # print(f"precipitation_condition: {precipitation_condition.shape}")
+        condition: torch.Tensor = torch.cat(
+            tensors=[wind_condition, geopotential_condition, thermaldynamic_condition, precipitation_condition],
+            dim=1,
+        )
+        assert condition.shape[1] == self.condition_latent_embedding_dim
         # Step embedding
         step_embedding: torch.Tensor = self.step_embedding_layer(step=step)
         # UNet
         down_input: torch.Tensor = target
-        down_outputs: List[torch.Tensor] = []
+        down_outputs: list[torch.Tensor] = []
         for i in range(self.n_scaling_blocks):
             down_outputs.append(self.down_blocks[i](target=down_input, condition=condition, step=step_embedding))
             down_input = down_outputs[-1]
@@ -519,7 +659,7 @@ class UNetDenoiser(NamedModel, nn.Module):
             # print(f"--------")
 
         assert len(down_outputs) == 0, f"down_outputs must exhaust, getting {len(down_outputs)} items left"
-        output: torch.Tensor = self.output_projection(up_output)
+        output: torch.Tensor = self.head(up_output)
         assert output.shape == target.shape, f"Shape mismatched: output.shape={output.shape} and target.shape={target.shape}."
         return output
 
@@ -528,28 +668,33 @@ class _DDPMProcess:
 
     def __init__(self, noise_scheduler: _NoiseScheduler):
         self.noise_scheduler: _NoiseScheduler = noise_scheduler
+        self.alpha_bar_schedule: torch.Tensor = self.noise_scheduler.alpha_bar_schedule.cuda()
+        self.beta_schedule: torch.Tensor = self.noise_scheduler.beta_schedule.cuda()
 
 class DDPMForwardProcess(_DDPMProcess):
     
-    def add_noise(self, original_latent: torch.Tensor, step: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def add_noise(self, original_latent: torch.Tensor, step: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         original_N: int = original_latent.shape[0]
         step_N: int = step.shape[0]
         assert original_N == step_N
         batch_size: int = original_N
         gaussian: torch.Tensor = torch.randn_like(original_latent)
-        alpha_bars: torch.Tensor = self.noise_scheduler.alpha_bar_schedule[step.int()]
+        # Make sure schedules are on the same device before indexing with GPU tensor indices
+        alpha_bars: torch.Tensor = self.alpha_bar_schedule.to(original_latent.device)[step.long()]
         assert alpha_bars.shape == (batch_size, 1)
         alpha_bars = alpha_bars[:, :, None, None]   # for broadcasting with `original`
         noisy_latent: torch.Tensor = original_latent * (alpha_bars ** 0.5) + gaussian * ((1 - alpha_bars) ** 0.5)
         assert noisy_latent.shape == original_latent.shape
         return noisy_latent, gaussian
     
+
 class DDPMReverseProcess(_DDPMProcess):
     
+    # DDPM
     def sample(
         self, 
         target_k: torch.Tensor, predicted_noise: torch.Tensor, step: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
 
         target_N, target_D, target_H, target_W = target_k.shape
         noise_N, noise_D, noise_H, noise_W = predicted_noise.shape
@@ -558,11 +703,11 @@ class DDPMReverseProcess(_DDPMProcess):
         batch_size: int = target_N
 
         # Alpha bar
-        alpha_bars: torch.Tensor = self.noise_scheduler.alpha_bar_schedule.to(target_k.device)[step.int()]
+        alpha_bars: torch.Tensor = self.alpha_bar_schedule.to(target_k.device)[step.long()]
         assert alpha_bars.shape == (batch_size, 1)
         alpha_bars = alpha_bars[:, :, None, None]
         # Beta
-        betas: torch.Tensor = self.noise_scheduler.beta_schedule.to(target_k.device)[step.int()]
+        betas: torch.Tensor = self.beta_schedule.to(target_k.device)[step.long()]
         assert betas.shape == (batch_size, 1)
         betas = betas[:, :, None, None]
         # Original target prediction at k
@@ -572,7 +717,7 @@ class DDPMReverseProcess(_DDPMProcess):
         mean: torch.Tensor = (target_k - betas / torch.sqrt(1 - alpha_bars) * predicted_noise) / torch.sqrt(1 - betas)
         assert mean.shape == target_k.shape
         # Variance of [target_{k-1} | target_{k}, target_{0}]
-        alpha_bars_prev: torch.Tensor =  self.noise_scheduler.alpha_bar_schedule.to(target_k.device)[torch.clamp(step - 1, min=0)]
+        alpha_bars_prev: torch.Tensor =  self.alpha_bar_schedule.to(target_k.device)[torch.clamp(step - 1, min=0)]
         alpha_bars_prev = alpha_bars_prev[:, :, None, None]
         assert alpha_bars_prev.shape == alpha_bars.shape == betas.shape == (batch_size, 1, 1, 1)
         numerator: torch.Tensor = (1 - alpha_bars_prev) * betas
@@ -582,61 +727,3 @@ class DDPMReverseProcess(_DDPMProcess):
         # Note: at step=0, target_k = target_0 = mean
         return mean + (variance ** 0.5) * torch.randn_like(target_k), target_0
 
-
-# TEST CASES:
-if __name__ == "__main__":
-
-    # UNet
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    self = UNetDenoiser(
-        target_in_dim=4, condition_in_dim=1568, step_in_dim=32,
-        down_out_dims=[64, 128], down_hidden_dims=[1024, 1024],
-        mid_out_dims=[128, 128], mid_hidden_dims=[1024, 1024],
-        up_out_dims=[64, 32], up_hidden_dims=[1024, 1024],
-        n_layers_per_scaling_block=3, n_layers_per_mid_block=1, n_attention_heads=4, condition_dropout=0.5,
-    ).to(device=device)
-    target = torch.rand(8, 4, 24, 36).to(device=device)
-    condition = torch.rand(8, 1568, 24, 36).to(device=device)
-    step = torch.randint(low=0, high=1_000, size=(8, 1)).to(device=device)
-    output = self(target, condition, step)
-    print(f"output.shape: {output.shape}")
-    print(f"--------")
-
-    # Forward process
-    n_steps: int = 1_000
-    original: torch.Tensor = torch.randn(8, 1, 24, 36)
-    steps: torch.Tensor = torch.randint(low=0, high=n_steps, size=(8, 1)) 
-
-    forward_process: DDPMForwardProcess = DDPMForwardProcess(
-        noise_scheduler=LinearNoiseScheduler(beta_min=1e-4, beta_max=0.02, n_steps=n_steps, device=device)
-    )
-    noisy_latent, gauusian = forward_process.add_noise(original, steps)
-    print(f"noisy_latent.shape: {noisy_latent.shape}")
-
-    forward_process: DDPMForwardProcess = DDPMForwardProcess(
-        noise_scheduler=CosineNoiseScheduler(n_steps=n_steps, device=device)
-    )
-    noisy_latent, gauusian = forward_process.add_noise(original, steps)
-    print(f"noisy_latent.shape: {noisy_latent.shape}")
-    print(f"--------")
-
-    # Reverse process
-    n_steps: int = 5
-    target_k: torch.Tensor = torch.randn(4, 1, 24, 36)
-    predicted_noise: torch.Tensor = torch.randn(4, 1, 24, 36)
-    step: torch.Tensor = torch.randint(low=0, high=n_steps, size=(4, 1))
-
-    reverse_process: DDPMReverseProcess = DDPMReverseProcess(
-        noise_scheduler=LinearNoiseScheduler(beta_min=1e-4, beta_max=0.02, n_steps=n_steps, device=device)
-    )
-    denoised_target, predicted_target_0 = reverse_process.sample(target_k, predicted_noise, step)
-    print(f"denoised_target.shape: {denoised_target.shape}")
-    print(f"predicted_target_0.shape: {predicted_target_0.shape}")
-
-    reverse_process: DDPMReverseProcess = DDPMReverseProcess(
-        noise_scheduler=CosineNoiseScheduler(n_steps=n_steps, device=device)
-    )
-    denoised_target, predicted_target_0 = reverse_process.sample(target_k, predicted_noise, step)
-    print(f"denoised_target.shape: {denoised_target.shape}")
-    print(f"predicted_target_0.shape: {predicted_target_0.shape}")
-    print(f"--------")

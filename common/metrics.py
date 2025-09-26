@@ -1,4 +1,3 @@
-from typing import *
 from abc import ABC, abstractmethod
 import torch
 
@@ -17,7 +16,7 @@ class _SampleLevelMap(_BaseMap):
 class _SequenceLevelMap(_BaseMap):
 
     @abstractmethod
-    def __call__(self, predictions: List[torch.Tensor], groundtruths: List[torch.Tensor]) -> torch.Tensor:
+    def __call__(self, predictions: list[torch.Tensor], groundtruths: list[torch.Tensor]) -> torch.Tensor:
         pass
 
 
@@ -33,7 +32,7 @@ class ErrorMap(_SampleLevelMap):
 class RsquaredMap(_SequenceLevelMap):
 
     #implement
-    def __call__(self, predictions: List[torch.Tensor], groundtruths: List[torch.Tensor]) -> torch.Tensor:
+    def __call__(self, predictions: list[torch.Tensor], groundtruths: list[torch.Tensor]) -> torch.Tensor:
         
         n_samples: int = len(predictions)
         assert len(predictions) == len(groundtruths) == n_samples
@@ -58,7 +57,7 @@ class RsquaredMap(_SequenceLevelMap):
 class MAEMap(_SequenceLevelMap):
 
     #implement
-    def __call__(self, predictions: List[torch.Tensor], groundtruths: List[torch.Tensor]) -> torch.Tensor:
+    def __call__(self, predictions: list[torch.Tensor], groundtruths: list[torch.Tensor]) -> torch.Tensor:
 
         n_samples: int = len(predictions)
         assert len(predictions) == len(groundtruths) == n_samples

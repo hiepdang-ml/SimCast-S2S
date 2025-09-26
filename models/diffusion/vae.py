@@ -1,4 +1,4 @@
-from typing import *
+from typing import Type
 
 import torch
 import torch.nn as nn
@@ -48,7 +48,7 @@ class _ConvStack(nn.Module):
         self.n_layers: int = n_layers
 
         assert n_layers >= 2
-        layers: List[nn.Module] = []
+        layers: list[nn.Module] = []
         for i in range(n_layers):
             # First layer
             if i == 0:
@@ -175,8 +175,8 @@ class VAEEncoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
 
         # Head
         assert n_convhead_layers >= 2
-        mu_layers: List[nn.Module] = []
-        logvar_layers: List[nn.Module] = []
+        mu_layers: list[nn.Module] = []
+        logvar_layers: list[nn.Module] = []
 
         for i in range(n_convhead_layers):
             # Last layer
@@ -209,9 +209,9 @@ class VAEEncoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
         self.mu_head = nn.Sequential(*mu_layers)
         self.logvar_head = nn.Sequential(*logvar_layers)
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         batch_size: int = x.shape[0]
-        assert x.shape == (batch_size, self.n_days, 192, 288, self.n_features)
+        assert x.shape == (batch_size, 1, 192, 288, self.n_features)
         h: torch.Tensor = x.permute(0, 1, 4, 2, 3).flatten(start_dim=1, end_dim=2)
         h = self.preprocessing(h) + h
         for i in range(self.n_downscaling_blocks):
@@ -285,7 +285,7 @@ class VAEDecoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
             del _in_channels, _out_channels
 
         # Head
-        layers: List[nn.Module] = []
+        layers: list[nn.Module] = []
         assert n_convhead_layers >= 2
         for i in range(n_convhead_layers):
             # Last layer
@@ -361,7 +361,7 @@ class VAE(_Freezable, NamedModel, nn.Module):
         )
         self.apply(VAE._init_weights)
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size: int = x.shape[0]
         mu: torch.Tensor; logvar: torch.Tensor
         mu, logvar = self.encoder(x)

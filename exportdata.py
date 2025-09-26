@@ -1,5 +1,5 @@
 import argparse
-from typing import *
+from typing import Literal
 
 from datasets.common.container import VariableContainer
 from datasets.common.preprocessing import Detrender, ClimatologyRemover

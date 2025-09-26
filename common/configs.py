@@ -3,7 +3,7 @@ import yaml
 
 import pathlib
 from itertools import product
-from typing import *
+from typing import Literal, Any
 
 
 class BaseConfig(ABC):
@@ -16,12 +16,12 @@ class BaseConfig(ABC):
         pass
     
     @abstractmethod
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         pass
 
 class MetaData(BaseConfig):
 
-    VAR_LOOKUP_TABLE: Dict[str, Dict[str, List[str]]] = {
+    VAR_LOOKUP_TABLE: dict[str, dict[str, list[str]]] = {
         "cesm2": {
             "wind": ["U200", "V200", "U500", "V500", "OMEGA500", "U850", "V850"],
             "geopotential": ["Z200", "Z850", "Z500"],
@@ -39,27 +39,27 @@ class MetaData(BaseConfig):
     def __init__(self, dataset_name: Literal["cesm2", "era5"], tp: Literal["train", "val", "test"]) -> None:
         self.dataset_name: Literal["cesm2", "era5"] = dataset_name
         self.tp: Literal["train", "val", "test"] = tp
-        self.var_table: Dict[str, List[str]] = MetaData.VAR_LOOKUP_TABLE[dataset_name]
+        self.var_table: dict[str, list[str]] = MetaData.VAR_LOOKUP_TABLE[dataset_name]
         with open("./config.yaml", mode="r") as file:
-            self.__config: Dict[str, Any] = yaml.safe_load(file)[dataset_name]
+            self.__config: dict[str, Any] = yaml.safe_load(file)[dataset_name]
 
         self._load()
         # Note: must preserve order
-        self.var_names: List[str] = []
+        self.var_names: list[str] = []
         for var_name in self.input_vars + self.output_vars:
             if var_name not in self.var_names:
                 self.var_names.append(var_name)
 
-        self.years: List[int] = list(range(self.start_year, self.end_year + 1))
-        self.combinations: List[Tuple[str, int]] = list(product(self.sim_ids, self.years))
+        self.years: list[int] = list(range(self.start_year, self.end_year + 1))
+        self.combinations: list[tuple[str, int]] = list(product(self.sim_ids, self.years))
         self.n_years: int = len(self.years)
 
     def _load(self) -> None:
         self.device: str = self.__config["device"]
-        self.input_vars: List[str] = self.__config["input_vars"]
-        self.output_vars: List[str] = self.__config["output_vars"]
-        self.resolution: Tuple[int, int] = tuple(self.__config["resolution"])
-        self.sim_ids: List[str] = self.__config["sim_ids"]
+        self.input_vars: list[str] = self.__config["input_vars"]
+        self.output_vars: list[str] = self.__config["output_vars"]
+        self.resolution: tuple[int, int] = tuple(self.__config["resolution"])
+        self.sim_ids: list[str] = self.__config["sim_ids"]
 
         if self.tp == "train":
             self.start_year: int = self.__config["train_start_year"]
@@ -85,7 +85,7 @@ class MetaData(BaseConfig):
         self.detrender_state_directory: pathlib.Path = pathlib.Path(self.__config["detrender_state_directory"])
         self.climatology_state_directory: pathlib.Path = pathlib.Path(self.__config["climatology_state_directory"])
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "dataset_name": self.dataset_name,
             "tp": self.tp,
@@ -106,7 +106,7 @@ class MetaData(BaseConfig):
         self, 
         context_group: Literal["wind", "geopotential", "thermaldynamic", "precipitation"],
     ) -> "MetaData":
-        input_subset: List[str] = self.var_table[context_group]
+        input_subset: list[str] = self.var_table[context_group]
         assert set(input_subset).issubset(set(self.input_vars))
         # override, preserve order
         self.input_vars = [v for v in self.input_vars if v in input_subset]
@@ -118,7 +118,7 @@ class CNNConfig(BaseConfig):
 
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
-            self.__config: Dict[str, Any] = yaml.safe_load(file)["cnn"]
+            self.__config: dict[str, Any] = yaml.safe_load(file)["cnn"]
         
         self._load()
 
@@ -139,7 +139,7 @@ class CNNConfig(BaseConfig):
         self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
         self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "device": self.device,
             "in_features": self.in_features,
@@ -161,7 +161,7 @@ class UnetConfig(BaseConfig):
 
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
-            self.__config: Dict[str, Any] = yaml.safe_load(file)["unet"]
+            self.__config: dict[str, Any] = yaml.safe_load(file)["unet"]
         
         self._load()
 
@@ -181,7 +181,7 @@ class UnetConfig(BaseConfig):
         self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
         self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "device": self.device,
             "in_features": self.in_features,
@@ -202,7 +202,7 @@ class ViTConfig(BaseConfig):
 
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
-            self.__config: Dict[str, Any] = yaml.safe_load(file)["vit"]
+            self.__config: dict[str, Any] = yaml.safe_load(file)["vit"]
         
         self._load()
 
@@ -226,7 +226,7 @@ class ViTConfig(BaseConfig):
         self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
         self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "device": self.device,
             "in_features": self.in_features,
@@ -254,7 +254,7 @@ class VAEConfig(BaseConfig):
         self.context_group: Literal["wind", "geopotential", "thermaldynamic", "precipitation"] = context_group
 
         with open("./config.yaml", mode="r") as file:
-            self.__config: Dict[str, Any] = yaml.safe_load(file)[f"vae-{context_group}"]
+            self.__config: dict[str, Any] = yaml.safe_load(file)[f"vae-{context_group}"]
         
         self._load()
 
@@ -277,7 +277,7 @@ class VAEConfig(BaseConfig):
         self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
         self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "device": self.device,
             "latent_dim": self.latent_dim,
@@ -302,25 +302,33 @@ class DDPMConfig(BaseConfig):
 
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
-            self.__config: Dict[str, Any] = yaml.safe_load(file)["ddpm"]
+            self.__config: dict[str, Any] = yaml.safe_load(file)["ddpm"]
         
         self._load()
 
     def _load(self) -> None:
         self.device: str = self.__config["device"]
-        self.target_in_dim: int = self.__config["target_in_dim"]
-        self.condition_in_dim: int = self.__config["condition_in_dim"]
-        self.step_in_dim: int = self.__config["step_in_dim"]
-        self.down_out_dims: List[int] = self.__config["down_out_dims"]
-        self.down_hidden_dims: List[int] = self.__config["down_hidden_dims"]
-        self.mid_out_dims: List[int] = self.__config["mid_out_dims"]
-        self.mid_hidden_dims: List[int] = self.__config["mid_hidden_dims"]
-        self.up_out_dims: List[int] = self.__config["up_out_dims"]
-        self.up_hidden_dims: List[int] = self.__config["up_hidden_dims"]
+        self.target_dim: int = self.__config["target_dim"]
+        self.wind_dim: int = self.__config["wind_dim"]
+        self.geopotential_dim: int = self.__config["geopotential_dim"]
+        self.thermaldynamic_dim: int = self.__config["thermaldynamic_dim"]
+        self.precipitation_dim: int = self.__config["precipitation_dim"]
+        self.n_condition_days: int = self.__config["n_condition_days"]
+        self.step_dim: int = self.__config["step_dim"]
+        self.condition_latent_embedding_dim: int = self.__config["condition_latent_embedding_dim"]
+        self.n_latent_embedding_layers: int = self.__config["n_latent_embedding_layers"]
+        self.down_out_dims: list[int] = self.__config["down_out_dims"]
+        self.down_hidden_dims: list[int] = self.__config["down_hidden_dims"]
+        self.mid_out_dims: list[int] = self.__config["mid_out_dims"]
+        self.mid_hidden_dims: list[int] = self.__config["mid_hidden_dims"]
+        self.up_out_dims: list[int] = self.__config["up_out_dims"]
+        self.up_hidden_dims: list[int] = self.__config["up_hidden_dims"]
         self.n_layers_per_scaling_block: int = self.__config["n_layers_per_scaling_block"]
         self.n_layers_per_mid_block: int = self.__config["n_layers_per_mid_block"]
         self.n_attention_heads: int = self.__config["n_attention_heads"]
         self.condition_dropout: float = float(self.__config["condition_dropout"])
+        # self.projection_head_hidden_dim: int = self.__config["projection_head_hidden_dim"]
+        # self.n_head_layers: int = self.__config["n_head_layers"]
         self.n_steps: int = self.__config["n_steps"]
         self.noise_scheduler_scheme: Literal["linear", "cosine"] = self.__config["noise_scheduler_scheme"]
         self.beta_min: float = float(self.__config["beta_min"])
@@ -341,12 +349,12 @@ class DDPMConfig(BaseConfig):
         self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
         self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "device": self.device,
-            "target_in_dim": self.target_in_dim,
-            "condition_in_dim": self.condition_in_dim,
-            "step_in_dim": self.step_in_dim,
+            "target_dim": self.target_dim,
+            "condition_dim": self.condition_dim,
+            "step_dim": self.step_dim,
             "down_out_dims": self.down_out_dims,
             "down_hidden_dims": self.down_hidden_dims,
             "mid_out_dims": self.mid_out_dims,

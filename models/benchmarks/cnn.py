@@ -1,5 +1,3 @@
-from typing import *
-
 import torch
 import torch.nn as nn
 from ..common import NamedModel
@@ -22,7 +20,7 @@ class CNN(NamedModel, nn.Module):
         self.embedding_dim: int = embedding_dim
         self.n_hidden_layers: int = n_hidden_layers
 
-        layers: List[nn.Module] = [
+        layers: list[nn.Module] = [
             nn.Conv2d(in_channels=n_input_days * in_features, out_channels=embedding_dim, kernel_size=3, padding=1), 
             nn.ReLU(),
             nn.Dropout(p=0.25),

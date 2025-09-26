@@ -1,4 +1,3 @@
-from typing import *
 import datetime as dt
 import pathlib
 from functools import cached_property
@@ -87,7 +86,7 @@ class CoordinatesReader:
             self.filepath: pathlib.Path = next(self.mask_directory.glob("*.nc"))
 
     @cached_property
-    def tensors(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def tensors(self) -> tuple[torch.Tensor, torch.Tensor]:
         ds: xr.Dataset = xr.open_dataset(self.filepath, engine="netcdf4")
         lat_tensor: torch.Tensor = torch.from_numpy(ds["lat"].values).squeeze().to(device=self.device)
         lon_tensor: torch.Tensor = torch.from_numpy(ds["lon"].values).squeeze().to(device=self.device)

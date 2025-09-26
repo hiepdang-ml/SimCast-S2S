@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import *
+from typing import Callable, Literal
 
 import torch
 from common.configs import MetaData
@@ -17,16 +17,16 @@ class VariableContainer:
         assert var_name in metadata.var_names
         self.var_name: str = var_name
         self.metadata: MetaData = metadata
-        self.__container: Dict[str, Dict[int, torch.Tensor | None]] = defaultdict(dict)  # sim_id, year
+        self.__container: dict[str, dict[int, torch.Tensor | None]] = defaultdict(dict)  # sim_id, year
         for sim_id, year in self.metadata.combinations:
             self.set(sim_id=sim_id, year=year, value=None)
 
-    def get(self, sim_id: str, year: int | None) -> torch.Tensor | Dict[int, torch.Tensor] | None:
+    def get(self, sim_id: str, year: int | None) -> torch.Tensor | dict[int, torch.Tensor] | None:
         if year is None:
             return self.__container[sim_id]
         return self.__container[sim_id][year]
 
-    def set(self, sim_id: str, year: int | None, value: torch.Tensor | Dict[int, torch.Tensor] | None) -> None:
+    def set(self, sim_id: str, year: int | None, value: torch.Tensor | dict[int, torch.Tensor] | None) -> None:
         if year is None:
             assert isinstance(value, dict)
             self.__container[sim_id] = value

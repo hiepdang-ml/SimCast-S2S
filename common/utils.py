@@ -113,10 +113,10 @@ class Timer:
         """
         Initialize the Timer.
         """
-        self.__epoch_starts: Dict[int, float] = dict()
-        self.__epoch_ends: Dict[int, float] = dict()
-        self.__batch_starts: Dict[int, Dict[int, float]] = defaultdict(dict)
-        self.__batch_ends: Dict[int, Dict[int, float]] = defaultdict(dict)
+        self.__epoch_starts: dict[int, float] = dict()
+        self.__epoch_ends: dict[int, float] = dict()
+        self.__batch_starts: dict[int, dict[int, float]] = defaultdict(dict)
+        self.__batch_ends: dict[int, dict[int, float]] = defaultdict(dict)
 
     def start_epoch(self, epoch: int) -> None:
         """
@@ -275,23 +275,23 @@ class CheckpointSaver:
             model = model.module
         self.model_classname: str = model.__class__.__name__
         signature: inspect.Signature = inspect.signature(model.__init__)
-        self.model_kwargs: Dict[str, Any] = {
+        self.model_kwargs: dict[str, Any] = {
             p: getattr(model, p) for p in signature.parameters.keys() if p != 'self'
         }
 
         signature: inspect.Signature = inspect.signature(model.__init__)
-        self.model_kwargs: Dict[str, Any] = {
+        self.model_kwargs: dict[str, Any] = {
             p: getattr(model, p) for p in signature.parameters.keys() if p != 'self'
         }
         # ensure the dirpath exists in the file system
         os.makedirs(name=self.dirpath, exist_ok=True)
 
-    def save(self, model_states: Dict[str, Any], filename: str) -> None:
+    def save(self, model_states: dict[str, Any], filename: str) -> None:
         """
         Save checkpoint to a .pt file.
 
         Parameters:
-            - model_states (Dict[str, torch.Tensor]): The output of model.state_dict()
+            - model_states (dict[str, torch.Tensor]): The output of model.state_dict()
             - filename (str): the checkpoint file name
         """
         torch.save(
@@ -318,28 +318,28 @@ class CheckpointLoader:
             - checkpoint_path (str): The path to the checkpoint file.
         """
         self.checkpoint_path: str = checkpoint_path
-        self.__checkpoint: Dict[str, Any] = torch.load(checkpoint_path, weights_only=False)
+        self.__checkpoint: dict[str, Any] = torch.load(checkpoint_path, weights_only=False)
 
         # Model metadata
         self.model_classname: str = self.__checkpoint['model']['classname']
-        self.model_kwargs: Dict[str, Any] = self.__checkpoint['model']['kwargs']
+        self.model_kwargs: dict[str, Any] = self.__checkpoint['model']['kwargs']
         print(self.model_kwargs)
 
     def load(
         self, 
-        scope: Dict[str, Any], 
-        ignored_modules: List[str] = [], 
-        **overrided_params: Dict[str, Any]
+        scope: dict[str, Any], 
+        ignored_modules: list[str] = [], 
+        **overrided_params: dict[str, Any]
     ) -> nn.Module:
         """
         Load the model from the checkpoint.
 
         Parameters:
-            - scope (Dict[str, Any]): The namespace to look up the model object. 
+            - scope (dict[str, Any]): The namespace to look up the model object. 
                 It's typically the dictionary output of `globals()` or `locals()`
-            - ignored_modules (List[str]): names of modules that are excluded from loading.
+            - ignored_modules (list[str]): names of modules that are excluded from loading.
                 Default is []
-            - **overrided_params (Dict[str, Any]): overrid loaded model parameters (for later retrain). 
+            - **overrided_params (dict[str, Any]): overrid loaded model parameters (for later retrain). 
                 Default is {}, which means keeping the original model parameters unchanged
         
         Returns:
@@ -363,18 +363,18 @@ class CheckpointLoader:
 
         # Load model from model state_dict
         is_wrapped = all(k.startswith("module.") for k in self.__checkpoint['model']['states'].keys())
-        model_states: Dict[str, Any] = {
+        model_states: dict[str, Any] = {
             (k[len("module."):] if is_wrapped else k): v
             for k, v in self.__checkpoint['model']['states'].items()
             if not k.startswith(tuple(ignored_modules))
         }
         model_incompatible_keys: NamedTuple = model.load_state_dict(model_states, strict=False)   # inplace update
-        if model_incompatible_keys.missing_keys:  # List[str]
+        if model_incompatible_keys.missing_keys:  # list[str]
             warnings.warn(
                 f'Missing keys from the loaded model checkpoint: {model_incompatible_keys.missing_keys}', 
                 category=UserWarning
             )
-        if model_incompatible_keys.unexpected_keys: # List[str]
+        if model_incompatible_keys.unexpected_keys: # list[str]
             warnings.warn(
                 f'Unexpected keys found in the loaded model checkpoint: {model_incompatible_keys.unexpected_keys}', 
                 category=UserWarning

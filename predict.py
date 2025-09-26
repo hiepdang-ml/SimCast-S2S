@@ -1,6 +1,8 @@
-from typing import *
+import os
+from typing import Literal
 import argparse
-from torch.nn import DataParallel
+import torch
+import torch.distributed as dist
 
 from datasets.cesm2 import CESM2
 from common.utils import CheckpointLoader
@@ -42,8 +44,7 @@ def main(
         net: CNN = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
         assert isinstance(net, CNN)
         assert net.n_input_days == test_metadata.n_input_days
-        predictor = BaselinePredictor(net=net)
-        predictor.predict(dataset=test_dataset)
+        BaselinePredictor(net=net, dataset=test_dataset).predict()
 
     elif model.lower() == "unet":
         model_config: UnetConfig = UnetConfig()
@@ -51,8 +52,7 @@ def main(
         net: UNet = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
         assert isinstance(net, UNet)
         assert net.n_input_days == test_metadata.n_input_days
-        predictor = BaselinePredictor(net=net)
-        predictor.predict(dataset=test_dataset)
+        BaselinePredictor(net=net, dataset=test_dataset).predict()
 
     elif model.lower() == "vit":
         model_config: ViTConfig = ViTConfig()
@@ -60,8 +60,7 @@ def main(
         net: ViT = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
         assert isinstance(net, ViT)
         assert net.n_input_days == test_metadata.n_input_days
-        predictor = BaselinePredictor(net=net)
-        predictor.predict(dataset=test_dataset)
+        BaselinePredictor(net=net, dataset=test_dataset).predict()
 
     elif model.lower() == "vae-wind":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -73,9 +72,8 @@ def main(
         checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
         net: VAE_Wind = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
         assert isinstance(net, VAE_Wind)
-        assert net.pixel_dim == test_metadata.n_input_days * len(test_metadata.input_vars)
-        predictor = VAEPredictor(net=net)
-        predictor.predict(dataset=test_dataset)
+        assert net.pixel_dim == len(test_metadata.input_vars)
+        VAEPredictor(net=net, dataset=test_dataset).predict()
 
     elif model.lower() == "vae-geopotential":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -87,9 +85,8 @@ def main(
         checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
         net: VAE_Geopotential = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
         assert isinstance(net, VAE_Geopotential)
-        assert net.pixel_dim == test_metadata.n_input_days * len(test_metadata.input_vars)
-        predictor = VAEPredictor(net=net)
-        predictor.predict(dataset=test_dataset)
+        assert net.pixel_dim == len(test_metadata.input_vars)
+        VAEPredictor(net=net, dataset=test_dataset).predict()
 
     elif model.lower() == "vae-thermaldynamic":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -101,9 +98,8 @@ def main(
         checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
         net: VAE_ThermalDynamic = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
         assert isinstance(net, VAE_ThermalDynamic)
-        assert net.pixel_dim == test_metadata.n_input_days * len(test_metadata.input_vars)
-        predictor = VAEPredictor(net=net)
-        predictor.predict(dataset=test_dataset)
+        assert net.pixel_dim == len(test_metadata.input_vars)
+        VAEPredictor(net=net, dataset=test_dataset).predict()
 
     elif model.lower() == "vae-precipitation":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -115,13 +111,13 @@ def main(
         checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
         net: VAE_Precipitation = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
         assert isinstance(net, VAE_Precipitation)
-        assert net.pixel_dim == test_metadata.n_input_days * len(test_metadata.input_vars)
-        predictor = VAEPredictor(net=net)
-        predictor.predict(dataset=test_dataset)
+        assert net.pixel_dim == len(test_metadata.input_vars)
+        VAEPredictor(net=net, dataset=test_dataset).predict()
 
     elif model.lower() == "ddpm":
         model_config: DDPMConfig = DDPMConfig()
         # Denoiser
+        print(f"Loading denoiser from {model_config.from_checkpoint}")
         checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
         net: UNetDenoiser = checkpoint_loader.load(scope=globals()).to(device=model_config.device)
         assert isinstance(net, UNetDenoiser)
@@ -160,20 +156,36 @@ def main(
         else:
             raise ValueError(f"Invalid noiser_scheduler_scheme in config {model_config.noise_scheduler_scheme}")
         
-        predictor = DDPMPredictor(
+        DDPMPredictor(
             denoiser=net, 
             wind_encoder=wind_encoder, 
             geopotential_encoder=geopotential_encoder, thermaldynamic_encoder=thermaldynamic_encoder, 
             precipitation_encoder=precipitation_encoder, precipitation_decoder=precipitation_decoder,
             noise_scheduler=noise_scheduler,
-        )
-        predictor.predict(dataset=test_dataset)
+            dataset=test_dataset,
+        ).predict()
 
     else:
         raise NotImplementedError(f"Unknown model: {model}")
 
 
 if __name__ == "__main__":
+    import torch.multiprocessing as mp
+    mp.set_start_method("spawn", force=True)
+
+    def setup_ddp() -> int:
+        assert "RANK" in os.environ
+        assert "WORLD_SIZE" in os.environ
+        local_rank: int = int(os.environ["LOCAL_RANK"])
+        torch.cuda.set_device(device=local_rank)
+        dist.init_process_group(backend="nccl")
+        return local_rank
+
+    def cleanup_ddp() -> None:
+        if dist.is_initialized():
+            dist.barrier()
+            dist.destroy_process_group()
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model", 
@@ -189,5 +201,10 @@ if __name__ == "__main__":
         required=True,
     )
     args: argparse.Namespace = parser.parse_args()
-    main(model=args.model, dataset=args.dataset)
+
+    local_rank: int = setup_ddp()
+    try:
+        main(model=args.model, dataset=args.dataset)
+    finally:
+        cleanup_ddp()
 

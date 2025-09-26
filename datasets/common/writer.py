@@ -1,7 +1,7 @@
 import datetime as dt
 import json
 import pathlib
-from typing import *
+from typing import Literal, Any
 
 import torch
 from datasets.common.container import VariableContainer
@@ -24,7 +24,7 @@ class DataWriter:
         0                                                                           365
         """
         self.metadata: MetaData = metadata
-        self.__datestrings: List[str] = [
+        self.__datestrings: list[str] = [
             # choose 2025 since not a leap year
             (dt.datetime(2025, 1, 1) + dt.timedelta(days=i)).strftime("%m%d")
             for i in range(365)
@@ -47,7 +47,7 @@ class DataWriter:
 
     def __save_metadata(self) -> None:
         filepath: pathlib.Path = pathlib.Path(self.metadata_path.joinpath("metadata.json"))
-        d: Dict[str, Any] = self.metadata.to_dict()
+        d: dict[str, Any] = self.metadata.to_dict()
         with open(file=filepath, mode="w") as file:
             json.dump(obj=d, fp=file)
 
@@ -56,7 +56,7 @@ class DataWriter:
         sim_id: str, var_name: str, year: int, 
         input_or_output: Literal["input", "output"],
         sample_index: int, 
-        yearday_indices: List[int]
+        yearday_indices: list[int]
     ) -> str:
         sample_id: str = f"{sample_index:06d}"
         prefix: str = f"{sample_id}.{self.metadata.tp}.{input_or_output}__{sim_id}_{var_name}_{year}__"

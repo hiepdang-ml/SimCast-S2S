@@ -1,6 +1,5 @@
 import os
 from collections import defaultdict
-from typing import *
 
 import torch
 import torch.nn.functional as F
@@ -11,11 +10,11 @@ from common.configs import MetaData
 
 class _LinearRegressor:
 
-    def __init__(self, var_name: str, resolution: Tuple[int, int]) -> None:
+    def __init__(self, var_name: str, resolution: tuple[int, int]) -> None:
         self.var_name: str = var_name
-        self.resolution: Tuple[int, int] = resolution
+        self.resolution: tuple[int, int] = resolution
         self.H, self.W = resolution
-        self.lr_weight: Dict[str, torch.Tensor] = {}  # sim_ids
+        self.lr_weight: dict[str, torch.Tensor] = {}  # sim_ids
 
     def fit(self, mean_container: VariableContainer, train_metadata: MetaData) -> None:
         assert self.var_name == mean_container.var_name
@@ -115,12 +114,12 @@ class Detrender:
 
 class _ClimatologicalMean:
 
-    def __init__(self, var_name: str, resolution: Tuple[int, int]):
+    def __init__(self, var_name: str, resolution: tuple[int, int]):
         self.var_name: str = var_name
-        self.resolution: Tuple[int, int] = resolution
+        self.resolution: tuple[int, int] = resolution
         self.H, self.W = self.resolution
-        self.climatological_mean: Dict[str, torch.Tensor] = {}  # sim_ids
-        self.climatological_std : Dict[str, torch.Tensor] = {}  # sim_ids
+        self.climatological_mean: dict[str, torch.Tensor] = {}  # sim_ids
+        self.climatological_std : dict[str, torch.Tensor] = {}  # sim_ids
 
     def fit(self, input_container: VariableContainer, train_metadata: MetaData) -> None:
         assert self.var_name == input_container.var_name
@@ -134,8 +133,8 @@ class _ClimatologicalMean:
         
         for sim_id in train_metadata.sim_ids:
             # retrieve input data (ensure ascending year)
-            year_tensors: Dict[str, torch.Tensor] = input_container.get(sim_id=sim_id, year=None)
-            year_tensors: List[torch.Tensor] = [year_tensors[k] for k in train_metadata.years]
+            year_tensors: dict[str, torch.Tensor] = input_container.get(sim_id=sim_id, year=None)
+            year_tensors: list[torch.Tensor] = [year_tensors[k] for k in train_metadata.years]
             assert all(tensor.shape == (365, self.H, self.W) for tensor in year_tensors)
             input_tensor: torch.Tensor = torch.stack(year_tensors, dim=0)
             input_tensor = input_tensor.permute(0, 2, 3, 1).flatten(start_dim=1, end_dim=2)
@@ -212,8 +211,8 @@ class ClimatologyRemover:
 
         for sim_id in self.metadata.sim_ids:
             # compute standardized anomalies
-            year_tensors: Dict[str, torch.Tensor] = input_container.get(sim_id=sim_id, year=None)
-            year_tensors: List[torch.Tensor] = [year_tensors[k] for k in self.metadata.years]
+            year_tensors: dict[str, torch.Tensor] = input_container.get(sim_id=sim_id, year=None)
+            year_tensors: list[torch.Tensor] = [year_tensors[k] for k in self.metadata.years]
             assert all(tensor.shape == (365, self.H, self.W) for tensor in year_tensors)
             input_tensor: torch.Tensor = torch.stack(year_tensors, dim=0)
             assert input_tensor.shape == (self.metadata.n_years, 365, self.H, self.W)
