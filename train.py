@@ -6,14 +6,14 @@ import torch.distributed as dist
 
 from datasets import CESM2
 from common.utils import CheckpointLoader
-from workers import BaselineTrainer, VAETrainer, DDPMTrainer
-from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DDPMConfig
+from workers import BaselineTrainer, VAETrainer, DiffusionTrainer
+from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DiffusionConfig
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAE_Wind, VAE_Geopotential, VAE_ThermalDynamic, VAE_Precipitation, 
     VAEEncoder, VAEDecoder, UNetDenoiser, 
     LinearNoiseScheduler, CosineNoiseScheduler, 
-    DDPMForwardProcess, DDPMReverseProcess,
+    ForwardProcess, ReverseProcess,
 )
 
 
@@ -352,89 +352,87 @@ def main(
             save_frequency=vae_config.save_frequency,
         )
 
-    elif model.lower() == "ddpm":
-        print("Training DDPM")
+    elif model.lower() == "diffusion":
+        print("Training Diffusion")
         # Denoiser
-        ddpm_config: DDPMConfig = DDPMConfig()
-        if (checkpoint_path := ddpm_config.from_checkpoint) is not None:
+        diffusion_config: DiffusionConfig = DiffusionConfig()
+        if (checkpoint_path := diffusion_config.from_checkpoint) is not None:
             print(f"Training from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
-            net: UNetDenoiser = checkpoint_loader.load(scope=globals()).to(device=ddpm_config.device)
+            net: UNetDenoiser = checkpoint_loader.load(scope=globals()).to(device=diffusion_config.device)
             assert isinstance(net, UNetDenoiser)
         else:
             print("Training UNetDenoiser from scratch")
             net: UNetDenoiser = UNetDenoiser(
-                target_dim=ddpm_config.target_dim,
-                wind_dim=ddpm_config.wind_dim,
-                geopotential_dim=ddpm_config.geopotential_dim,
-                thermaldynamic_dim=ddpm_config.thermaldynamic_dim,
-                precipitation_dim=ddpm_config.precipitation_dim,
-                step_dim=ddpm_config.step_dim,
-                condition_latent_embedding_dim=ddpm_config.condition_latent_embedding_dim,
-                n_latent_embedding_layers=ddpm_config.n_latent_embedding_layers,
-                n_condition_days=ddpm_config.n_condition_days,
-                down_out_dims=ddpm_config.down_out_dims,
-                down_hidden_dims=ddpm_config.down_hidden_dims,
-                mid_out_dims=ddpm_config.mid_out_dims,
-                mid_hidden_dims=ddpm_config.mid_hidden_dims,
-                up_out_dims=ddpm_config.up_out_dims,
-                up_hidden_dims=ddpm_config.up_hidden_dims,
-                n_layers_per_scaling_block=ddpm_config.n_layers_per_scaling_block,
-                n_layers_per_mid_block=ddpm_config.n_layers_per_mid_block,
-                n_attention_heads=ddpm_config.n_attention_heads,
-                condition_dropout=ddpm_config.condition_dropout,
-                # projection_head_hidden_dim=ddpm_config.projection_head_hidden_dim,
-                # n_head_layers=ddpm_config.n_head_layers,
-            ).to(device=ddpm_config.device)
+                target_dim=diffusion_config.target_dim,
+                wind_dim=diffusion_config.wind_dim,
+                geopotential_dim=diffusion_config.geopotential_dim,
+                thermaldynamic_dim=diffusion_config.thermaldynamic_dim,
+                precipitation_dim=diffusion_config.precipitation_dim,
+                step_dim=diffusion_config.step_dim,
+                condition_latent_embedding_dim=diffusion_config.condition_latent_embedding_dim,
+                n_latent_embedding_layers=diffusion_config.n_latent_embedding_layers,
+                n_condition_days=diffusion_config.n_condition_days,
+                down_out_dims=diffusion_config.down_out_dims,
+                down_hidden_dims=diffusion_config.down_hidden_dims,
+                mid_out_dims=diffusion_config.mid_out_dims,
+                mid_hidden_dims=diffusion_config.mid_hidden_dims,
+                up_out_dims=diffusion_config.up_out_dims,
+                up_hidden_dims=diffusion_config.up_hidden_dims,
+                n_layers_per_scaling_block=diffusion_config.n_layers_per_scaling_block,
+                n_layers_per_mid_block=diffusion_config.n_layers_per_mid_block,
+                n_attention_heads=diffusion_config.n_attention_heads,
+                condition_dropout=diffusion_config.condition_dropout,
+            ).to(device=diffusion_config.device)
         
         # Wind encoder
-        print(f"Loading wind_encoder from {ddpm_config.wind_vae_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=ddpm_config.wind_vae_checkpoint)
-        wind_encoder: VAE_Wind = checkpoint_loader.load(scope=globals()).encoder.to(device=ddpm_config.device)
+        print(f"Loading wind_encoder from {diffusion_config.wind_vae_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.wind_vae_checkpoint)
+        wind_encoder: VAE_Wind = checkpoint_loader.load(scope=globals()).encoder.to(device=diffusion_config.device)
         # Geopotential encoder
-        print(f"Loading geopotential_encoder from {ddpm_config.geopotential_vae_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=ddpm_config.geopotential_vae_checkpoint)
-        geopotential_encoder: VAE_Geopotential = checkpoint_loader.load(scope=globals()).encoder.to(device=ddpm_config.device)
+        print(f"Loading geopotential_encoder from {diffusion_config.geopotential_vae_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.geopotential_vae_checkpoint)
+        geopotential_encoder: VAE_Geopotential = checkpoint_loader.load(scope=globals()).encoder.to(device=diffusion_config.device)
         # Thermaldynamic encoder
-        print(f"Loading thermaldynamic_encoder from {ddpm_config.thermaldynamic_vae_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=ddpm_config.thermaldynamic_vae_checkpoint)
-        thermaldynamic_encoder: VAE_ThermalDynamic = checkpoint_loader.load(scope=globals()).encoder.to(device=ddpm_config.device)
+        print(f"Loading thermaldynamic_encoder from {diffusion_config.thermaldynamic_vae_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.thermaldynamic_vae_checkpoint)
+        thermaldynamic_encoder: VAE_ThermalDynamic = checkpoint_loader.load(scope=globals()).encoder.to(device=diffusion_config.device)
         # Precipitation encoder
-        print(f"Loading precipitation_encoder from {ddpm_config.precipitation_vae_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=ddpm_config.precipitation_vae_checkpoint)
-        precipitation_encoder: VAE_Precipitation = checkpoint_loader.load(scope=globals()).encoder.to(device=ddpm_config.device)
+        print(f"Loading precipitation_encoder from {diffusion_config.precipitation_vae_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.precipitation_vae_checkpoint)
+        precipitation_encoder: VAE_Precipitation = checkpoint_loader.load(scope=globals()).encoder.to(device=diffusion_config.device)
         # Noise scheduler
-        if ddpm_config.noise_scheduler_scheme == "linear":
+        if diffusion_config.noise_scheduler_scheme == "linear":
             noise_scheduler = LinearNoiseScheduler(
-                beta_min=ddpm_config.beta_min,
-                beta_max=ddpm_config.beta_max,
-                n_steps=ddpm_config.n_steps,
-                device=ddpm_config.device,
+                beta_min=diffusion_config.beta_min,
+                beta_max=diffusion_config.beta_max,
+                n_steps=diffusion_config.n_steps,
+                device=diffusion_config.device,
             )
-        elif ddpm_config.noise_scheduler_scheme == "cosine":
-            noise_scheduler = CosineNoiseScheduler(n_steps=ddpm_config.n_steps, device=ddpm_config.device)
+        elif diffusion_config.noise_scheduler_scheme == "cosine":
+            noise_scheduler = CosineNoiseScheduler(n_steps=diffusion_config.n_steps, device=diffusion_config.device)
         else:
-            raise ValueError(f"Invalid noiser_scheduler_scheme in config {ddpm_config.noise_scheduler_scheme}")
+            raise ValueError(f"Invalid noiser_scheduler_scheme in config {diffusion_config.noise_scheduler_scheme}")
 
-        trainer = DDPMTrainer(
+        trainer = DiffusionTrainer(
             denoiser=net,
             wind_encoder=wind_encoder,
             geopotential_encoder=geopotential_encoder,
             thermaldynamic_encoder=thermaldynamic_encoder,
             precipitation_encoder=precipitation_encoder,
             noise_scheduler=noise_scheduler,
-            lr=ddpm_config.learning_rate,
+            lr=diffusion_config.learning_rate,
             train_dataset=train_dataset,
             val_dataset=val_dataset,
-            train_batch_size=ddpm_config.train_batch_size,
-            val_batch_size=ddpm_config.val_batch_size,
+            train_batch_size=diffusion_config.train_batch_size,
+            val_batch_size=diffusion_config.val_batch_size,
         )
         trainer.train(
-            n_epochs=ddpm_config.n_epochs,
-            patience=ddpm_config.patience,
-            tolerance=ddpm_config.tolerance,
-            checkpoint_directory=ddpm_config.saved_checkpoint_directory,
-            save_frequency=ddpm_config.save_frequency,
+            n_epochs=diffusion_config.n_epochs,
+            patience=diffusion_config.patience,
+            tolerance=diffusion_config.tolerance,
+            checkpoint_directory=diffusion_config.saved_checkpoint_directory,
+            save_frequency=diffusion_config.save_frequency,
         )
 
     else:
@@ -462,7 +460,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model", type=str, choices=[
             "cnn", "unet", "vit", 
-            "vae-wind", "vae-geopotential", "vae-thermaldynamic", "vae-precipitation", "ddpm",
+            "vae-wind", "vae-geopotential", "vae-thermaldynamic", "vae-precipitation", "diffusion",
         ],
         required=True,
     )

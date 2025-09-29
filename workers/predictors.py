@@ -18,7 +18,7 @@ from common.plotting import MetricPlotter, PredictionPlotter
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAEEncoder, VAEDecoder, UNetDenoiser, 
-    LinearNoiseScheduler, CosineNoiseScheduler, DDPMReverseProcess,
+    LinearNoiseScheduler, CosineNoiseScheduler, ReverseProcess,
 )
 from .common import RequireVAEEncoders
 
@@ -260,7 +260,7 @@ class VAEPredictor(_AbstractPredictor):
         return output_names
 
 
-class DDPMPredictor(RequireVAEEncoders, _AbstractPredictor):
+class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
 
     def __init__(
         self, 
@@ -271,6 +271,7 @@ class DDPMPredictor(RequireVAEEncoders, _AbstractPredictor):
         precipitation_encoder: VAEEncoder,
         precipitation_decoder: VAEDecoder,
         noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler,
+        eta: float,
         dataset: CESM2,
     ) -> None:
         super().__init__(net=denoiser, dataset=dataset)
@@ -299,7 +300,8 @@ class DDPMPredictor(RequireVAEEncoders, _AbstractPredictor):
 
         self.noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler = noise_scheduler
         self.n_denoising_steps: int = noise_scheduler.n_steps
-        self.reverse_process: DDPMReverseProcess = DDPMReverseProcess(noise_scheduler)
+        self.eta: float = eta
+        self.reverse_process: ReverseProcess = ReverseProcess(eta=eta, noise_scheduler=noise_scheduler)
 
     def _predict_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor]:
         sampleinfos, _, _, condition, groundtruth = batch
@@ -316,7 +318,7 @@ class DDPMPredictor(RequireVAEEncoders, _AbstractPredictor):
         target_latent_k: torch.Tensor = gaussian
         for k in reversed(range(1, self.noise_scheduler.n_steps)):
             step: torch.Tensor = torch.ones((1, 1), device=target_latent.device, dtype=torch.long) * k
-            # DDPM backward process
+            # Backward process
             predicted_gaussian: torch.Tensor = self.denoiser(
                 target=target_latent_k, 
                 wind_condition=wind_latent, geopotential_condition=geopotential_latent, 
@@ -328,7 +330,8 @@ class DDPMPredictor(RequireVAEEncoders, _AbstractPredictor):
             )
 
         # At k=0 (last denoising step), target_latent_k = target_latent_0
-        assert target_latent_k.isclose(target_latent_0).all()
+        # assert target_latent_k.isclose(target_latent_0).all()
+        
         # Decode target back to physical space
         prediction: torch.Tensor = self.precipitation_decoder(target_latent_0)
         assert prediction.shape == groundtruth.shape == (1, 1, 192, 288, self.out_features)

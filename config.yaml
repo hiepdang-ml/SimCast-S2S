@@ -240,7 +240,7 @@ vae-precipitation:
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_precipitation_16times"
 
 
-ddpm:
+diffusion:
 
   device: "cuda"
   target_dim: 32  # fixed, vae-precipitation.latent_dim
@@ -263,28 +263,27 @@ ddpm:
   n_layers_per_mid_block: 3
   n_attention_heads: 16
   condition_dropout: 0.
-  # projection_head_hidden_dim: 1024
-  # n_head_layers: 4
-  # DDPM configurations
+  # Diffusion configurations
   n_steps: 1000
   noise_scheduler_scheme: "cosine" # "linear" or "cosine"
   beta_min: 1e-4  # only applicable for "linear" 
   beta_max: 0.02  # only applicable for "linear"
 
   # Training
-  learning_rate: 1e-6
+  learning_rate: 1e-7
   train_batch_size: 4
-  
   val_batch_size: 4
   n_epochs: 1000
   patience: 20
   tolerance: 0.
   save_frequency: 1
+  # Sampling
+  eta: 1.
 
   wind_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/vae7.pt"
   geopotential_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_geopotential_16times/vae41.pt"
   thermaldynamic_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermaldynamic_16times/vae19.pt"
   precipitation_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precipitation_16times/vae16.pt"
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/ddpm_v4/ddpm17.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/ddpm_v4"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v4/diffusion29.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v4"
 

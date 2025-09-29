@@ -6,21 +6,21 @@ import torch.distributed as dist
 
 from datasets.cesm2 import CESM2
 from common.utils import CheckpointLoader
-from workers import BaselinePredictor, VAEPredictor, DDPMPredictor
-from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DDPMConfig
+from workers import BaselinePredictor, VAEPredictor, DiffusionPredictor
+from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DiffusionConfig
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAE_Wind, VAE_Geopotential, VAE_ThermalDynamic, VAE_Precipitation, 
     VAEEncoder, VAEDecoder, UNetDenoiser, 
     LinearNoiseScheduler, CosineNoiseScheduler, 
-    DDPMForwardProcess, DDPMReverseProcess,
+    ForwardProcess, ReverseProcess,
 )
 
 
 def main(
     model: Literal[
         "cnn", "unet", "vit", 
-        "vae-wind", "vae-geopotential", "vae-thermaldynamic", "vae-precipitation", "ddpm"
+        "vae-wind", "vae-geopotential", "vae-thermaldynamic", "vae-precipitation", "diffusion"
     ],
     dataset: Literal["cesm2", "era5"]
 ) -> None:
@@ -114,8 +114,8 @@ def main(
         assert net.pixel_dim == len(test_metadata.input_vars)
         VAEPredictor(net=net, dataset=test_dataset).predict()
 
-    elif model.lower() == "ddpm":
-        model_config: DDPMConfig = DDPMConfig()
+    elif model.lower() == "diffusion":
+        model_config: DiffusionConfig = DiffusionConfig()
         # Denoiser
         print(f"Loading denoiser from {model_config.from_checkpoint}")
         checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
@@ -156,12 +156,13 @@ def main(
         else:
             raise ValueError(f"Invalid noiser_scheduler_scheme in config {model_config.noise_scheduler_scheme}")
         
-        DDPMPredictor(
+        DiffusionPredictor(
             denoiser=net, 
             wind_encoder=wind_encoder, 
             geopotential_encoder=geopotential_encoder, thermaldynamic_encoder=thermaldynamic_encoder, 
             precipitation_encoder=precipitation_encoder, precipitation_decoder=precipitation_decoder,
             noise_scheduler=noise_scheduler,
+            eta=model_config.eta,
             dataset=test_dataset,
         ).predict()
 
@@ -191,7 +192,7 @@ if __name__ == "__main__":
         "--model", 
         type=str, choices=[
             "cnn", "unet", "vit", 
-            "vae-wind", "vae-geopotential", "vae-thermaldynamic", "vae-precipitation", "ddpm"
+            "vae-wind", "vae-geopotential", "vae-thermaldynamic", "vae-precipitation", "diffusion"
         ],
         required=True,
     )

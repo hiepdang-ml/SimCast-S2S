@@ -16,7 +16,7 @@ from common.losses import VAELoss
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAEEncoder, UNetDenoiser, 
-    LinearNoiseScheduler, CosineNoiseScheduler, DDPMForwardProcess,
+    LinearNoiseScheduler, CosineNoiseScheduler, ForwardProcess,
 )
 from .common import RequireVAEEncoders
 
@@ -253,7 +253,7 @@ class VAETrainer(_AbstractTrainer):
         return mean_mae.item() / input_tensor.shape[1]
 
 
-class DDPMTrainer(RequireVAEEncoders, _AbstractTrainer):
+class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
 
     def __init__(
         self,
@@ -293,7 +293,7 @@ class DDPMTrainer(RequireVAEEncoders, _AbstractTrainer):
 
         self.noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler = noise_scheduler
         self.n_denoising_steps: int = noise_scheduler.n_steps
-        self.forward_process: DDPMForwardProcess = DDPMForwardProcess(noise_scheduler)
+        self.forward_process: ForwardProcess = ForwardProcess(noise_scheduler=noise_scheduler)
         self.indices_by_context_group = self.train_dataset.indices_by_context_group
 
     #implement

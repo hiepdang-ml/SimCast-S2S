@@ -2,8 +2,8 @@ from .vae import (
     VAE, VAE_Wind, VAE_Geopotential, VAE_ThermalDynamic, VAE_Precipitation, 
     VAEEncoder, VAEDecoder
 )
-from .ddpm import (
+from .diffusion import (
     UNetDenoiser, 
     LinearNoiseScheduler, CosineNoiseScheduler, 
-    DDPMForwardProcess, DDPMReverseProcess
+    ForwardProcess, ReverseProcess
 )

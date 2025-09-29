@@ -664,66 +664,85 @@ class UNetDenoiser(NamedModel, nn.Module):
         return output
 
 
-class _DDPMProcess:
+class _DiffusionProcess:
 
     def __init__(self, noise_scheduler: _NoiseScheduler):
         self.noise_scheduler: _NoiseScheduler = noise_scheduler
-        self.alpha_bar_schedule: torch.Tensor = self.noise_scheduler.alpha_bar_schedule.cuda()
-        self.beta_schedule: torch.Tensor = self.noise_scheduler.beta_schedule.cuda()
+        self.alpha_bar_schedule: torch.Tensor = self.noise_scheduler.alpha_bar_schedule
+        self.beta_schedule: torch.Tensor = self.noise_scheduler.beta_schedule
 
-class DDPMForwardProcess(_DDPMProcess):
+    def compute_alpha_bar(self, step: torch.Tensor) -> torch.Tensor:
+        step_N, _ = step.shape  # (batch_size, 1)
+        alpha_bar: torch.Tensor = self.alpha_bar_schedule.to(step.device)[step.long()]
+        assert alpha_bar.shape == (step_N, 1)
+        alpha_bar = alpha_bar[:, :, None, None]
+        return alpha_bar
+
+    def compute_beta(self, step: torch.Tensor) -> torch.Tensor:
+        step_N, _ = step.shape  # (batch_size, 1)
+        beta: torch.Tensor = self.beta_schedule.to(step.device)[step.long()]
+        assert beta.shape == (step_N, 1)
+        beta = beta[:, :, None, None]
+        return beta
+
+    def compute_x0(self, target_k: torch.Tensor, predicted_noise: torch.Tensor, alpha_bar: torch.Tensor) -> torch.Tensor:
+        target_N, target_D, target_H, target_W = target_k.shape
+        noise_N, noise_D, noise_H, noise_W = predicted_noise.shape
+        alpha_bar_N, _, _, _ = alpha_bar.shape  # (batch_size, 1)
+        assert target_N == noise_N == alpha_bar_N
+        # Original target prediction at k
+        target_0: torch.Tensor = (target_k - torch.sqrt(1 - alpha_bar) * predicted_noise) / torch.sqrt(alpha_bar)
+        assert target_0.shape == target_k.shape
+        return target_0
+
+    def compute_tilde_beta(self, alpha_bar_prev: torch.Tensor, alpha_bar: torch.Tensor) -> torch.Tensor:
+        return (1 - alpha_bar_prev) / (1 - alpha_bar) * (1 - alpha_bar / alpha_bar_prev)
+
+    def compute_sigma(self, tilde_beta: torch.Tensor, eta: float) -> torch.Tensor:
+        return eta * torch.sqrt(tilde_beta)
+
+
+class ForwardProcess(_DiffusionProcess):
     
     def add_noise(self, original_latent: torch.Tensor, step: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         original_N: int = original_latent.shape[0]
         step_N: int = step.shape[0]
-        assert original_N == step_N
-        batch_size: int = original_N
+        assert original_N == step_N # batch_size
         gaussian: torch.Tensor = torch.randn_like(original_latent)
         # Make sure schedules are on the same device before indexing with GPU tensor indices
-        alpha_bars: torch.Tensor = self.alpha_bar_schedule.to(original_latent.device)[step.long()]
-        assert alpha_bars.shape == (batch_size, 1)
-        alpha_bars = alpha_bars[:, :, None, None]   # for broadcasting with `original`
-        noisy_latent: torch.Tensor = original_latent * (alpha_bars ** 0.5) + gaussian * ((1 - alpha_bars) ** 0.5)
+        alpha_bar: torch.Tensor = self.compute_alpha_bar(step=step)
+        noisy_latent: torch.Tensor = original_latent * (alpha_bar ** 0.5) + gaussian * ((1 - alpha_bar) ** 0.5)
         assert noisy_latent.shape == original_latent.shape
         return noisy_latent, gaussian
     
 
-class DDPMReverseProcess(_DDPMProcess):
-    
-    # DDPM
+class ReverseProcess(_DiffusionProcess):
+
+    def __init__(self, eta: float, noise_scheduler: _NoiseScheduler) -> None:
+        super().__init__(noise_scheduler=noise_scheduler)
+        self.eta: float = eta
+        assert 0. <= self.eta <= 1.
+
     def sample(
         self, 
         target_k: torch.Tensor, predicted_noise: torch.Tensor, step: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-
+        
         target_N, target_D, target_H, target_W = target_k.shape
         noise_N, noise_D, noise_H, noise_W = predicted_noise.shape
         step_N, _ = step.shape  # (batch_size, 1)
-        assert target_N == noise_N == step_N
-        batch_size: int = target_N
+        assert target_N == noise_N == step_N  # batch_size
 
         # Alpha bar
-        alpha_bars: torch.Tensor = self.alpha_bar_schedule.to(target_k.device)[step.long()]
-        assert alpha_bars.shape == (batch_size, 1)
-        alpha_bars = alpha_bars[:, :, None, None]
-        # Beta
-        betas: torch.Tensor = self.beta_schedule.to(target_k.device)[step.long()]
-        assert betas.shape == (batch_size, 1)
-        betas = betas[:, :, None, None]
+        alpha_bar: torch.Tensor = self.compute_alpha_bar(step=step)
+        alpha_bar_prev: torch.Tensor = self.compute_alpha_bar(step=torch.clamp(input=step - 1, min=0))
+        # Beta tilde
+        tilde_beta: torch.Tensor = self.compute_tilde_beta(alpha_bar_prev=alpha_bar_prev, alpha_bar=alpha_bar)
+        # Sigma
+        sigma: torch.Tensor = self.compute_sigma(tilde_beta=tilde_beta, eta=self.eta)
         # Original target prediction at k
-        target_0: torch.Tensor = (target_k - torch.sqrt(1 - alpha_bars) * predicted_noise) / torch.sqrt(alpha_bars)
+        target_0: torch.Tensor = self.compute_x0(target_k=target_k, predicted_noise=predicted_noise, alpha_bar=alpha_bar)
         assert target_0.shape == target_k.shape
-        # Mean of [target_{k-1} | target_{k}]
-        mean: torch.Tensor = (target_k - betas / torch.sqrt(1 - alpha_bars) * predicted_noise) / torch.sqrt(1 - betas)
-        assert mean.shape == target_k.shape
-        # Variance of [target_{k-1} | target_{k}, target_{0}]
-        alpha_bars_prev: torch.Tensor =  self.alpha_bar_schedule.to(target_k.device)[torch.clamp(step - 1, min=0)]
-        alpha_bars_prev = alpha_bars_prev[:, :, None, None]
-        assert alpha_bars_prev.shape == alpha_bars.shape == betas.shape == (batch_size, 1, 1, 1)
-        numerator: torch.Tensor = (1 - alpha_bars_prev) * betas
-        denominator = 1 - alpha_bars
-        variance: torch.Tensor = numerator / denominator
-        assert variance.shape == (batch_size, 1, 1, 1)
-        # Note: at step=0, target_k = target_0 = mean
-        return mean + (variance ** 0.5) * torch.randn_like(target_k), target_0
+        mean: torch.Tensor = torch.sqrt(alpha_bar_prev) * target_0 + torch.sqrt(1 - alpha_bar_prev - sigma ** 2) * predicted_noise
+        return mean + sigma * torch.randn_like(target_k), target_0
 

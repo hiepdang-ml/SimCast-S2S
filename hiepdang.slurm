@@ -11,7 +11,7 @@
 #SBATCH --mail-type=ALL
 #SBATCH --account=mamalakislab
 #SBATCH --output=./.slurmlogs/%j.out
-#SBATCH -J "ddpm"
+#SBATCH -J "diffusion"
 
 source $HOME/.bashrc &&
 source $HOME/miniconda3/etc/profile.d/conda.sh &&
@@ -21,4 +21,4 @@ export PYTHONPATH=$HOME/s2s-cesm2 &&
 # Force IPv4 localhost for single-node runs to avoid AF errors
 export MASTER_ADDR=127.0.0.1 &&
 export MASTER_PORT=29505 &&
-torchrun --master_addr=${MASTER_ADDR} --nproc_per_node=${SLURM_GPUS_ON_NODE} --master_port=${MASTER_PORT} train.py --model=ddpm --dataset=cesm2
+torchrun --master_addr=${MASTER_ADDR} --nproc_per_node=${SLURM_GPUS_ON_NODE} --master_port=${MASTER_PORT} predict.py --model=diffusion --dataset=cesm2

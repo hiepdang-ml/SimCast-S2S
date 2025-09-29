@@ -1,3 +1,3 @@
-from .trainers import BaselineTrainer, VAETrainer, DDPMTrainer
-from .predictors import BaselinePredictor, VAEPredictor, DDPMPredictor
+from .trainers import BaselineTrainer, VAETrainer, DiffusionTrainer
+from .predictors import BaselinePredictor, VAEPredictor, DiffusionPredictor
 
