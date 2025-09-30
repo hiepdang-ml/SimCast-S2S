@@ -309,14 +309,10 @@ class DiffusionConfig(BaseConfig):
     def _load(self) -> None:
         self.device: str = self.__config["device"]
         self.target_dim: int = self.__config["target_dim"]
-        self.wind_dim: int = self.__config["wind_dim"]
-        self.geopotential_dim: int = self.__config["geopotential_dim"]
-        self.thermaldynamic_dim: int = self.__config["thermaldynamic_dim"]
-        self.precipitation_dim: int = self.__config["precipitation_dim"]
+        self.condition_dim: int = self.__config["condition_dim"]
         self.n_condition_days: int = self.__config["n_condition_days"]
         self.step_dim: int = self.__config["step_dim"]
-        self.condition_latent_embedding_dim: int = self.__config["condition_latent_embedding_dim"]
-        self.n_latent_embedding_layers: int = self.__config["n_latent_embedding_layers"]
+        self.day_dim: int = self.__config["day_dim"]
         self.down_out_dims: list[int] = self.__config["down_out_dims"]
         self.down_hidden_dims: list[int] = self.__config["down_hidden_dims"]
         self.mid_out_dims: list[int] = self.__config["mid_out_dims"]
@@ -354,6 +350,7 @@ class DiffusionConfig(BaseConfig):
             "target_dim": self.target_dim,
             "condition_dim": self.condition_dim,
             "step_dim": self.step_dim,
+            "day_dim": self.day_dim,
             "down_out_dims": self.down_out_dims,
             "down_hidden_dims": self.down_hidden_dims,
             "mid_out_dims": self.mid_out_dims,

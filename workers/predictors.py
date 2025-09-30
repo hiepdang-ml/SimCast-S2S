@@ -304,14 +304,12 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         self.reverse_process: ReverseProcess = ReverseProcess(eta=eta, noise_scheduler=noise_scheduler)
 
     def _predict_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor]:
-        sampleinfos, _, _, condition, groundtruth = batch
+        sampleinfos, input_yearday_indices, _, condition, groundtruth = batch
         condition = condition.to(device=self.device)
         groundtruth = groundtruth.to(device=self.device)
         sampleinfo: SampleInfo = sampleinfos[0] # because batch_size=1
         # Encode
-        wind_latent, geopotential_latent, thermaldynamic_latent, precipitation_latent, target_latent = (
-            self.vae_encode(condition=condition, target=groundtruth)
-        )
+        target_latent, condition_latent = self.vae_encode(condition=condition, target=groundtruth)
         # Generate gaussian
         gaussian: torch.Tensor = torch.randn_like(target_latent)
         # Denoise
@@ -319,17 +317,16 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         for k in reversed(range(1, self.noise_scheduler.n_steps)):
             step: torch.Tensor = torch.ones((1, 1), device=target_latent.device, dtype=torch.long) * k
             # Backward process
-            predicted_gaussian: torch.Tensor = self.denoiser(
-                target=target_latent_k, 
-                wind_condition=wind_latent, geopotential_condition=geopotential_latent, 
-                thermaldynamic_condition=thermaldynamic_latent, precipitation_condition=precipitation_latent,
-                step=step,
+            predicted_gaussian: torch.Tensor = self.net(
+                target=target_latent_k, condition=condition_latent,
+                step=step, condition_days=input_yearday_indices,
             )
             target_latent_k, target_latent_0 = self.reverse_process.sample(
                 target_k=target_latent_k, predicted_noise=predicted_gaussian, step=step,
             )
 
         # At k=0 (last denoising step), target_latent_k = target_latent_0
+        # FIXME
         # assert target_latent_k.isclose(target_latent_0).all()
         
         # Decode target back to physical space

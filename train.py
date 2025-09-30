@@ -365,13 +365,9 @@ def main(
             print("Training UNetDenoiser from scratch")
             net: UNetDenoiser = UNetDenoiser(
                 target_dim=diffusion_config.target_dim,
-                wind_dim=diffusion_config.wind_dim,
-                geopotential_dim=diffusion_config.geopotential_dim,
-                thermaldynamic_dim=diffusion_config.thermaldynamic_dim,
-                precipitation_dim=diffusion_config.precipitation_dim,
+                condition_dim=diffusion_config.condition_dim,
                 step_dim=diffusion_config.step_dim,
-                condition_latent_embedding_dim=diffusion_config.condition_latent_embedding_dim,
-                n_latent_embedding_layers=diffusion_config.n_latent_embedding_layers,
+                day_dim=diffusion_config.day_dim,
                 n_condition_days=diffusion_config.n_condition_days,
                 down_out_dims=diffusion_config.down_out_dims,
                 down_hidden_dims=diffusion_config.down_hidden_dims,

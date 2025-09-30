@@ -298,32 +298,35 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
 
     #implement
     def _train_step(self, batch: DataBatch) -> None:
-        _, _, _, condition, target = batch
+        _, input_yearday_indices, _, condition, target = batch
         condition = condition.to(self.device, non_blocking=True)
         target = target.to(self.device, non_blocking=True)
+        input_yearday_indices = input_yearday_indices.to(self.device, non_blocking=True)
         # Reset gradients
         self.optimizer.zero_grad()
         # Forward propagation
-        mean_mse, mean_mae = self._forward_pass(target=target, condition=condition)
+        mean_mse, mean_mae = self._forward_pass(target=target, condition=condition, condition_days=input_yearday_indices)
         # Back propagation
         mean_mse.backward()
         self.optimizer.step()
 
     #implement
     def _eval_step(self, batch: DataBatch) -> float:
-        _, _, _, condition, target = batch
+        _, input_yearday_indices, _, condition, target = batch
         condition = condition.to(self.device, non_blocking=True)
         target = target.to(self.device, non_blocking=True)
+        input_yearday_indices = input_yearday_indices.to(self.device, non_blocking=True)
         # Forward propagation
-        mean_mse, mean_mae = self._forward_pass(target=target, condition=condition)
+        mean_mse, mean_mae = self._forward_pass(target=target, condition=condition, condition_days=input_yearday_indices)
         return mean_mae.item()
 
-    def _forward_pass(self, condition: torch.Tensor, target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def _forward_pass(
+        self, condition: torch.Tensor, target: torch.Tensor, condition_days: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         # Encode
         with torch.no_grad():
-            wind_latent, geopotential_latent, thermaldynamic_latent, precipitation_latent, target_latent = (
-                self.vae_encode(condition=condition, target=target)
-            )
+            target_latent, condition_latent = self.vae_encode(condition=condition, target=target)
+
         # Generate step
         batch_size: int = target_latent.shape[0]
         step: torch.Tensor = torch.randint(
@@ -334,10 +337,8 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         noisy_target, true_gaussian = self.forward_process.add_noise(original_latent=target_latent, step=step)
         # Predict gaussian using UNetDenoiser
         predicted_gaussian: torch.Tensor = self.net(
-            target=noisy_target, 
-            wind_condition=wind_latent, geopotential_condition=geopotential_latent, 
-            thermaldynamic_condition=thermaldynamic_latent, precipitation_condition=precipitation_latent,
-            step=step,
+            target=noisy_target, condition=condition_latent,
+            step=step, condition_days=condition_days,
         )
         # MSE
         mean_mse: torch.Tensor = self.loss_function(input=predicted_gaussian, target=true_gaussian)

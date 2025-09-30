@@ -244,24 +244,21 @@ diffusion:
 
   device: "cuda"
   target_dim: 32  # fixed, vae-precipitation.latent_dim
-  wind_dim: 28  # fixed, vae-wind.latent_dim
-  geopotential_dim: 12  # fixed, vae-geopotential.latent_dim
-  thermaldynamic_dim: 12 # fixed, vae-thermaldynamic.latent_dim
-  precipitation_dim: 32  # fixed, vae-precipitation.latent_dim
+  condition_dim: 2352 # fixed, (vae-wind.latent_dim + vae-geopotential.latent_dim + vae-thermaldynamic.latent_dim + vae-precipitation.latent_dim) * n_condition_days
   n_condition_days: 28  # fixed, dataset.n_input_days
   step_dim: 512
+  day_dim: 512
   # Unet configurations
-  n_latent_embedding_layers: 4
-  condition_latent_embedding_dim: 2048  # (condition_latent_embedding_dim // 4) must be greater than any condition dim
-  down_hidden_dims: [2048, 2048]
-  down_out_dims: [512, 1024]
+  down_hidden_dims: [2560, 1024]
+  down_out_dims: [512, 512]
   mid_hidden_dims: [1024, 1024]
-  mid_out_dims: [1024, 1024]
+  mid_out_dims: [512, 512]
   up_hidden_dims: [1024, 1024]
   up_out_dims: [512, 512]
-  n_layers_per_scaling_block: 5
+
+  n_layers_per_scaling_block: 6
   n_layers_per_mid_block: 3
-  n_attention_heads: 16
+  n_attention_heads: 8
   condition_dropout: 0.
   # Diffusion configurations
   n_steps: 1000
@@ -270,7 +267,7 @@ diffusion:
   beta_max: 0.02  # only applicable for "linear"
 
   # Training
-  learning_rate: 1e-7
+  learning_rate: 1e-6
   train_batch_size: 4
   val_batch_size: 4
   n_epochs: 1000
@@ -284,6 +281,6 @@ diffusion:
   geopotential_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_geopotential_16times/vae41.pt"
   thermaldynamic_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermaldynamic_16times/vae19.pt"
   precipitation_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precipitation_16times/vae16.pt"
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v4/diffusion29.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v4"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v5/diffusion68.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v5"
 

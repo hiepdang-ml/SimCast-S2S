@@ -7,7 +7,7 @@ import torch.nn as nn
 from ..common import NamedModel
 
 
-class _StepSinusoidEmbedding(nn.Module):
+class _SinusoidEmbedding(nn.Module):
 
     def __init__(self, embedding_dim: int) -> None:
         super().__init__()
@@ -23,17 +23,16 @@ class _StepSinusoidEmbedding(nn.Module):
         )
         assert self.w.shape == (embedding_dim // 2,)
 
-    def forward(self, step: torch.Tensor) -> torch.Tensor:
-        batch_size: int = step.shape[0]
-        assert step.shape == (batch_size, 1)
-        step = step.to(dtype=torch.float32)
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        batch_size, length = t.shape
+        t = t.to(dtype=torch.float32)
         sinusoid: torch.Tensor = torch.zeros(
-            (batch_size, self.embedding_dim), dtype=torch.float32, device=step.device,
+            (batch_size, length, self.embedding_dim), dtype=torch.float32, device=t.device,
         )
-        scaled: torch.Tensor = step * self.w[None, :]
-        assert scaled.shape == (batch_size, self.embedding_dim // 2)
-        sinusoid[:, 0::2] = torch.sin(scaled)
-        sinusoid[:, 1::2] = torch.cos(scaled)
+        scaled: torch.Tensor = t[:, :, None] * self.w[None, None, :]
+        assert scaled.shape == (batch_size, length, self.embedding_dim // 2)
+        sinusoid[:, :, 0::2] = torch.sin(scaled)
+        sinusoid[:, :, 1::2] = torch.cos(scaled)
         return sinusoid
 
 
@@ -106,55 +105,36 @@ class CosineNoiseScheduler(_NoiseScheduler):
         return torch.cat([torch.tensor([0.0], dtype=torch.float32, device=self.device), betas])
 
 
-class _LatentTransformerEncoder(nn.Module):
-
-    def __init__(
-        self, 
-        in_dim: int, out_dim: int, 
-        n_condition_days: int, n_heads: int, n_layers: int
-    ) -> None:
-        super().__init__()
-        self.in_dim: int = in_dim
-        self.out_dim: int = out_dim
-        self.n_condition_days: int = n_condition_days
-        self.n_heads: int = n_heads
-        self.n_layers: int = n_layers
-        self.linear_projection: nn.Module = nn.Linear(in_features=in_dim, out_features=out_dim)
-        encoder_layer: nn.Module = nn.TransformerEncoderLayer(d_model=out_dim, nhead=n_heads, batch_first=True)
-        self.encoder: nn.Module = nn.TransformerEncoder(encoder_layer=encoder_layer, num_layers=n_layers)
-        self.positional_encoding: nn.Parameter = nn.Parameter(
-            torch.randn(1, n_condition_days, out_dim)
-        )
-
-    def forward(self, condition: torch.Tensor) -> torch.Tensor:
-        batch_size, condition_dim, T, H, W = condition.shape
-        assert self.in_dim == condition_dim
-        assert self.n_condition_days == T
-        output: torch.Tensor = condition.permute(0, 3, 4, 2, 1).flatten(0, 2)
-        assert output.shape == (batch_size * H * W, T, condition_dim)
-        output = self.linear_projection(output) + self.positional_encoding
-        output = self.encoder(output)
-        assert output.shape == (batch_size * H * W, T, self.out_dim)
-        output = output.mean(dim=1, keepdim=False) # temporal pooling
-        output = output.reshape(batch_size, H, W, self.out_dim).permute(0, 3, 1, 2)
-        assert output.shape == (batch_size, self.out_dim, H, W)
-        return output
-
-
 class _StepEmbedding(nn.Module):
 
-    def __init__(self, step_dim: int, step_out_dim: int):
+    def __init__(self, step_in_dim: int, step_out_dim: int):
         super().__init__()
-        self.step_dim: int = step_dim
+        self.step_in_dim: int = step_in_dim
         self.step_out_dim: int = step_out_dim
-        self.step_embedding_block = nn.Sequential(nn.SiLU(), nn.Linear(step_dim, step_out_dim))
+        self.embedding_layer = nn.Sequential(nn.SiLU(), nn.Linear(step_in_dim, step_out_dim))
 
     def forward(self, step: torch.Tensor) -> torch.Tensor:
-        batch_size, t_in_dim = step.shape
-        assert t_in_dim == self.step_dim
-        output: torch.Tensor = self.step_embedding_block(step)
+        batch_size, step_in_dim = step.shape
+        assert step_in_dim == self.step_in_dim
+        output: torch.Tensor = self.embedding_layer(step)
         assert output.shape == (batch_size, self.step_out_dim)
         return output
+
+
+class _DayEmbedding(nn.Module):
+
+    def __init__(self, day_in_dim: int, day_out_dim: int):
+        super().__init__()
+        self.day_in_dim: int = day_in_dim
+        self.day_out_dim: int = day_out_dim
+        self.embedding_layer = nn.Sequential(nn.SiLU(), nn.Linear(day_in_dim, day_out_dim))
+
+    def forward(self, days: torch.Tensor) -> torch.Tensor:
+        batch_size, n_days, day_in_dim = days.shape
+        assert day_in_dim == self.day_in_dim
+        output: torch.Tensor = self.embedding_layer(days)
+        assert output.shape == (batch_size, n_days, self.day_out_dim)
+        return output.max(dim=1, keepdim=False).values   # pooling
 
 
 class _NormActConv(nn.Module):
@@ -272,12 +252,12 @@ class _UpSample(nn.Module):
 class _ScalingBlock(nn.Module):
 
     """
-    Project (linearly) target, condition, and step embbeding into a common hidden_dim
+    Project (linearly) target, condition, step, and day embbeding into a common hidden_dim
     """
 
     def __init__(
         self,
-        input_dim: int, condition_dim: int, step_dim: int, 
+        input_dim: int, condition_dim: int, step_dim: int, day_dim: int,
         hidden_dim: int, output_dim: int, 
         n_layers: int, n_attention_heads: int, condition_dropout: float,
         type: Literal["up", "down", "mid"],
@@ -286,6 +266,7 @@ class _ScalingBlock(nn.Module):
         self.input_dim: int = input_dim
         self.condition_dim: int = condition_dim
         self.step_dim: int = step_dim
+        self.day_dim: int = day_dim
         self.hidden_dim: int = hidden_dim
         self.output_dim: int = output_dim
         self.n_layers: int = n_layers
@@ -325,7 +306,13 @@ class _ScalingBlock(nn.Module):
         # Step
         self.step_projection = nn.Linear(in_features=step_dim, out_features=hidden_dim)
         self.step_embedding_blocks = nn.ModuleList([
-            _StepEmbedding(step_dim=hidden_dim, step_out_dim=hidden_dim)
+            _StepEmbedding(step_in_dim=hidden_dim, step_out_dim=hidden_dim)
+            for _ in range(n_layers)
+        ])
+        # Day
+        self.day_projection = nn.Linear(in_features=day_dim, out_features=hidden_dim)
+        self.day_embedding_blocks = nn.ModuleList([
+            _DayEmbedding(day_in_dim=hidden_dim, day_out_dim=hidden_dim)
             for _ in range(n_layers)
         ])
         # Scaling block
@@ -340,10 +327,11 @@ class _ScalingBlock(nn.Module):
         else:
             raise ValueError("Invalid type for _ScalingBlock, must be either 'up' or 'down' or 'mid'")
 
-    def forward(self, target: torch.Tensor, condition: torch.Tensor, step: torch.Tensor) -> torch.Tensor:
+    def forward(self, target: torch.Tensor, condition: torch.Tensor, step: torch.Tensor, days: torch.Tensor) -> torch.Tensor:
         target_N, target_D, target_H, target_W = target.shape
         condition_N, condition_D, condition_H, condition_W = condition.shape
         step_N, step_D = step.shape
+        days_N, days_T, days_D = days.shape
         # print(f"target.shape={target.shape}")
         # print(f"self.input_dim={self.input_dim}")
         # print(f"condition.shape={condition.shape}")
@@ -358,6 +346,7 @@ class _ScalingBlock(nn.Module):
         target = self.target_projection(target)
         condition = self.condition_projection(condition)
         step = self.step_projection(step)
+        days = self.day_projection(days)
 
         target_output: torch.Tensor = target
         condition_output: torch.Tensor = condition
@@ -367,6 +356,7 @@ class _ScalingBlock(nn.Module):
             # Resnet block (target)
             target_output = self.target_conv1_layers[i](target_output)
             target_output = target_output + self.step_embedding_blocks[i](step)[:, :, None, None]
+            target_output = target_output + self.day_embedding_blocks[i](days)[:, :, None, None]
             target_output = self.target_conv2_layers[i](target_output)
             target_output = target_output + self.target_res_blocks[i](target_resnet_input)
             # Resnet block (condition)
@@ -394,12 +384,12 @@ class _DownBlock(_ScalingBlock):
 
     def __init__(
         self,
-        input_dim: int, condition_dim: int, step_dim: int, 
+        input_dim: int, condition_dim: int, step_dim: int, day_dim: int,
         hidden_dim: int, output_dim: int, 
         n_layers: int, n_attention_heads: int, condition_dropout: float,
     ):
         super().__init__(
-            input_dim=input_dim, condition_dim=condition_dim, step_dim=step_dim, 
+            input_dim=input_dim, condition_dim=condition_dim, step_dim=step_dim, day_dim=day_dim,
             hidden_dim=hidden_dim, output_dim=output_dim, 
             n_layers=n_layers, n_attention_heads=n_attention_heads, condition_dropout=condition_dropout,
             type="down",
@@ -410,12 +400,12 @@ class _UpBlock(_ScalingBlock):
 
     def __init__(
         self,
-        input_dim: int, down_output_dim: int, condition_dim: int, step_dim: int, 
+        input_dim: int, down_output_dim: int, condition_dim: int, step_dim: int, day_dim: int,
         hidden_dim: int, output_dim: int, 
         n_layers: int, n_attention_heads: int, condition_dropout: float,
     ):
         super().__init__(
-            input_dim=input_dim + down_output_dim, condition_dim=condition_dim, step_dim=step_dim, 
+            input_dim=input_dim + down_output_dim, condition_dim=condition_dim, step_dim=step_dim, day_dim=day_dim, 
             hidden_dim=hidden_dim, output_dim=output_dim, 
             n_layers=n_layers, n_attention_heads=n_attention_heads, condition_dropout=condition_dropout,
             type="up",
@@ -426,79 +416,35 @@ class _MidBlock(_ScalingBlock):
 
     def __init__(
         self,
-        input_dim: int, condition_dim: int, step_dim: int, 
+        input_dim: int, condition_dim: int, step_dim: int, day_dim: int, 
         hidden_dim: int, output_dim: int, 
         n_layers: int, n_attention_heads: int, condition_dropout: float,
     ):
         super().__init__(
-            input_dim=input_dim, condition_dim=condition_dim, step_dim=step_dim, 
+            input_dim=input_dim, condition_dim=condition_dim, step_dim=step_dim, day_dim=day_dim,
             hidden_dim=hidden_dim, output_dim=output_dim, 
             n_layers=n_layers, n_attention_heads=n_attention_heads, condition_dropout=condition_dropout,
             type="mid",
         )
 
 
-class _ProjectionHead(nn.Module):
-
-    def __init__(self, in_dim: int, hidden_dim: int, out_dim: int, n_layers: int) -> None:
-        super().__init__()
-        self.in_dim: int = in_dim
-        self.hidden_dim: int = hidden_dim
-        self.out_dim: int = out_dim
-        self.n_layers: int = n_layers
-        assert n_layers >= 3, f"There must be at least 3 layers in the projection head"
-
-        layers: list[nn.Module] = []
-        for i in range(n_layers):
-            if i == 0:
-                _in_channels: int = in_dim
-                _out_channels: int = hidden_dim
-            elif i == n_layers - 1:
-                _in_channels: int = hidden_dim
-                _out_channels: int = out_dim
-            else:
-                _in_channels = _out_channels = hidden_dim
-
-            layers.extend([
-                nn.Conv2d(in_channels=_in_channels, out_channels=_out_channels, kernel_size=1),
-                nn.ReLU(),
-            ])
-
-        self.head: nn.Module = nn.Sequential(*layers)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        N, C, H, W = x.shape
-        assert C == self.in_dim
-        return self.head(x)
-
-
 class UNetDenoiser(NamedModel, nn.Module):
 
     def __init__(
         self,
-        target_dim: int, 
-        wind_dim: int, geopotential_dim: int, 
-        thermaldynamic_dim: int, precipitation_dim: int, 
-        step_dim: int, 
-        condition_latent_embedding_dim: int,
-        n_latent_embedding_layers: int,
+        target_dim: int, condition_dim: int, step_dim: int, day_dim: int,
         n_condition_days: int,
         down_out_dims: list[int], down_hidden_dims: list[int], 
         mid_out_dims: list[int], mid_hidden_dims: list[int], 
         up_out_dims: list[int], up_hidden_dims: list[int], 
         n_layers_per_scaling_block: int, n_layers_per_mid_block: int,
         n_attention_heads: int, condition_dropout: float,
-        # projection_head_hidden_dim: int, n_head_layers: int
     ):
         super().__init__()
         self.target_dim: int = target_dim
-        self.wind_dim: int = wind_dim
-        self.geopotential_dim: int = geopotential_dim
-        self.thermaldynamic_dim: int = thermaldynamic_dim
-        self.precipitation_dim: int = precipitation_dim
+        self.condition_dim: int = condition_dim
         self.step_dim: int = step_dim
-        self.condition_latent_embedding_dim: int = condition_latent_embedding_dim
-        self.n_latent_embedding_layers: int = n_latent_embedding_layers
+        self.day_dim: int = day_dim
         self.n_condition_days: int = n_condition_days
         self.down_out_dims: list[int] = down_out_dims
         self.down_hidden_dims: list[int] = down_hidden_dims
@@ -510,42 +456,20 @@ class UNetDenoiser(NamedModel, nn.Module):
         self.n_layers_per_mid_block: int = n_layers_per_mid_block
         self.n_attention_heads: int = n_attention_heads
         self.condition_dropout: float = condition_dropout
-        # self.projection_head_hidden_dim: int = projection_head_hidden_dim
-        # self.n_head_layers: int = n_head_layers
 
         assert len(down_hidden_dims) == len(down_out_dims) == len(up_hidden_dims) == len(up_out_dims)
         assert len(mid_hidden_dims) == len(mid_out_dims)
-        assert condition_latent_embedding_dim % 4 == 0, (
-            f"condition_latent_embedding_dim must be divisible by 4 for "
-            f"4 condition groups: ['wind', 'geopotential', 'thermaldynamic', 'precipitation'],"
-            f"getting condition_latent_embedding_dim={condition_latent_embedding_dim}"
-        )
 
         self.n_scaling_blocks: int = len(down_out_dims)
         self.n_mid_blocks: int = len(mid_out_dims)
 
-        self.wind_latent_encoder: nn.Module = _LatentTransformerEncoder(
-            in_dim=wind_dim, out_dim=condition_latent_embedding_dim // 4, 
-            n_condition_days=n_condition_days, n_heads=n_attention_heads, n_layers=n_latent_embedding_layers,
-        )
-        self.geopotential_latent_encoder: nn.Module = _LatentTransformerEncoder(
-            in_dim=geopotential_dim, out_dim=condition_latent_embedding_dim // 4, 
-            n_condition_days=n_condition_days, n_heads=n_attention_heads, n_layers=n_latent_embedding_layers,
-        )
-        self.thermaldynamic_latent_encoder: nn.Module = _LatentTransformerEncoder(
-            in_dim=thermaldynamic_dim, out_dim=condition_latent_embedding_dim // 4, 
-            n_condition_days=n_condition_days, n_heads=n_attention_heads, n_layers=n_latent_embedding_layers,
-        )
-        self.precipitation_latent_encoder: nn.Module = _LatentTransformerEncoder(
-            in_dim=precipitation_dim, out_dim=condition_latent_embedding_dim // 4, 
-            n_condition_days=n_condition_days, n_heads=n_attention_heads, n_layers=n_latent_embedding_layers,
-        )
-        self.step_embedding_layer: nn.Module = _StepSinusoidEmbedding(embedding_dim=step_dim)
+        self.step_embedding_layer: nn.Module = _SinusoidEmbedding(embedding_dim=step_dim)
+        self.day_embedding_layer: nn.Module = _SinusoidEmbedding(embedding_dim=day_dim)
         self.down_blocks = nn.ModuleList([
             _DownBlock(
                 input_dim=target_dim if i == 0 else down_out_dims[i - 1], 
-                condition_dim=self.condition_latent_embedding_dim, 
-                step_dim=step_dim,
+                condition_dim=condition_dim, 
+                step_dim=step_dim, day_dim=day_dim, 
                 hidden_dim=down_hidden_dims[i], output_dim=down_out_dims[i],
                 n_layers=n_layers_per_scaling_block, n_attention_heads=n_attention_heads,
                 condition_dropout=condition_dropout,
@@ -556,7 +480,7 @@ class UNetDenoiser(NamedModel, nn.Module):
             _UpBlock(
                 input_dim=mid_out_dims[-1] if i == 0 else up_out_dims[i - 1], 
                 down_output_dim=down_out_dims[-i - 1],
-                condition_dim=self.condition_latent_embedding_dim, step_dim=step_dim,
+                condition_dim=self.condition_dim, step_dim=step_dim, day_dim=day_dim, 
                 hidden_dim=up_hidden_dims[i], output_dim=up_out_dims[i], 
                 n_layers=n_layers_per_scaling_block, n_attention_heads=n_attention_heads, 
                 condition_dropout=condition_dropout,
@@ -566,7 +490,7 @@ class UNetDenoiser(NamedModel, nn.Module):
         self.mid_blocks = nn.ModuleList([
             _MidBlock(
                 input_dim=down_out_dims[-1] if i == 0 else mid_out_dims[i - 1],
-                condition_dim=self.condition_latent_embedding_dim, step_dim=step_dim,
+                condition_dim=self.condition_dim, step_dim=step_dim, day_dim=day_dim, 
                 hidden_dim=mid_hidden_dims[i], output_dim=mid_out_dims[i],
                 n_layers=n_layers_per_mid_block, n_attention_heads=n_attention_heads,
                 condition_dropout=condition_dropout,
@@ -576,34 +500,18 @@ class UNetDenoiser(NamedModel, nn.Module):
         self.head: nn.Module = nn.Conv2d(
             in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1,
         )
-        # self.output_projection: nn.Module = _ProjectionHead(
-        #     in_dim=self.up_out_dims[-1], 
-        #     hidden_dim=projection_head_hidden_dim, 
-        #     out_dim=target_dim, 
-        #     n_layers=n_head_layers,
-        # )
 
-    def forward(
-        self, 
-        target: torch.Tensor, 
-        wind_condition: torch.Tensor, 
-        geopotential_condition: torch.Tensor, 
-        thermaldynamic_condition: torch.Tensor, 
-        precipitation_condition: torch.Tensor, 
-        step: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, target: torch.Tensor, condition: torch.Tensor, step: torch.Tensor, condition_days: torch.Tensor) -> torch.Tensor:
         target_N, target_D, target_H, target_W = target.shape
-        wind_N, wind_D, wind_T, wind_H, wind_W = wind_condition.shape
-        geopotential_N, geopotential_D, geopotential_T, geopotential_H, geopotential_W = geopotential_condition.shape
-        thermaldynamic_N, thermaldynamic_D, thermaldynamic_T, thermaldynamic_H, thermaldynamic_W = thermaldynamic_condition.shape
-        precipitation_N, precipitation_D, precipitation_T, precipitation_H, precipitation_W = precipitation_condition.shape
+        condition_N, condition_D, condition_H, condition_W = condition.shape
         step_N, step_D = step.shape
-        assert target_N == wind_N == geopotential_N == thermaldynamic_N == precipitation_N == step_N
-        assert wind_T == geopotential_T == thermaldynamic_T == precipitation_T
-        assert wind_H == geopotential_H == thermaldynamic_H == precipitation_H
-        assert wind_W == geopotential_W == thermaldynamic_W == precipitation_W
+        day_N, day_D = condition_days.shape
+        assert target_N == condition_N == step_N == day_N
+        assert target_H == condition_H
+        assert target_W == condition_W
         assert target_D == self.target_dim
         assert step_D == 1
+        assert day_D == self.n_condition_days
         
         # Check if too many scaling blocks on low-dim inputs
         _min_dim: float = min(target_H, target_W) / (2 ** self.n_scaling_blocks)
@@ -611,27 +519,20 @@ class UNetDenoiser(NamedModel, nn.Module):
             f"too many scaling blocks (self.n_scaling_blocks={self.n_scaling_blocks}) "
             f"for target dimension: {(target_H, target_W)}"
         )
-        # Temporal encoding
-        wind_condition: torch.Tensor = self.wind_latent_encoder(condition=wind_condition)
-        geopotential_condition: torch.Tensor = self.geopotential_latent_encoder(condition=geopotential_condition)
-        thermaldynamic_condition: torch.Tensor = self.thermaldynamic_latent_encoder(condition=thermaldynamic_condition)
-        precipitation_condition: torch.Tensor = self.precipitation_latent_encoder(condition=precipitation_condition)
-        # print(f"wind_condition: {wind_condition.shape}")
-        # print(f"geopotential_condition: {geopotential_condition.shape}")
-        # print(f"thermaldynamic_condition: {thermaldynamic_condition.shape}")
-        # print(f"precipitation_condition: {precipitation_condition.shape}")
-        condition: torch.Tensor = torch.cat(
-            tensors=[wind_condition, geopotential_condition, thermaldynamic_condition, precipitation_condition],
-            dim=1,
-        )
-        assert condition.shape[1] == self.condition_latent_embedding_dim
         # Step embedding
-        step_embedding: torch.Tensor = self.step_embedding_layer(step=step)
+        step_embedding: torch.Tensor = self.step_embedding_layer(t=step)
+        assert step_embedding.shape == (step_N, 1, self.step_dim)
+        step_embedding = step_embedding.squeeze(dim=1)
+        # Day embedding
+        day_embedding: torch.Tensor = self.day_embedding_layer(t=condition_days)
+        assert day_embedding.shape == (step_N, self.n_condition_days, self.day_dim)
         # UNet
         down_input: torch.Tensor = target
         down_outputs: list[torch.Tensor] = []
         for i in range(self.n_scaling_blocks):
-            down_outputs.append(self.down_blocks[i](target=down_input, condition=condition, step=step_embedding))
+            down_outputs.append(
+                self.down_blocks[i](target=down_input, condition=condition, step=step_embedding, days=day_embedding)
+            )
             down_input = down_outputs[-1]
         
         mid_output: torch.Tensor = down_outputs[-1]
@@ -639,7 +540,9 @@ class UNetDenoiser(NamedModel, nn.Module):
             # print(f"mid_output.shape={mid_output.shape}")
             # print(f"self.mid_blocks[i].input_dim={self.mid_blocks[i].input_dim}")
             # print(f"--------")
-            mid_output = self.mid_blocks[i](target=mid_output, condition=condition, step=step_embedding)
+            mid_output = self.mid_blocks[i](
+                target=mid_output, condition=condition, step=step_embedding, days=day_embedding
+            )
 
         up_output: torch.Tensor = mid_output
         # print(f"mid_output.shape={mid_output.shape}")
@@ -653,7 +556,7 @@ class UNetDenoiser(NamedModel, nn.Module):
             )
             up_output = self.up_blocks[i](
                 target=torch.cat([down_outputs.pop(), up_output], dim=1),
-                condition=condition, step=step_embedding,
+                condition=condition, step=step_embedding, days=day_embedding,
             )
             # print(f"up_output.shape={up_output.shape}")
             # print(f"--------")
