@@ -314,12 +314,12 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         gaussian: torch.Tensor = torch.randn_like(target_latent)
         # Denoise
         target_latent_k: torch.Tensor = gaussian
-        for k in reversed(range(1, self.noise_scheduler.n_steps)):
+        # Denoising step must range from 1 to K 
+        for k in reversed(range(1, self.noise_scheduler.n_steps + 1)):
             step: torch.Tensor = torch.ones((1, 1), device=target_latent.device, dtype=torch.long) * k
             # Backward process
             predicted_gaussian: torch.Tensor = self.net(
-                target=target_latent_k, condition=condition_latent,
-                step=step, condition_days=input_yearday_indices,
+                target=target_latent_k, condition=condition_latent, step=step, condition_days=input_yearday_indices,
             )
             target_latent_k, target_latent_0 = self.reverse_process.sample(
                 target_k=target_latent_k, predicted_noise=predicted_gaussian, step=step,

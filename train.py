@@ -417,6 +417,8 @@ def main(
             thermaldynamic_encoder=thermaldynamic_encoder,
             precipitation_encoder=precipitation_encoder,
             noise_scheduler=noise_scheduler,
+            eta=diffusion_config.eta,
+            lambda_=diffusion_config.lambda_,
             lr=diffusion_config.learning_rate,
             train_dataset=train_dataset,
             val_dataset=val_dataset,

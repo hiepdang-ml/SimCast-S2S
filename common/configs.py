@@ -328,6 +328,7 @@ class DiffusionConfig(BaseConfig):
         self.beta_min: float = float(self.__config["beta_min"])
         self.beta_max: float = float(self.__config["beta_max"])
         self.eta: float = float(self.__config["eta"])
+        self.lambda_: float = float(self.__config["lambda"])
 
         self.learning_rate: float = float(self.__config["learning_rate"])
         self.train_batch_size: int = self.__config["train_batch_size"]
@@ -366,6 +367,7 @@ class DiffusionConfig(BaseConfig):
             "beta_min": self.beta_min,
             "beta_max": self.beta_max,
             "eta": self.eta,
+            "lambda": self.lambda_,
             "learning_rate": self.learning_rate,
             "train_batch_size": self.train_batch_size,
             "val_batch_size": self.val_batch_size,

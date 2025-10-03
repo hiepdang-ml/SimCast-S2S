@@ -97,7 +97,7 @@ class CosineNoiseScheduler(_NoiseScheduler):
         f: Callable[[torch.Tensor], torch.Tensor] = (
             lambda x: torch.cos((x + self.cosine_offset) / (1 + self.cosine_offset) * torch.pi / 2) ** 2
         )
-        return f(timesteps / self.n_steps) / f(torch.tensor(0.0))
+        return f(timesteps / self.n_steps) / f(torch.tensor(0.0, device=self.device))
 
     @cached_property
     def beta_schedule(self) -> torch.Tensor:
@@ -576,6 +576,7 @@ class _DiffusionProcess:
 
     def compute_alpha_bar(self, step: torch.Tensor) -> torch.Tensor:
         step_N, _ = step.shape  # (batch_size, 1)
+        # alpha ranges from k=0,...,K
         alpha_bar: torch.Tensor = self.alpha_bar_schedule.to(step.device)[step.long()]
         assert alpha_bar.shape == (step_N, 1)
         alpha_bar = alpha_bar[:, :, None, None]
@@ -583,7 +584,8 @@ class _DiffusionProcess:
 
     def compute_beta(self, step: torch.Tensor) -> torch.Tensor:
         step_N, _ = step.shape  # (batch_size, 1)
-        beta: torch.Tensor = self.beta_schedule.to(step.device)[step.long()]
+        # beta ranges from k=1,...,K
+        beta: torch.Tensor = self.beta_schedule.to(step.device)[step.long() - 1]
         assert beta.shape == (step_N, 1)
         beta = beta[:, :, None, None]
         return beta
@@ -638,7 +640,7 @@ class ReverseProcess(_DiffusionProcess):
 
         # Alpha bar
         alpha_bar: torch.Tensor = self.compute_alpha_bar(step=step)
-        alpha_bar_prev: torch.Tensor = self.compute_alpha_bar(step=torch.clamp(input=step - 1, min=0))
+        alpha_bar_prev: torch.Tensor = self.compute_alpha_bar(step=step - 1)
         # Beta tilde
         tilde_beta: torch.Tensor = self.compute_tilde_beta(alpha_bar_prev=alpha_bar_prev, alpha_bar=alpha_bar)
         # Sigma
