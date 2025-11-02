@@ -323,12 +323,11 @@ class DiffusionConfig(BaseConfig):
         self.n_layers_per_mid_block: int = self.__config["n_layers_per_mid_block"]
         self.n_attention_heads: int = self.__config["n_attention_heads"]
         self.condition_dropout: float = float(self.__config["condition_dropout"])
-        self.n_steps: int = self.__config["n_steps"]
-        self.noise_scheduler_scheme: Literal["linear", "cosine"] = self.__config["noise_scheduler_scheme"]
+        self.noise_scheduler: Literal["linear", "cosine"] = self.__config["noise_scheduler"]
         self.beta_min: float = float(self.__config["beta_min"])
         self.beta_max: float = float(self.__config["beta_max"])
+        self.n_steps: int = self.__config["n_steps"]
         self.eta: float = float(self.__config["eta"])
-        self.lambda_: float = float(self.__config["lambda"])
 
         self.learning_rate: float = float(self.__config["learning_rate"])
         self.train_batch_size: int = self.__config["train_batch_size"]
@@ -362,12 +361,11 @@ class DiffusionConfig(BaseConfig):
             "n_layers_per_mid_block": self.n_layers_per_mid_block,
             "n_attention_heads": self.n_attention_heads,
             "condition_dropout": self.condition_dropout,
-            "n_steps": self.n_steps,
-            "noise_scheduler_scheme": self.noise_scheduler_scheme,
+            "noise_scheduler": self.noise_scheduler,
             "beta_min": self.beta_min,
             "beta_max": self.beta_max,
+            "n_steps": self.n_steps,
             "eta": self.eta,
-            "lambda": self.lambda_,
             "learning_rate": self.learning_rate,
             "train_batch_size": self.train_batch_size,
             "val_batch_size": self.val_batch_size,

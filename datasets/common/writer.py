@@ -1,6 +1,8 @@
-import datetime as dt
+
 import json
 import pathlib
+import shutil
+import datetime as dt
 from typing import Literal, Any
 
 import torch
@@ -10,9 +12,7 @@ from common.configs import MetaData
 
 class DataWriter:
 
-    _SAMPLE_COUNTER: int = 0
-
-    def __init__(self, metadata: MetaData):
+    def __init__(self, metadata: MetaData, fresh: bool):
         """
         |---------------||---------------||---------------|
            n_input_days     n_lead_days     n_output_days
@@ -24,13 +24,17 @@ class DataWriter:
         0                                                                           365
         """
         self.metadata: MetaData = metadata
-        self.__datestrings: list[str] = [
-            # choose 2025 since not a leap year
-            (dt.datetime(2025, 1, 1) + dt.timedelta(days=i)).strftime("%m%d")
-            for i in range(365)
-        ]
+        self.fresh: bool = fresh
+        if self.fresh and self.metadata.write_directory.exists():
+            shutil.rmtree(self.metadata.write_directory)
+
         self.metadata_path: pathlib.Path = self.metadata.write_directory.joinpath("metadata")
         self.metadata_path.mkdir(parents=True, exist_ok=True)
+        
+        self.counter_path: pathlib.Path = self.metadata.write_directory.joinpath("counter")
+        self.counter_path.mkdir(parents=True, exist_ok=True)
+        self._GLOBAL_COUNTER: int = self.__get_counter()
+        self._LOCAL_COUNTER: int = self._GLOBAL_COUNTER
 
         self.input_path: pathlib.Path = self.metadata.write_directory.joinpath("input")
         self.output_path: pathlib.Path = self.metadata.write_directory.joinpath("output")
@@ -44,12 +48,31 @@ class DataWriter:
             self.output_path.joinpath(var_name).mkdir(exist_ok=True)
         
         self.__save_metadata()
+        self.__datestrings: list[str] = [
+            # choose 2025 since not a leap year
+            (dt.datetime(2025, 1, 1) + dt.timedelta(days=i)).strftime("%m%d")
+            for i in range(365)
+        ]
 
     def __save_metadata(self) -> None:
         filepath: pathlib.Path = pathlib.Path(self.metadata_path.joinpath("metadata.json"))
         d: dict[str, Any] = self.metadata.to_dict()
         with open(file=filepath, mode="w") as file:
             json.dump(obj=d, fp=file)
+
+    def __get_counter(self) -> int:
+        filepath: pathlib.Path = self.counter_path.joinpath("counter.json")
+        if not filepath.exists():
+            return 0
+        else:
+            with open(filepath, mode="r") as file:
+                counter: int = int(json.load(fp=file)["counter"])
+            return counter
+    
+    def __save_counter(self) -> None:
+        filepath: pathlib.Path = self.counter_path.joinpath("counter.json")
+        with open(filepath, mode="w") as file:
+            json.dump(obj={"counter": self._LOCAL_COUNTER}, fp=file)
 
     def __construct_file_name(
         self,
@@ -122,19 +145,23 @@ class DataWriter:
             )
 
     def __call__(self, var_container: VariableContainer) -> None:
+        self._LOCAL_COUNTER = self._GLOBAL_COUNTER
         bound: int = 365 - self.metadata.n_input_days - self.metadata.n_lead_days - self.metadata.n_output_days
-        step: int = self.metadata.n_step_days
+        step_size: int = self.metadata.n_step_days
         for sim_id in self.metadata.sim_ids:
             for year in self.metadata.years:
-                for t in range(0, bound, step):
+                for t in range(0, bound, step_size):
                     self.__write_one_sample(
                         var_container=var_container, sim_id=sim_id, year=year,
-                        yearday_index=t, sample_index=DataWriter._SAMPLE_COUNTER,
+                        yearday_index=t, sample_index=self._LOCAL_COUNTER,
                     )
-                    DataWriter._SAMPLE_COUNTER += 1
+                    self._LOCAL_COUNTER += 1
 
-        # Reset counter
-        DataWriter._SAMPLE_COUNTER = 0
+
+    def __del__(self) -> None:
+        assert self._LOCAL_COUNTER > self._GLOBAL_COUNTER
+        self.__save_counter()
+
 
 
 

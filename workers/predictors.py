@@ -18,9 +18,12 @@ from common.plotting import MetricPlotter, PredictionPlotter
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAEEncoder, VAEDecoder, UNetDenoiser, 
-    LinearNoiseScheduler, CosineNoiseScheduler, ReverseProcess,
+    LinearNoiseScheduler, CosineNoiseScheduler, 
+    ReverseProcess, StepNormalizer
 )
 from .common import RequireVAEEncoders
+
+import torch.nn.functional as F
 
 
 class _AbstractPredictor(ABC):
@@ -192,7 +195,7 @@ class VAEPredictor(_AbstractPredictor):
         sampleinfo: SampleInfo = sampleinfos[0] # because batch_size=1
         batch_size, n_days, H, W, n_features = input_tensor.shape
         reconstructions: list[torch.Tensor] = []
-        groundtruths: list[torch.Tennsor] = []
+        groundtruths: list[torch.Tensor] = []
         for day in range(input_tensor.shape[1]):
             true_x: torch.Tensor = input_tensor[:, day: day+1, :, :, :]
             reconstructed_x, mu, logvar = self.net(true_x)
@@ -298,8 +301,9 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         self.precipitation_decoder.freeze()
         assert self.precipitation_decoder.is_frozen
 
-        self.noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler = noise_scheduler
+        self.noise_scheduler: LinearNoiseScheduler = noise_scheduler
         self.n_denoising_steps: int = noise_scheduler.n_steps
+        self.step_normalizer: StepNormalizer = StepNormalizer(n_steps=noise_scheduler.n_steps)
         self.eta: float = eta
         self.reverse_process: ReverseProcess = ReverseProcess(eta=eta, noise_scheduler=noise_scheduler)
 
@@ -307,6 +311,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         sampleinfos, input_yearday_indices, _, condition, groundtruth = batch
         condition = condition.to(device=self.device)
         groundtruth = groundtruth.to(device=self.device)
+        input_yearday_indices = input_yearday_indices.to(device=self.device)
         sampleinfo: SampleInfo = sampleinfos[0] # because batch_size=1
         # Encode
         target_latent, condition_latent = self.vae_encode(condition=condition, target=groundtruth)
@@ -315,22 +320,31 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         # Denoise
         target_latent_k: torch.Tensor = gaussian
         # Denoising step must range from 1 to K 
-        for k in reversed(range(1, self.noise_scheduler.n_steps + 1)):
-            step: torch.Tensor = torch.ones((1, 1), device=target_latent.device, dtype=torch.long) * k
+        for k in tqdm(list(reversed(range(1, self.noise_scheduler.n_steps + 1))), desc=f"Sampling step: "):
+            integer_step: torch.Tensor = torch.ones((1, 1), device=target_latent.device, dtype=torch.long) * k
             # Backward process
-            predicted_gaussian: torch.Tensor = self.net(
-                target=target_latent_k, condition=condition_latent, step=step, condition_days=input_yearday_indices,
+            normalized_step: torch.Tensor = self.step_normalizer(integer_step=integer_step)
+            predicted_velocity: torch.Tensor = self.net(
+                target=target_latent_k, condition=condition_latent, 
+                normalized_step=normalized_step, condition_days=input_yearday_indices,
             )
             target_latent_k, target_latent_0 = self.reverse_process.sample(
-                target_k=target_latent_k, predicted_noise=predicted_gaussian, step=step,
+                target_k=target_latent_k, predicted_velocity=predicted_velocity, k=integer_step,
             )
 
         # At k=0 (last denoising step), target_latent_k = target_latent_0
-        # FIXME
-        # assert target_latent_k.isclose(target_latent_0).all()
+        print(f"target_latent_k: {target_latent_k.mean()}")
+        print(f"target_latent_0: {target_latent_0.mean()}")
+        print(f"target_latent_k: {target_latent_k.max()}")
+        print(f"target_latent_0: {target_latent_0.max()}")
+        print(f"target_latent_k: {target_latent_k.min()}")
+        print(f"target_latent_0: {target_latent_0.min()}")
+        print(f"target_latent_k: {target_latent_k.std()}")
+        print(f"target_latent_0: {target_latent_0.std()}")
+        assert target_latent_k.isclose(target_latent_0).all()
         
         # Decode target back to physical space
-        prediction: torch.Tensor = self.precipitation_decoder(target_latent_0)
+        prediction: torch.Tensor = self.precipitation_decoder(target_latent_k)
         assert prediction.shape == groundtruth.shape == (1, 1, 192, 288, self.out_features)
         print(f"Mean prediction: {prediction.mean().item()}")
         print(f"Min prediction: {prediction.min().item()}")

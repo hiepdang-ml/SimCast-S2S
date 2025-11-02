@@ -1,3 +1,5 @@
+from functools import cached_property
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,24 +28,12 @@ class VAELoss(nn.Module):
 
 class DiffusionLoss(nn.Module):
 
-    def __init__(self, lambda_: float):
+    def __init__(self):
         super().__init__()
-        self.lambda_: float = lambda_
-        assert 0. <= lambda_ <= 1.
 
-    def forward(
-        self, 
-        gaussian_hat: torch.Tensor, gaussian_true: torch.Tensor, 
-        x_hat: torch.Tensor, x_true: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        # gaussian_mae, prediction_mae, loss
-        assert gaussian_hat.shape == gaussian_true.shape
-        assert x_hat.shape == x_true.shape
-        gaussian_mae: torch.Tensor = F.l1_loss(input=gaussian_hat, target=gaussian_true)
-        sampling_mae: torch.Tensor = F.l1_loss(input=x_hat, target=x_true)
-        gaussian_loss: torch.Tensor = F.mse_loss(input=gaussian_hat, target=gaussian_true)
-        sampling_loss: torch.Tensor = F.mse_loss(input=x_hat, target=x_true)
-        loss: torch.Tensor = self.lambda_ * gaussian_loss + (1 - self.lambda_) * sampling_loss
-        return gaussian_loss, sampling_loss, loss, gaussian_mae, sampling_mae
+    def forward(self, velocity_hat: torch.Tensor, velocity_true: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        assert velocity_hat.shape == velocity_true.shape
+        velocity_mae: torch.Tensor = F.l1_loss(input=velocity_hat, target=velocity_true, reduction="mean")
+        velocity_loss: torch.Tensor = F.mse_loss(input=velocity_hat, target=velocity_true, reduction="mean")
+        return velocity_loss, velocity_mae
     
-

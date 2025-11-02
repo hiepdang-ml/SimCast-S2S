@@ -4,7 +4,7 @@ from functools import cached_property
 from typing import Callable, Literal
 import torch
 import torch.nn as nn
-from ..common import NamedModel
+from models.common import NamedModel
 
 
 class _SinusoidEmbedding(nn.Module):
@@ -64,24 +64,26 @@ class _NoiseScheduler(ABC):
 
 class LinearNoiseScheduler(_NoiseScheduler):
 
-    def __init__(self, beta_min: float, beta_max: float, n_steps: int, device: torch.device) -> None:
+    def __init__(self, n_steps: int, beta_min: float, beta_max: float, device: torch.device) -> None:
         super().__init__(n_steps=n_steps, device=device)
-        assert 0. < beta_min < beta_max
         self.beta_min: float = beta_min
         self.beta_max: float = beta_max
-
-    @cached_property
-    def beta_schedule(self) -> torch.Tensor:
-        betas: torch.Tensor = torch.linspace(
-            start=self.beta_min, end=self.beta_max, steps=self.n_steps, 
+        self.__beta_schedule: torch.Tensor = torch.linspace(
+            start=beta_min, end=beta_max, steps=n_steps,
             dtype=torch.float32,
-            device=self.device,
+            device=device,
         )
-        return torch.cat([torch.tensor([0.0], dtype=torch.float32, device=self.device), betas])
+
+    @property
+    def beta_schedule(self) -> torch.Tensor:
+        return self.__beta_schedule  # len = self.n_steps
 
     @cached_property
     def alpha_bar_schedule(self) -> torch.Tensor:
-        return torch.exp(torch.log(1.0 - self.beta_schedule).cumsum(dim=0))
+        alpha_bar_values: torch.Tensor = torch.exp(torch.log(1.0 - self.beta_schedule).cumsum(dim=0))
+        alpha_bar_values = torch.cat([torch.ones(1, device=self.device), alpha_bar_values], dim=0)
+        assert alpha_bar_values.shape[0] == self.n_steps + 1
+        return alpha_bar_values  # len = self.n_steps + 1
     
 
 class CosineNoiseScheduler(_NoiseScheduler):
@@ -101,8 +103,19 @@ class CosineNoiseScheduler(_NoiseScheduler):
 
     @cached_property
     def beta_schedule(self) -> torch.Tensor:
-        betas: torch.Tensor = 1. - (self.alpha_bar_schedule[1:] / (self.alpha_bar_schedule[:-1] + 1e-10))
-        return torch.cat([torch.tensor([0.0], dtype=torch.float32, device=self.device), betas])
+        return 1. - (self.alpha_bar_schedule[1:] / (self.alpha_bar_schedule[:-1] + 1e-10))
+
+
+class StepNormalizer(nn.Module):
+
+    def __init__(self, n_steps: int) -> None:
+        super().__init__()
+        self.n_steps: int = n_steps
+
+    def forward(self, integer_step: torch.Tensor) -> torch.Tensor:
+        step_N, step_D = integer_step.shape
+        assert step_D == 1
+        return integer_step.float() / self.n_steps
 
 
 class _StepEmbedding(nn.Module):
@@ -501,10 +514,14 @@ class UNetDenoiser(NamedModel, nn.Module):
             in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1,
         )
 
-    def forward(self, target: torch.Tensor, condition: torch.Tensor, step: torch.Tensor, condition_days: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, 
+        target: torch.Tensor, condition: torch.Tensor, 
+        normalized_step: torch.Tensor, condition_days: torch.Tensor,
+    ) -> torch.Tensor:
         target_N, target_D, target_H, target_W = target.shape
         condition_N, condition_D, condition_H, condition_W = condition.shape
-        step_N, step_D = step.shape
+        step_N, step_D = normalized_step.shape
         day_N, day_D = condition_days.shape
         assert target_N == condition_N == step_N == day_N
         assert target_H == condition_H
@@ -520,7 +537,7 @@ class UNetDenoiser(NamedModel, nn.Module):
             f"for target dimension: {(target_H, target_W)}"
         )
         # Step embedding
-        step_embedding: torch.Tensor = self.step_embedding_layer(t=step)
+        step_embedding: torch.Tensor = self.step_embedding_layer(t=normalized_step)
         assert step_embedding.shape == (step_N, 1, self.step_dim)
         step_embedding = step_embedding.squeeze(dim=1)
         # Day embedding
@@ -577,6 +594,9 @@ class _DiffusionProcess:
     def compute_alpha_bar(self, step: torch.Tensor) -> torch.Tensor:
         step_N, _ = step.shape  # (batch_size, 1)
         # alpha ranges from k=0,...,K
+        assert torch.all(step.long() >= 0)
+        assert torch.all(step.long() <= self.noise_scheduler.n_steps)
+        # print(f"self.alpha_bar_schedule: {self.alpha_bar_schedule}")
         alpha_bar: torch.Tensor = self.alpha_bar_schedule.to(step.device)[step.long()]
         assert alpha_bar.shape == (step_N, 1)
         alpha_bar = alpha_bar[:, :, None, None]
@@ -585,40 +605,55 @@ class _DiffusionProcess:
     def compute_beta(self, step: torch.Tensor) -> torch.Tensor:
         step_N, _ = step.shape  # (batch_size, 1)
         # beta ranges from k=1,...,K
+        assert torch.all(step.long() - 1 >= 0)
+        assert torch.all(step.long() - 1 <= self.noise_scheduler.n_steps - 1)
         beta: torch.Tensor = self.beta_schedule.to(step.device)[step.long() - 1]
         assert beta.shape == (step_N, 1)
         beta = beta[:, :, None, None]
         return beta
-
-    def compute_x0(self, target_k: torch.Tensor, predicted_noise: torch.Tensor, alpha_bar: torch.Tensor) -> torch.Tensor:
-        target_N, target_D, target_H, target_W = target_k.shape
-        noise_N, noise_D, noise_H, noise_W = predicted_noise.shape
-        alpha_bar_N, _, _, _ = alpha_bar.shape  # (batch_size, 1)
-        assert target_N == noise_N == alpha_bar_N
-        # Original target prediction at k
-        target_0: torch.Tensor = (target_k - torch.sqrt(1 - alpha_bar) * predicted_noise) / torch.sqrt(alpha_bar)
-        assert target_0.shape == target_k.shape
-        return target_0
-
+    
     def compute_tilde_beta(self, alpha_bar_prev: torch.Tensor, alpha_bar: torch.Tensor) -> torch.Tensor:
         return (1 - alpha_bar_prev) / (1 - alpha_bar) * (1 - alpha_bar / alpha_bar_prev)
 
     def compute_sigma(self, tilde_beta: torch.Tensor, eta: float) -> torch.Tensor:
         return eta * torch.sqrt(tilde_beta)
+    
+    def compute_velocity(self, alpha_bar: torch.Tensor, target_0: torch.Tensor, gaussian: torch.Tensor) -> torch.Tensor:
+        return - torch.sqrt(1 - alpha_bar) * target_0 + torch.sqrt(alpha_bar) * gaussian
+
+    def compute_x0(self, target_k: torch.Tensor, predicted_velocity: torch.Tensor, alpha_bar: torch.Tensor) -> torch.Tensor:
+        target_N, target_D, target_H, target_W = target_k.shape
+        velocity_N, velocity_D, velocity_H, velocity_W = predicted_velocity.shape
+        alpha_bar_N, _, _, _ = alpha_bar.shape  # (batch_size, 1)
+        assert target_N == velocity_N == alpha_bar_N
+        # Original target prediction at k
+        target_0: torch.Tensor = torch.sqrt(alpha_bar) * target_k - torch.sqrt(1 - alpha_bar) * predicted_velocity
+        assert target_0.shape == target_k.shape
+        return target_0
+
+    def compute_gaussian(self, target_k: torch.Tensor, predicted_velocity: torch.Tensor, alpha_bar: torch.Tensor) -> torch.Tensor:
+        target_N, target_D, target_H, target_W = target_k.shape
+        velocity_N, velocity_D, velocity_H, velocity_W = predicted_velocity.shape
+        alpha_bar_N, _, _, _ = alpha_bar.shape  # (batch_size, 1)
+        assert target_N == velocity_N == alpha_bar_N
+        # Original target prediction at k
+        gaussian: torch.Tensor = torch.sqrt(1 - alpha_bar) * target_k + torch.sqrt(alpha_bar) * predicted_velocity
+        assert gaussian.shape == target_k.shape
+        return gaussian
 
 
 class ForwardProcess(_DiffusionProcess):
     
-    def add_noise(self, original_latent: torch.Tensor, step: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def add_noise(self, original_latent: torch.Tensor, k: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         original_N: int = original_latent.shape[0]
-        step_N: int = step.shape[0]
+        step_N, _ = k.shape  # (batch_size, 1)
         assert original_N == step_N # batch_size
-        gaussian: torch.Tensor = torch.randn_like(original_latent)
-        # Make sure schedules are on the same device before indexing with GPU tensor indices
-        alpha_bar: torch.Tensor = self.compute_alpha_bar(step=step)
-        noisy_latent: torch.Tensor = original_latent * (alpha_bar ** 0.5) + gaussian * ((1 - alpha_bar) ** 0.5)
+        alpha_bar: torch.Tensor = self.compute_alpha_bar(step=k)
+        true_gaussian: torch.Tensor = torch.randn_like(original_latent)
+        true_velocity: torch.Tensor = self.compute_velocity(alpha_bar=alpha_bar, target_0=original_latent, gaussian=true_gaussian)
+        noisy_latent: torch.Tensor = original_latent * torch.sqrt(alpha_bar) + true_gaussian * torch.sqrt(1 - alpha_bar)
         assert noisy_latent.shape == original_latent.shape
-        return noisy_latent, gaussian
+        return noisy_latent, true_velocity
     
 
 class ReverseProcess(_DiffusionProcess):
@@ -630,24 +665,31 @@ class ReverseProcess(_DiffusionProcess):
 
     def sample(
         self, 
-        target_k: torch.Tensor, predicted_noise: torch.Tensor, step: torch.Tensor,
+        target_k: torch.Tensor, predicted_velocity: torch.Tensor, k: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         
         target_N, target_D, target_H, target_W = target_k.shape
-        noise_N, noise_D, noise_H, noise_W = predicted_noise.shape
-        step_N, _ = step.shape  # (batch_size, 1)
-        assert target_N == noise_N == step_N  # batch_size
+        velocity_N, velocity_D, velocity_H, velocity_W = predicted_velocity.shape
+        step_N, _ = k.shape  # (batch_size, 1)
+        assert target_N == velocity_N == step_N  # batch_size
 
         # Alpha bar
-        alpha_bar: torch.Tensor = self.compute_alpha_bar(step=step)
-        alpha_bar_prev: torch.Tensor = self.compute_alpha_bar(step=step - 1)
+        alpha_bar: torch.Tensor = self.compute_alpha_bar(step=k)
+        alpha_bar_prev: torch.Tensor = self.compute_alpha_bar(step=k - 1)
         # Beta tilde
         tilde_beta: torch.Tensor = self.compute_tilde_beta(alpha_bar_prev=alpha_bar_prev, alpha_bar=alpha_bar)
         # Sigma
         sigma: torch.Tensor = self.compute_sigma(tilde_beta=tilde_beta, eta=self.eta)
         # Original target prediction at k
-        target_0: torch.Tensor = self.compute_x0(target_k=target_k, predicted_noise=predicted_noise, alpha_bar=alpha_bar)
+        target_0: torch.Tensor = self.compute_x0(
+            target_k=target_k, predicted_velocity=predicted_velocity, alpha_bar=alpha_bar
+        )
         assert target_0.shape == target_k.shape
-        mean: torch.Tensor = torch.sqrt(alpha_bar_prev) * target_0 + torch.sqrt(1 - alpha_bar_prev - sigma ** 2) * predicted_noise
+        predicted_gaussian: torch.Tensor = self.compute_gaussian(
+            target_k=target_k, predicted_velocity=predicted_velocity, alpha_bar=alpha_bar
+        )
+        mean: torch.Tensor = (
+            torch.sqrt(alpha_bar_prev) * target_0 + torch.sqrt(1 - alpha_bar_prev - sigma**2) * predicted_gaussian
+        )
         return mean + sigma * torch.randn_like(target_k), target_0
 

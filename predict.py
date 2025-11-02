@@ -1,6 +1,5 @@
 import os
 from typing import Literal
-import argparse
 import torch
 import torch.distributed as dist
 
@@ -12,8 +11,7 @@ from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAE_Wind, VAE_Geopotential, VAE_ThermalDynamic, VAE_Precipitation, 
     VAEEncoder, VAEDecoder, UNetDenoiser, 
-    LinearNoiseScheduler, CosineNoiseScheduler, 
-    ForwardProcess, ReverseProcess,
+    LinearNoiseScheduler, CosineNoiseScheduler, ForwardProcess, ReverseProcess,
 )
 
 
@@ -144,17 +142,21 @@ def main(
         precipitation_encoder: VAEEncoder = precipitation_vae.encoder.to(device=model_config.device)
         precipitation_decoder: VAEEncoder = precipitation_vae.decoder.to(device=model_config.device)
         # Noise scheduler
-        if model_config.noise_scheduler_scheme.lower() == "linear":
+        if model_config.noise_scheduler.lower() == "linear":
             noise_scheduler = LinearNoiseScheduler(
-                beta_min=model_config.beta_min,
-                beta_max=model_config.beta_max,
+                n_steps=model_config.n_steps, 
+                beta_min=model_config.beta_min, 
+                beta_max=model_config.beta_max, 
+                device=model_config.device,
+            )
+        elif model_config.noise_scheduler.lower() == "cosine":
+            noise_scheduler = CosineNoiseScheduler(
                 n_steps=model_config.n_steps,
                 device=model_config.device,
             )
-        elif model_config.noise_scheduler_scheme.lower() == "cosine":
-            noise_scheduler = CosineNoiseScheduler(n_steps=model_config.n_steps, device=model_config.device)
         else:
-            raise ValueError(f"Invalid noiser_scheduler_scheme in config {model_config.noise_scheduler_scheme}")
+            raise ValueError(f"Invalid diffusion_config.noise_scheduler={model_config.noise_scheduler}")
+
         
         DiffusionPredictor(
             denoiser=net, 
@@ -171,6 +173,7 @@ def main(
 
 
 if __name__ == "__main__":
+    import argparse
     import torch.multiprocessing as mp
     mp.set_start_method("spawn", force=True)
 
@@ -192,15 +195,12 @@ if __name__ == "__main__":
         "--model", 
         type=str, choices=[
             "cnn", "unet", "vit", 
-            "vae-wind", "vae-geopotential", "vae-thermaldynamic", "vae-precipitation", "diffusion"
+            "vae-wind", "vae-geopotential", "vae-thermaldynamic", "vae-precipitation", 
+            "diffusion"
         ],
         required=True,
     )
-    parser.add_argument(
-        "--dataset", 
-        type=str, choices=["cesm2", "era5"],
-        required=True,
-    )
+    parser.add_argument("--dataset", type=str, choices=["cesm2", "era5"], required=True)
     args: argparse.Namespace = parser.parse_args()
 
     local_rank: int = setup_ddp()

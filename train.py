@@ -1,5 +1,4 @@
 import os
-import argparse
 from typing import Literal
 import torch
 import torch.distributed as dist
@@ -12,8 +11,7 @@ from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAE_Wind, VAE_Geopotential, VAE_ThermalDynamic, VAE_Precipitation, 
     VAEEncoder, VAEDecoder, UNetDenoiser, 
-    LinearNoiseScheduler, CosineNoiseScheduler, 
-    ForwardProcess, ReverseProcess,
+    LinearNoiseScheduler, CosineNoiseScheduler, ForwardProcess, ReverseProcess,
 )
 
 
@@ -359,7 +357,7 @@ def main(
         if (checkpoint_path := diffusion_config.from_checkpoint) is not None:
             print(f"Training from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
-            net: UNetDenoiser = checkpoint_loader.load(scope=globals()).to(device=diffusion_config.device)
+            net: UNetDenoiser = checkpoint_loader.load(scope=globals())
             assert isinstance(net, UNetDenoiser)
         else:
             print("Training UNetDenoiser from scratch")
@@ -384,31 +382,34 @@ def main(
         # Wind encoder
         print(f"Loading wind_encoder from {diffusion_config.wind_vae_checkpoint}")
         checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.wind_vae_checkpoint)
-        wind_encoder: VAE_Wind = checkpoint_loader.load(scope=globals()).encoder.to(device=diffusion_config.device)
+        wind_encoder: VAE_Wind = checkpoint_loader.load(scope=globals()).encoder
         # Geopotential encoder
         print(f"Loading geopotential_encoder from {diffusion_config.geopotential_vae_checkpoint}")
         checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.geopotential_vae_checkpoint)
-        geopotential_encoder: VAE_Geopotential = checkpoint_loader.load(scope=globals()).encoder.to(device=diffusion_config.device)
+        geopotential_encoder: VAE_Geopotential = checkpoint_loader.load(scope=globals()).encoder
         # Thermaldynamic encoder
         print(f"Loading thermaldynamic_encoder from {diffusion_config.thermaldynamic_vae_checkpoint}")
         checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.thermaldynamic_vae_checkpoint)
-        thermaldynamic_encoder: VAE_ThermalDynamic = checkpoint_loader.load(scope=globals()).encoder.to(device=diffusion_config.device)
+        thermaldynamic_encoder: VAE_ThermalDynamic = checkpoint_loader.load(scope=globals()).encoder
         # Precipitation encoder
         print(f"Loading precipitation_encoder from {diffusion_config.precipitation_vae_checkpoint}")
         checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.precipitation_vae_checkpoint)
-        precipitation_encoder: VAE_Precipitation = checkpoint_loader.load(scope=globals()).encoder.to(device=diffusion_config.device)
+        precipitation_encoder: VAE_Precipitation = checkpoint_loader.load(scope=globals()).encoder
         # Noise scheduler
-        if diffusion_config.noise_scheduler_scheme == "linear":
+        if diffusion_config.noise_scheduler.lower() == "linear":
             noise_scheduler = LinearNoiseScheduler(
-                beta_min=diffusion_config.beta_min,
-                beta_max=diffusion_config.beta_max,
+                n_steps=diffusion_config.n_steps, 
+                beta_min=diffusion_config.beta_min, 
+                beta_max=diffusion_config.beta_max, 
+                device=diffusion_config.device,
+            )
+        elif diffusion_config.noise_scheduler.lower() == "cosine":
+            noise_scheduler = CosineNoiseScheduler(
                 n_steps=diffusion_config.n_steps,
                 device=diffusion_config.device,
             )
-        elif diffusion_config.noise_scheduler_scheme == "cosine":
-            noise_scheduler = CosineNoiseScheduler(n_steps=diffusion_config.n_steps, device=diffusion_config.device)
         else:
-            raise ValueError(f"Invalid noiser_scheduler_scheme in config {diffusion_config.noise_scheduler_scheme}")
+            raise ValueError(f"Invalid diffusion_config.noise_scheduler={diffusion_config.noise_scheduler}")
 
         trainer = DiffusionTrainer(
             denoiser=net,
@@ -417,8 +418,6 @@ def main(
             thermaldynamic_encoder=thermaldynamic_encoder,
             precipitation_encoder=precipitation_encoder,
             noise_scheduler=noise_scheduler,
-            eta=diffusion_config.eta,
-            lambda_=diffusion_config.lambda_,
             lr=diffusion_config.learning_rate,
             train_dataset=train_dataset,
             val_dataset=val_dataset,
@@ -438,6 +437,7 @@ def main(
 
 
 if __name__ == "__main__":
+    import argparse
     import torch.multiprocessing as mp
     mp.set_start_method("spawn", force=True)
 

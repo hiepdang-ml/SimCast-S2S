@@ -15,10 +15,11 @@ from common.utils import Accumulator, EarlyStopping, Timer, Logger, CheckpointSa
 from common.losses import VAELoss, DiffusionLoss
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAEEncoder, UNetDenoiser, 
-    LinearNoiseScheduler, CosineNoiseScheduler, ForwardProcess, ReverseProcess
+    VAE, VAEEncoder, UNetDenoiser, LinearNoiseScheduler, ForwardProcess, ReverseProcess, StepNormalizer
 )
 from .common import RequireVAEEncoders
+
+import torch.nn.functional as F
 
 
 class _AbstractTrainer(ABC):
@@ -45,8 +46,8 @@ class _AbstractTrainer(ABC):
             module=net.to(self.device), device_ids=[self.local_rank], 
             output_device=self.local_rank, broadcast_buffers=False,
         )
-        self.train_sampler: DistributedSampler = DistributedSampler(dataset=train_dataset, shuffle=True)
-        self.val_sampler: DistributedSampler = DistributedSampler(dataset=val_dataset, shuffle=False)
+        self.train_sampler: DistributedSampler = DistributedSampler(dataset=train_dataset, shuffle=True, drop_last=False)
+        self.val_sampler: DistributedSampler = DistributedSampler(dataset=val_dataset, shuffle=False, drop_last=False)
 
         # Dataloaders
         self.train_dataloader = DataLoader(
@@ -127,7 +128,7 @@ class _AbstractTrainer(ABC):
         """
         Baseline models only need to output: mae
         VAE models output: kl_divergence, reconstruction_loss, negative_elbo, reconstruction_mae
-        Diffusion models output: gaussian_loss, sampling_loss, loss, gaussian_mae, sampling_mae
+        Diffusion models output: velocity_loss, velocity_mae
         """
         pass
     
@@ -256,6 +257,8 @@ class VAETrainer(_AbstractTrainer):
     def _train_step(self, batch: DataBatch) -> None:
         sampleinfos, input_yearday_indices, output_yearday_indices, input_tensor, target_tensor = batch
         batch_size, n_days, H, W, n_features = input_tensor.shape
+        input_tensor = input_tensor.to(self.device, non_blocking=True)
+
         for day in range(input_tensor.shape[1]):
             # Forward pass
             self.optimizer.zero_grad()
@@ -272,18 +275,24 @@ class VAETrainer(_AbstractTrainer):
     def _eval_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         sampleinfos, input_yearday_indices, output_yearday_indices, input_tensor, target_tensor = batch
         batch_size, n_days, H, W, n_features = input_tensor.shape
+        input_tensor = input_tensor.to(self.device, non_blocking=True)
+        
         reconstruction_loss: torch.Tensor = torch.zeros_like(input_tensor).sum()
         kl_divergence: torch.Tensor = torch.zeros_like(input_tensor).sum()
         negative_elbo: torch.Tensor = torch.zeros_like(input_tensor).sum()
-        reconstruction_mae: torch.Tensor = torch.zeros_like(reconstruction_mae).sum()
+        reconstruction_mae: torch.Tensor = torch.zeros_like(input_tensor).sum()
         for day in range(input_tensor.shape[1]):
             # Forward pass
             true_x: torch.Tensor = input_tensor[:, day: day+1, :, :, :]
             reconstructed_x, mu, logvar = self.net(true_x)
             # Compute evaluation metrics
-            reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae = self.loss_function(
+            reconstruction_loss_, kl_divergence_, negative_elbo_, reconstruction_mae_ = self.loss_function(
                 x_hat=reconstructed_x, true_x=true_x, mu=mu, logvar=logvar,
             )
+            reconstruction_loss += reconstruction_loss_
+            kl_divergence += kl_divergence_
+            negative_elbo += negative_elbo_
+            reconstruction_mae += reconstruction_mae_
 
         n_days: int = input_tensor.shape[1]
         return (
@@ -301,8 +310,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         denoiser: UNetDenoiser,
         wind_encoder: VAEEncoder, geopotential_encoder: VAEEncoder,
         thermaldynamic_encoder: VAEEncoder, precipitation_encoder: VAEEncoder,
-        noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler,
-        eta: float, lambda_: float, lr: float, 
+        noise_scheduler: LinearNoiseScheduler, lr: float, 
         train_dataset: CESM2, val_dataset: CESM2,
         train_batch_size: int, val_batch_size: int,
     ) -> None:
@@ -311,7 +319,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
             train_batch_size=train_batch_size, val_batch_size=val_batch_size,
         )
         self.denoiser: UNetDenoiser = denoiser
-        self.loss_function = DiffusionLoss(lambda_=lambda_)
+        self.loss_function = DiffusionLoss()
 
         # Freeze encoders
         wind_encoder.freeze()
@@ -328,14 +336,10 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         self.thermaldynamic_encoder: VAEEncoder = thermaldynamic_encoder.to(self.device)
         self.precipitation_encoder: VAEEncoder = precipitation_encoder.to(self.device)
 
-        self.eta: float = eta
-        self.lambda_: float = lambda_
-        self.noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler = noise_scheduler
+        self.noise_scheduler: LinearNoiseScheduler = noise_scheduler
         self.n_denoising_steps: int = noise_scheduler.n_steps
+        self.step_normalizer: StepNormalizer = StepNormalizer(n_steps=noise_scheduler.n_steps)
         self.forward_process: ForwardProcess = ForwardProcess(noise_scheduler=noise_scheduler)
-        # TESTING
-        self.reverse_process: ReverseProcess = ReverseProcess(eta=0., noise_scheduler=noise_scheduler)
-        # self.reverse_process: ReverseProcess = ReverseProcess(eta=eta, noise_scheduler=noise_scheduler)
         self.indices_by_context_group = self.train_dataset.indices_by_context_group
 
     #implement
@@ -344,30 +348,18 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         self.net.eval()
         with torch.no_grad():
             for n, batch in enumerate(self.val_dataloader, start=1):
-                gaussian_loss, sampling_loss, loss, gaussian_mae, sampling_mae = self._eval_step(batch=batch)
+                velocity_loss, velocity_mae = self._eval_step(batch=batch)
                 # Accumulate the val_metrics
-                val_metrics.add(
-                    gaussian_loss=gaussian_loss, sampling_loss=sampling_loss, loss=loss,
-                    gaussian_mae=gaussian_mae, sampling_mae=sampling_mae,
-                )
+                val_metrics.add(velocity_loss=velocity_loss, velocity_mae=velocity_mae)
 
-        gaussian_loss: torch.Tensor = val_metrics["gaussian_loss"] / n
-        sampling_loss: torch.Tensor = val_metrics["sampling_loss"] / n
-        loss: torch.Tensor = val_metrics["loss"] / n
-        gaussian_mae: torch.Tensor = val_metrics["gaussian_mae"] / n
-        sampling_mae: torch.Tensor = val_metrics["sampling_mae"] / n
-        dist.all_reduce(tensor=gaussian_loss, op=dist.ReduceOp.AVG)
-        dist.all_reduce(tensor=sampling_loss, op=dist.ReduceOp.AVG)
-        dist.all_reduce(tensor=loss, op=dist.ReduceOp.AVG)
-        dist.all_reduce(tensor=gaussian_mae, op=dist.ReduceOp.AVG)
-        dist.all_reduce(tensor=sampling_mae, op=dist.ReduceOp.AVG)
+        velocity_loss: torch.Tensor = val_metrics["velocity_loss"] / n
+        velocity_mae: torch.Tensor = val_metrics["velocity_mae"] / n
+        dist.all_reduce(tensor=velocity_loss, op=dist.ReduceOp.AVG)
+        dist.all_reduce(tensor=velocity_mae, op=dist.ReduceOp.AVG)
         return {
-            "gaussian_loss": gaussian_loss.item(), 
-            "sampling_loss": sampling_loss.item(), 
-            "loss": loss.item(), 
-            "gaussian_mae": gaussian_mae.item(), 
-            "sampling_mae": sampling_mae.item(),
-            "watched_metric": loss.item(),
+            "velocity_loss": velocity_loss.item(), 
+            "velocity_mae": velocity_mae.item(), 
+            "watched_metric": velocity_mae.item(),
         }
 
     #implement
@@ -379,28 +371,28 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         # Reset gradients
         self.optimizer.zero_grad()
         # Forward propagation
-        gaussian_loss, sampling_loss, loss, gaussian_mae, sampling_mae = self._forward_pass(
+        velocity_loss, velocity_mae = self._forward_pass(
             target=target, condition=condition, condition_days=input_yearday_indices
         )
         # Back propagation
-        loss.backward()
+        velocity_loss.backward()
         self.optimizer.step()
 
     #implement
-    def _eval_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _eval_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor]:
         _, input_yearday_indices, _, condition, target = batch
         condition = condition.to(self.device, non_blocking=True)
         target = target.to(self.device, non_blocking=True)
         input_yearday_indices = input_yearday_indices.to(self.device, non_blocking=True)
         # Forward propagation
-        gaussian_loss, sampling_loss, loss, gaussian_mae, sampling_mae = self._forward_pass(
+        velocity_loss, velocity_mae = self._forward_pass(
             target=target, condition=condition, condition_days=input_yearday_indices
         )
-        return gaussian_loss, sampling_loss, loss, gaussian_mae, sampling_mae
+        return velocity_loss, velocity_mae
 
     def _forward_pass(
         self, condition: torch.Tensor, target: torch.Tensor, condition_days: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         # Encode
         with torch.no_grad():
             target_latent, condition_latent = self.vae_encode(condition=condition, target=target)
@@ -408,24 +400,18 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         # Generate step
         batch_size: int = target_latent.shape[0]
         # Diffusion step must range from 1 to K
-        step: torch.Tensor = torch.randint(
+        integer_step: torch.Tensor = torch.randint(
             low=1, high=self.n_denoising_steps + 1, size=(batch_size, 1), device=target_latent.device
         )
+        normalized_step: torch.Tensor = self.step_normalizer(integer_step=integer_step)
         # Forward process
-        noisy_target, true_gaussian = self.forward_process.add_noise(original_latent=target_latent, step=step)
+        noisy_target, true_velocity = self.forward_process.add_noise(original_latent=target_latent, k=integer_step)
         # Predict gaussian using UNetDenoiser
-        predicted_gaussian: torch.Tensor = self.net(
-            target=noisy_target, condition=condition_latent, step=step, condition_days=condition_days,
-        )
-        # Reverse process
-        predicted_target_k, predicted_target_0 = self.reverse_process.sample(
-            target_k=noisy_target, predicted_noise=predicted_gaussian, step=step,
+        predicted_velocity: torch.Tensor = self.net(
+            target=noisy_target, condition=condition_latent, 
+            normalized_step=normalized_step, condition_days=condition_days,
         )
         # Loss
-        gaussian_loss, sampling_loss, loss, gaussian_mae, sampling_mae = self.loss_function(
-            gaussian_hat=predicted_gaussian, gaussian_true=true_gaussian,
-            x_hat=target_latent, x_true=target_latent,
-            # x_hat=predicted_target_0, x_true=target_latent,
-        )
-        return gaussian_loss, sampling_loss, loss, gaussian_mae, sampling_mae
+        velocity_loss, velocity_mae = self.loss_function(velocity_hat=predicted_velocity, velocity_true=true_velocity)
+        return velocity_loss, velocity_mae
 

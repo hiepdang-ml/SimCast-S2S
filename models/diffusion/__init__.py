@@ -3,7 +3,5 @@ from .vae import (
     VAEEncoder, VAEDecoder
 )
 from .diffusion import (
-    UNetDenoiser, 
-    LinearNoiseScheduler, CosineNoiseScheduler, 
-    ForwardProcess, ReverseProcess
+    UNetDenoiser, LinearNoiseScheduler, CosineNoiseScheduler, ForwardProcess, ReverseProcess, StepNormalizer
 )

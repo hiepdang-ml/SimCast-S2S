@@ -1,7 +1,5 @@
 import torch
 
-from models.diffusion import VAEEncoder
-
 
 class RequireVAEEncoders:
 
@@ -15,33 +13,26 @@ class RequireVAEEncoders:
         thermaldynamic_condition: torch.Tensor = condition[..., thermaldynamic_indices]
         precipitation_indices: list[int] = self.indices_by_context_group["precipitation"]
         precipitation_condition: torch.Tensor = condition[..., precipitation_indices]
-
+    
         condition_latents: list[torch.Tensor] = []
         for day in range(condition.shape[1]):  # n_days
+            # NOTE: only get the mean (deterministic latent)
             condition_latents.append(
-                VAEEncoder.reparameterize(
-                    *self.wind_encoder(wind_condition[:, day:day+1, :, :, :])
-                )
+                self.wind_encoder(wind_condition[:, day:day+1, :, :, :])[0]
             )
             condition_latents.append(
-                VAEEncoder.reparameterize(
-                    *self.geopotential_encoder(geopotential_condition[:, day:day+1, :, :, :])
-                )
+                self.geopotential_encoder(geopotential_condition[:, day:day+1, :, :, :])[0]
             )
             condition_latents.append(
-                VAEEncoder.reparameterize(
-                    *self.thermaldynamic_encoder(thermaldynamic_condition[:, day:day+1, :, :, :])
-                )
+                self.thermaldynamic_encoder(thermaldynamic_condition[:, day:day+1, :, :, :])[0]
             )
             condition_latents.append(
-                VAEEncoder.reparameterize(
-                    *self.precipitation_encoder(precipitation_condition[:, day:day+1, :, :, :])
-                )
+                self.precipitation_encoder(precipitation_condition[:, day:day+1, :, :, :])[0]
             )
 
         condition_latent: torch.Tensor = torch.cat(tensors=condition_latents, dim=1)
         # Encode precipitation target
         assert target.shape[1] == 1
-        target_latent: torch.Tensor = VAEEncoder.reparameterize(*self.precipitation_encoder(target))
+        target_latent: torch.Tensor = self.precipitation_encoder(target)[0]
         return target_latent, condition_latent
     

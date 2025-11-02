@@ -20,7 +20,7 @@ class CESM2(Dataset):
         with open(self.metadata.write_directory.joinpath(f"metadata/metadata.json"), mode="r") as file:
             loaded_dict: dict[str, Any] = json.load(fp=file)
             loaded_dict["resolution"] = tuple(loaded_dict["resolution"])
-            loaded_dict.pop("input_vars")
+            loaded_dict.pop("sim_ids"); loaded_dict.pop("input_vars"); loaded_dict.pop("output_vars")
             for k in loaded_dict.keys():
                 if meta_dict[k] != loaded_dict[k]:
                     raise RuntimeError(

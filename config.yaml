@@ -14,16 +14,36 @@ cesm2:
   output_vars: ["PRECT"]
   resolution: [192, 288]
   sim_ids: [
-    "1001.001", 
-    "1021.002", 
-    "1041.003", 
-    "1061.004", 
-    "1081.005", 
-    "1101.006", 
-    "1121.007", 
-    "1141.008", 
-    "1161.009", 
-    "1181.010", 
+    # Boundary condition: BHISTcmip6
+    "1001.001",
+    "1021.002",
+    "1041.003",
+    "1061.004",
+    "1081.005",
+    "1101.006",
+    "1121.007",
+    "1141.008",
+    "1161.009",
+    "1181.010",
+    "1231.001",
+    "1251.001",
+    "1281.001",
+    "1301.001",
+    # Boundary condition: BHISTsmbb
+    "1011.001",
+    "1031.002",
+    "1051.003",
+    "1071.004",
+    "1091.005",
+    "1111.006",
+    "1131.007",
+    "1151.008",
+    "1171.009",
+    "1191.010",
+    "1231.011",
+    "1251.011",
+    "1281.011",
+    "1301.011",
   ]
   # modifiable configs:
   train_start_year: 1950
@@ -259,13 +279,14 @@ diffusion:
   n_layers_per_scaling_block: 6
   n_layers_per_mid_block: 3
   n_attention_heads: 8
-  condition_dropout: 0.
+  condition_dropout: 0.5
   # Diffusion configurations
+  noise_scheduler: "linear" # "linear" | "cosine"
   n_steps: 1000
-  noise_scheduler_scheme: "cosine" # "linear" or "cosine"
-  beta_min: 1e-4  # only applicable for "linear" 
-  beta_max: 0.02  # only applicable for "linear"
-
+  beta_min: 0.001  # linear only
+  beta_max: 0.015  # linear only
+  # Sampling
+  eta: 0.
   # Training
   learning_rate: 1e-6
   train_batch_size: 4
@@ -274,13 +295,11 @@ diffusion:
   patience: 20
   tolerance: 0.
   save_frequency: 1
-  # Sampling
-  eta: 1.
 
   wind_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/vae7.pt"
   geopotential_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_geopotential_16times/vae41.pt"
   thermaldynamic_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermaldynamic_16times/vae19.pt"
   precipitation_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precipitation_16times/vae16.pt"
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v5/diffusion68.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v5"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v8/diffusion7.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v8_"
 

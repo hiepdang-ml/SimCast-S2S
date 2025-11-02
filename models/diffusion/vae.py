@@ -238,6 +238,7 @@ class VAEEncoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
         eps: torch.Tensor = torch.randn_like(std)
         return mu + eps * std
 
+
 class VAEDecoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
     
     def __init__(

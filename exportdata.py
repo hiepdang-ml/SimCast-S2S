@@ -9,13 +9,13 @@ from datasets.common.writer import DataWriter
 from common.configs import MetaData
 
 
-def main(dataset: Literal["cesm2", "era5"]) -> None:
-    
+def main(dataset: Literal["cesm2", "era5"], fresh: bool) -> None:
+
     # train dataset
     train_metadata: MetaData = MetaData(dataset_name=dataset, tp="train")
     detrender: Detrender = Detrender(metadata=train_metadata)
     climatology_remover: ClimatologyRemover = ClimatologyRemover(metadata=train_metadata)
-    writer: DataWriter = DataWriter(metadata=train_metadata)
+    writer: DataWriter = DataWriter(metadata=train_metadata, fresh=fresh)
 
     if dataset == "cesm2":
         for var_name in train_metadata.var_names:
@@ -35,7 +35,7 @@ def main(dataset: Literal["cesm2", "era5"]) -> None:
             writer(var_container=var_container)
             print(f"Saved all .pt files {dataset}.train.{var_name}")
             del var_container   # release memory
-
+        
     else:
         assert len(train_metadata.sim_ids) == 1
         sim_id: str = train_metadata.sim_ids[0]
@@ -60,13 +60,13 @@ def main(dataset: Literal["cesm2", "era5"]) -> None:
             writer(var_container=var_container)
             print(f"Saved all .pt files {dataset}.train.{var_name}")
             del var_container   # release memory
-
+        
     # val & test dataset
     for tp in ["val", "test"]:
         metadata: MetaData = MetaData(dataset_name=dataset, tp=tp)
         detrender: Detrender = Detrender(metadata=metadata)
         climatology_remover: ClimatologyRemover = ClimatologyRemover(metadata=metadata)
-        writer: DataWriter = DataWriter(metadata=metadata)
+        writer: DataWriter = DataWriter(metadata=metadata, fresh=fresh)
 
         if dataset == "cesm2":
             for var_name in metadata.var_names:
@@ -86,7 +86,7 @@ def main(dataset: Literal["cesm2", "era5"]) -> None:
                 writer(var_container)
                 print(f"Saved all .pt files {dataset}.{tp}.{var_name}")
                 del var_container   # release memory
-
+            
         else:
             for var_name in metadata.var_names:
                 var_container: VariableContainer = VariableContainer(var_name=var_name, metadata=metadata)
@@ -112,9 +112,28 @@ def main(dataset: Literal["cesm2", "era5"]) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+
+    parser: argparse.ArgumentParser = argparse.ArgumentParser()
+    group: argparse._MutuallyExclusiveGroup = parser.add_mutually_exclusive_group(required=True) 
     parser.add_argument("--dataset", type=str, choices=["cesm2", "era5"], required=True)
+    group.add_argument(
+        "--fresh",
+        action="store_true",
+        dest="fresh",
+        help="Write from scratch (reset counter)",
+    )
+    group.add_argument(
+        "--resume",
+        action="store_true",
+        dest="resume",
+        help="Resume from last write (resume counter)",
+    )
     args: argparse.Namespace = parser.parse_args()
-    main(dataset=args.dataset)
+    
+    if args.fresh:
+        main(dataset=args.dataset, fresh=True)
+    elif args.resume:
+        main(dataset=args.dataset, fresh=False)
+
 
 

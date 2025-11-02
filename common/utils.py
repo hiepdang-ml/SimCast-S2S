@@ -318,7 +318,7 @@ class CheckpointLoader:
             - checkpoint_path (str): The path to the checkpoint file.
         """
         self.checkpoint_path: str = checkpoint_path
-        self.__checkpoint: dict[str, Any] = torch.load(checkpoint_path, weights_only=False)
+        self.__checkpoint: dict[str, Any] = torch.load(checkpoint_path, weights_only=False, map_location="cpu")
 
         # Model metadata
         self.model_classname: str = self.__checkpoint['model']['classname']
@@ -354,10 +354,7 @@ class CheckpointLoader:
         # Instantiate model
         if overrided_params:
             print({'Original': self.model_kwargs, 'Changed params': overrided_params})
-            if input('Enter "yes" to confirm new model parameters: ').lower() == 'yes':
-                self.model_kwargs.update(overrided_params)
-            else:
-                sys.exit()
+            self.model_kwargs.update(overrided_params)
 
         model: nn.Module = eval(self.model_classname, scope)(**self.model_kwargs)
 
