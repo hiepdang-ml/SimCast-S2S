@@ -376,7 +376,7 @@ def main(
                 n_layers_per_scaling_block=diffusion_config.n_layers_per_scaling_block,
                 n_layers_per_mid_block=diffusion_config.n_layers_per_mid_block,
                 n_attention_heads=diffusion_config.n_attention_heads,
-                condition_dropout=diffusion_config.condition_dropout,
+                switch_ratio=diffusion_config.switch_ratio,
             ).to(device=diffusion_config.device)
         
         # Wind encoder

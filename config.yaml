@@ -14,6 +14,21 @@ cesm2:
   output_vars: ["PRECT"]
   resolution: [192, 288]
   sim_ids: [
+    # Boundary condition: BHISTsmbb
+    # "1011.001",
+    # "1031.002",
+    # "1051.003",
+    # "1071.004",
+    # "1091.005",
+    # "1111.006",
+    # "1131.007",
+    # "1151.008",
+    # "1171.009",
+    # "1191.010",
+    # "1231.011",
+    # "1251.011",
+    # "1281.011",
+    # "1301.011",
     # Boundary condition: BHISTcmip6
     "1001.001",
     "1021.002",
@@ -29,21 +44,6 @@ cesm2:
     "1251.001",
     "1281.001",
     "1301.001",
-    # Boundary condition: BHISTsmbb
-    "1011.001",
-    "1031.002",
-    "1051.003",
-    "1071.004",
-    "1091.005",
-    "1111.006",
-    "1131.007",
-    "1151.008",
-    "1171.009",
-    "1191.010",
-    "1231.011",
-    "1251.011",
-    "1281.011",
-    "1301.011",
   ]
   # modifiable configs:
   train_start_year: 1950
@@ -138,15 +138,15 @@ unet:
   embedding_dim: 256
 
   learning_rate: 1e-5
-  train_batch_size: 4
-  val_batch_size: 1
+  train_batch_size: 8
+  val_batch_size: 8
   n_epochs: 1000
   patience: 10
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: ".unet_checkpoints/unet12.pt"
-  saved_checkpoint_directory: ".unet_checkpoints"
+  from_checkpoint: null
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/unet"
   
 
 vit:
@@ -266,20 +266,20 @@ diffusion:
   target_dim: 32  # fixed, vae-precipitation.latent_dim
   condition_dim: 2352 # fixed, (vae-wind.latent_dim + vae-geopotential.latent_dim + vae-thermaldynamic.latent_dim + vae-precipitation.latent_dim) * n_condition_days
   n_condition_days: 28  # fixed, dataset.n_input_days
-  step_dim: 512
-  day_dim: 512
+  step_dim: 64
+  day_dim: 64
   # Unet configurations
-  down_hidden_dims: [2560, 1024]
-  down_out_dims: [512, 512]
-  mid_hidden_dims: [1024, 1024]
-  mid_out_dims: [512, 512]
-  up_hidden_dims: [1024, 1024]
-  up_out_dims: [512, 512]
+  down_hidden_dims: [2048, 512]
+  down_out_dims: [256, 256]
+  mid_hidden_dims: [512, 512]
+  mid_out_dims: [256, 256]
+  up_hidden_dims: [512, 512]
+  up_out_dims: [256, 256]
 
-  n_layers_per_scaling_block: 6
-  n_layers_per_mid_block: 3
-  n_attention_heads: 8
-  condition_dropout: 0.5
+  n_layers_per_scaling_block: 8
+  n_layers_per_mid_block: 4
+  n_attention_heads: 1
+  switch_ratio: 0.3    # p(condition_switch=off)
   # Diffusion configurations
   noise_scheduler: "linear" # "linear" | "cosine"
   n_steps: 1000
@@ -288,7 +288,7 @@ diffusion:
   # Sampling
   eta: 0.
   # Training
-  learning_rate: 1e-6
+  learning_rate: 1e-5
   train_batch_size: 4
   val_batch_size: 4
   n_epochs: 1000
@@ -300,6 +300,6 @@ diffusion:
   geopotential_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_geopotential_16times/vae41.pt"
   thermaldynamic_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermaldynamic_16times/vae19.pt"
   precipitation_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precipitation_16times/vae16.pt"
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v8/diffusion7.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v8_"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v10/diffusion10.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v10"
 

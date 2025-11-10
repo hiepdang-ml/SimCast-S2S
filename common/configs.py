@@ -322,7 +322,7 @@ class DiffusionConfig(BaseConfig):
         self.n_layers_per_scaling_block: int = self.__config["n_layers_per_scaling_block"]
         self.n_layers_per_mid_block: int = self.__config["n_layers_per_mid_block"]
         self.n_attention_heads: int = self.__config["n_attention_heads"]
-        self.condition_dropout: float = float(self.__config["condition_dropout"])
+        self.switch_ratio: float = float(self.__config["switch_ratio"])
         self.noise_scheduler: Literal["linear", "cosine"] = self.__config["noise_scheduler"]
         self.beta_min: float = float(self.__config["beta_min"])
         self.beta_max: float = float(self.__config["beta_max"])
@@ -360,7 +360,7 @@ class DiffusionConfig(BaseConfig):
             "n_layers_per_scaling_block": self.n_layers_per_scaling_block,
             "n_layers_per_mid_block": self.n_layers_per_mid_block,
             "n_attention_heads": self.n_attention_heads,
-            "condition_dropout": self.condition_dropout,
+            "switch_ratio": self.switch_ratio,
             "noise_scheduler": self.noise_scheduler,
             "beta_min": self.beta_min,
             "beta_max": self.beta_max,

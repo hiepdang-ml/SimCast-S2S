@@ -119,9 +119,12 @@ class BaselinePredictor(_AbstractPredictor):
     #implement
     def _predict_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor]:
         sampleinfos, input_indices, output_indices, input_tensor, groundtruth_tensor = batch
+        input_tensor = input_tensor.to(self.device)
+        groundtruth_tensor = groundtruth_tensor.to(self.device)
+        input_indices = input_indices.to(self.device)
         sampleinfo: SampleInfo = sampleinfos[0] # because batch_size=1
-        assert input_tensor.shape == (1, self.net.n_input_days, 192, 288, self.net.in_features)
-        assert input_indices.shape == (1, self.net.n_input_days)
+        assert input_tensor.shape == (1, self.net.module.n_input_days, 192, 288, self.net.module.in_features)
+        assert input_indices.shape == (1, self.net.module.n_input_days)
 
         # Forward pass
         if self.model_name in ["cnn", "unet"]:
@@ -131,6 +134,8 @@ class BaselinePredictor(_AbstractPredictor):
         else:
             raise NotImplementedError(f"{self.model_name} is not implemented")
 
+        print(groundtruth_tensor.max())
+        print(groundtruth_tensor.min())
         assert prediction_tensor.shape == groundtruth_tensor.shape == (1, 1, 192, 288, self.out_features)
         # Error map
         error_tensor: torch.Tensor = self.error_map(prediction=prediction_tensor, groundtruth=groundtruth_tensor)

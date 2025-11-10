@@ -173,14 +173,13 @@ class _NormActConv(nn.Module):
 
 class _CrossAttention(nn.Module):
 
-    def __init__(self, hidden_dim: int, n_heads: int, dropout: float):
+    def __init__(self, hidden_dim: int, n_heads: int):
         super().__init__()
         self.hidden_dim: int = hidden_dim
         self.n_heads: int = n_heads
-        self.dropout: float = dropout
         self.target_group_norm: nn.Module = nn.GroupNorm(num_groups=n_heads, num_channels=hidden_dim)
         self.condition_group_norm: nn.Module = nn.GroupNorm(num_groups=n_heads, num_channels=hidden_dim)
-        self.attention = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=n_heads, dropout=dropout, batch_first=True)
+        self.attention = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=n_heads, batch_first=True)
 
     def forward(self, target: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
         target_N, target_D, target_H, target_W = target.shape
@@ -193,10 +192,10 @@ class _CrossAttention(nn.Module):
         condition_sequence_length: int = condition_H * condition_W
 
         # Preprocess target        
-        target_flattened: torch.Tensor = target.reshape(target_N, self.hidden_dim, target_sequence_length)
+        target_flattened: torch.Tensor = target.flatten(start_dim=2, end_dim=3)
         target_flattened = self.target_group_norm(target_flattened).transpose(1, 2)
         # Preprocess condition
-        condition_flattened: torch.Tensor = condition.reshape(target_N, self.hidden_dim, condition_sequence_length)
+        condition_flattened: torch.Tensor = condition.flatten(start_dim=2, end_dim=3)
         condition_flattened = self.condition_group_norm(condition_flattened).transpose(1, 2)
         # Fuse
         output_flattened: torch.Tensor = self.attention(
@@ -272,7 +271,7 @@ class _ScalingBlock(nn.Module):
         self,
         input_dim: int, condition_dim: int, step_dim: int, day_dim: int,
         hidden_dim: int, output_dim: int, 
-        n_layers: int, n_attention_heads: int, condition_dropout: float,
+        n_layers: int, n_attention_heads: int,
         type: Literal["up", "down", "mid"],
     ):
         super().__init__()
@@ -284,7 +283,6 @@ class _ScalingBlock(nn.Module):
         self.output_dim: int = output_dim
         self.n_layers: int = n_layers
         self.n_attention_heads: int = n_attention_heads
-        self.condition_dropout: float = condition_dropout
         self.type: Literal["up", "down", "mid"] = type
         # Condition
         self.condition_projection: nn.Module = nn.Conv2d(
@@ -313,7 +311,7 @@ class _ScalingBlock(nn.Module):
         ])
         # Attention
         self.cross_attention_layers: nn.ModuleList = nn.ModuleList([
-            _CrossAttention(hidden_dim=hidden_dim, n_heads=n_attention_heads, dropout=condition_dropout)
+            _CrossAttention(hidden_dim=hidden_dim, n_heads=n_attention_heads)
             for _ in range(n_layers)
         ])
         # Step
@@ -365,16 +363,20 @@ class _ScalingBlock(nn.Module):
         condition_output: torch.Tensor = condition
         for i in range(self.n_layers):
             target_resnet_input: torch.Tensor = target_output
-            condition_resnet_input: torch.Tensor = condition_output
             # Resnet block (target)
-            target_output = self.target_conv1_layers[i](target_output)
-            target_output = target_output + self.step_embedding_blocks[i](step)[:, :, None, None]
-            target_output = target_output + self.day_embedding_blocks[i](days)[:, :, None, None]
-            target_output = self.target_conv2_layers[i](target_output)
-            target_output = target_output + self.target_res_blocks[i](target_resnet_input)
+            target_output = (
+                self.target_conv1_layers[i](target_output) 
+                + self.step_embedding_blocks[i](step)[:, :, None, None] 
+                + self.day_embedding_blocks[i](days)[:, :, None, None]
+            )
+            target_output = (
+                self.target_conv2_layers[i](target_output) 
+                + self.target_res_blocks[i](target_resnet_input)
+            )
             # Resnet block (condition)
-            condition_output: torch.Tensor = self.condition_conv_layers[i](condition_output)
-            condition_output = condition_output + self.condition_res_blocks[i](condition_resnet_input)
+            condition_output: torch.Tensor = (
+                self.condition_conv_layers[i](condition_output) + self.condition_res_blocks[i](condition_output)
+            )
             # Cross Attention
             target_output = target_output + self.cross_attention_layers[i](target=target_output, condition=condition_output)
         
@@ -399,12 +401,12 @@ class _DownBlock(_ScalingBlock):
         self,
         input_dim: int, condition_dim: int, step_dim: int, day_dim: int,
         hidden_dim: int, output_dim: int, 
-        n_layers: int, n_attention_heads: int, condition_dropout: float,
+        n_layers: int, n_attention_heads: int,
     ):
         super().__init__(
             input_dim=input_dim, condition_dim=condition_dim, step_dim=step_dim, day_dim=day_dim,
             hidden_dim=hidden_dim, output_dim=output_dim, 
-            n_layers=n_layers, n_attention_heads=n_attention_heads, condition_dropout=condition_dropout,
+            n_layers=n_layers, n_attention_heads=n_attention_heads,
             type="down",
         )
 
@@ -415,12 +417,12 @@ class _UpBlock(_ScalingBlock):
         self,
         input_dim: int, down_output_dim: int, condition_dim: int, step_dim: int, day_dim: int,
         hidden_dim: int, output_dim: int, 
-        n_layers: int, n_attention_heads: int, condition_dropout: float,
+        n_layers: int, n_attention_heads: int,
     ):
         super().__init__(
             input_dim=input_dim + down_output_dim, condition_dim=condition_dim, step_dim=step_dim, day_dim=day_dim, 
             hidden_dim=hidden_dim, output_dim=output_dim, 
-            n_layers=n_layers, n_attention_heads=n_attention_heads, condition_dropout=condition_dropout,
+            n_layers=n_layers, n_attention_heads=n_attention_heads,
             type="up",
         )
 
@@ -431,12 +433,12 @@ class _MidBlock(_ScalingBlock):
         self,
         input_dim: int, condition_dim: int, step_dim: int, day_dim: int, 
         hidden_dim: int, output_dim: int, 
-        n_layers: int, n_attention_heads: int, condition_dropout: float,
+        n_layers: int, n_attention_heads: int,
     ):
         super().__init__(
             input_dim=input_dim, condition_dim=condition_dim, step_dim=step_dim, day_dim=day_dim,
             hidden_dim=hidden_dim, output_dim=output_dim, 
-            n_layers=n_layers, n_attention_heads=n_attention_heads, condition_dropout=condition_dropout,
+            n_layers=n_layers, n_attention_heads=n_attention_heads,
             type="mid",
         )
 
@@ -451,7 +453,7 @@ class UNetDenoiser(NamedModel, nn.Module):
         mid_out_dims: list[int], mid_hidden_dims: list[int], 
         up_out_dims: list[int], up_hidden_dims: list[int], 
         n_layers_per_scaling_block: int, n_layers_per_mid_block: int,
-        n_attention_heads: int, condition_dropout: float,
+        n_attention_heads: int, switch_ratio: float,
     ):
         super().__init__()
         self.target_dim: int = target_dim
@@ -468,7 +470,7 @@ class UNetDenoiser(NamedModel, nn.Module):
         self.n_layers_per_scaling_block: int = n_layers_per_scaling_block
         self.n_layers_per_mid_block: int = n_layers_per_mid_block
         self.n_attention_heads: int = n_attention_heads
-        self.condition_dropout: float = condition_dropout
+        self.switch_ratio: float = switch_ratio
 
         assert len(down_hidden_dims) == len(down_out_dims) == len(up_hidden_dims) == len(up_out_dims)
         assert len(mid_hidden_dims) == len(mid_out_dims)
@@ -485,7 +487,6 @@ class UNetDenoiser(NamedModel, nn.Module):
                 step_dim=step_dim, day_dim=day_dim, 
                 hidden_dim=down_hidden_dims[i], output_dim=down_out_dims[i],
                 n_layers=n_layers_per_scaling_block, n_attention_heads=n_attention_heads,
-                condition_dropout=condition_dropout,
             )
             for i in range(self.n_scaling_blocks)
         ])
@@ -496,7 +497,6 @@ class UNetDenoiser(NamedModel, nn.Module):
                 condition_dim=self.condition_dim, step_dim=step_dim, day_dim=day_dim, 
                 hidden_dim=up_hidden_dims[i], output_dim=up_out_dims[i], 
                 n_layers=n_layers_per_scaling_block, n_attention_heads=n_attention_heads, 
-                condition_dropout=condition_dropout,
             )
             for i in range(self.n_scaling_blocks)
         ])
@@ -506,7 +506,6 @@ class UNetDenoiser(NamedModel, nn.Module):
                 condition_dim=self.condition_dim, step_dim=step_dim, day_dim=day_dim, 
                 hidden_dim=mid_hidden_dims[i], output_dim=mid_out_dims[i],
                 n_layers=n_layers_per_mid_block, n_attention_heads=n_attention_heads,
-                condition_dropout=condition_dropout,
             )
             for i in range(self.n_mid_blocks)
         ])
@@ -543,6 +542,11 @@ class UNetDenoiser(NamedModel, nn.Module):
         # Day embedding
         day_embedding: torch.Tensor = self.day_embedding_layer(t=condition_days)
         assert day_embedding.shape == (step_N, self.n_condition_days, self.day_dim)
+        # Switch condition on/off randomly during training
+        if self.training:
+            switch: torch.Tensor = torch.rand(size=(condition_N, 1, 1, 1), device=condition.device) > self.switch_ratio
+            condition = condition * switch.float()
+
         # UNet
         down_input: torch.Tensor = target
         down_outputs: list[torch.Tensor] = []
@@ -554,9 +558,6 @@ class UNetDenoiser(NamedModel, nn.Module):
         
         mid_output: torch.Tensor = down_outputs[-1]
         for i in range(self.n_mid_blocks):
-            # print(f"mid_output.shape={mid_output.shape}")
-            # print(f"self.mid_blocks[i].input_dim={self.mid_blocks[i].input_dim}")
-            # print(f"--------")
             mid_output = self.mid_blocks[i](
                 target=mid_output, condition=condition, step=step_embedding, days=day_embedding
             )
@@ -564,19 +565,20 @@ class UNetDenoiser(NamedModel, nn.Module):
         up_output: torch.Tensor = mid_output
         # print(f"mid_output.shape={mid_output.shape}")
         for i in range(self.n_scaling_blocks):
-            # print(i)
-            # print(f"down_outputs[-1].shape={down_outputs[-1].shape}")
-            # print(f"up_output.shape={up_output.shape}")
-            assert down_outputs[-1].shape[1] == up_output.shape[1], (
-                f"Wrong UNet configuration leads to dimension mismatch: "
-                f"down_outputs[-1].shape={down_outputs[-1].shape}, and up_output.shape={up_output.shape}"
+            skip: torch.Tensor = down_outputs.pop()
+            assert skip.shape[2:] == up_output.shape[2:], (
+                "Skip connection and decoder feature maps must share spatial dimensions: "
+                f"skip.shape={skip.shape}, up_output.shape={up_output.shape}"
+            )
+            concat: torch.Tensor = torch.cat([skip, up_output], dim=1)
+            expected_channels: int = self.up_blocks[i].input_dim
+            assert concat.shape[1] == expected_channels, (
+                "Concatenated skip features do not match expected channel count for up block: "
+                f"concat.shape[1]={concat.shape[1]}, expected_channels={expected_channels}"
             )
             up_output = self.up_blocks[i](
-                target=torch.cat([down_outputs.pop(), up_output], dim=1),
-                condition=condition, step=step_embedding, days=day_embedding,
+                target=concat, condition=condition, step=step_embedding, days=day_embedding,
             )
-            # print(f"up_output.shape={up_output.shape}")
-            # print(f"--------")
 
         assert len(down_outputs) == 0, f"down_outputs must exhaust, getting {len(down_outputs)} items left"
         output: torch.Tensor = self.head(up_output)
@@ -692,4 +694,3 @@ class ReverseProcess(_DiffusionProcess):
             torch.sqrt(alpha_bar_prev) * target_0 + torch.sqrt(1 - alpha_bar_prev - sigma**2) * predicted_gaussian
         )
         return mean + sigma * torch.randn_like(target_k), target_0
-

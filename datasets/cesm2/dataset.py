@@ -1,3 +1,4 @@
+import re
 import json
 import pathlib
 from typing import Any
@@ -28,17 +29,31 @@ class CESM2(Dataset):
                         f"loaded .pt file has {k} = {loaded_dict[k]!r}, but metadata has {k} = {meta_dict[k]!r}."
                     )
 
-        # Pick any input var_name to count n samples
-        self.n_samples: int = len(list(self.metadata.write_directory.glob(f"input/{self.metadata.var_names[0]}/*.pt")))
         # Preload filepaths for efficiency
-        self.__input_filepaths: dict[str, list[pathlib.Path]] = {
-            var_name: sorted(self.metadata.write_directory.glob(f"input/{var_name}/*.pt"), key=lambda x: x.name[:6])
-            for var_name in self.metadata.input_vars
-        }
-        self.__output_filepaths: dict[str, list[pathlib.Path]] = {
-            var_name: sorted(self.metadata.write_directory.glob(f"output/{var_name}/*.pt"), key=lambda x: x.name[:6])
-            for var_name in self.metadata.output_vars
-        }
+        # TODO: improve code
+        simid_regex: str = "|".join([sim_id.replace(".","\.") for sim_id in self.metadata.sim_ids])
+        self.__input_filepaths: dict[str, list[pathlib.Path]] = {}
+        for var_name in self.metadata.input_vars:
+            self.__input_filepaths[var_name] = sorted(
+                [
+                    f for f in (self.metadata.write_directory.joinpath("input", var_name)).glob("*.pt")
+                    if re.search(simid_regex, f.name)
+                ],
+                key=lambda x: x.name[:6]
+            )
+
+        self.__output_filepaths: dict[str, list[pathlib.Path]] = {}
+        for var_name in self.metadata.output_vars:
+            self.__output_filepaths[var_name] = sorted(
+                [
+                    f for f in (self.metadata.write_directory.joinpath("output", var_name)).glob("*.pt")
+                    if re.search(simid_regex, f.name)
+                ],
+                key=lambda x: x.name[:6]
+            )
+
+        # Pick any input var_name to count n samples
+        self.n_samples: int = len(self.__input_filepaths[var_name])
 
     @cached_property
     def indices_by_context_group(self) -> dict[str, list[int]]:
