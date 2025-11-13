@@ -25,9 +25,9 @@ def main(
 
     # Dataset
     # TODO:
-    test_metadata: MetaData = MetaData(dataset_name=dataset, tp="train")
+    # test_metadata: MetaData = MetaData(dataset_name=dataset, tp="train")
     # test_metadata: MetaData = MetaData(dataset_name=dataset, tp="val")
-    # test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
+    test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
     if dataset == "cesm2":
         test_dataset: CESM2 = CESM2(metadata=test_metadata)
     else:

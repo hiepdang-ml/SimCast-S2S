@@ -135,7 +135,7 @@ unet:
   device: "cuda"
   in_features: 14
   out_features: 1
-  embedding_dim: 256
+  embedding_dim: 512
 
   learning_rate: 1e-5
   train_batch_size: 8
@@ -145,8 +145,8 @@ unet:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: null
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/unet"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/unet512/unet12.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/unet512"
   
 
 vit:
@@ -281,7 +281,7 @@ diffusion:
   n_attention_heads: 1
   switch_ratio: 0.3    # p(condition_switch=off)
   # Diffusion configurations
-  noise_scheduler: "linear" # "linear" | "cosine"
+  noise_scheduler: "cosine" # "linear" | "cosine"
   n_steps: 1000
   beta_min: 0.001  # linear only
   beta_max: 0.015  # linear only
@@ -300,6 +300,6 @@ diffusion:
   geopotential_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_geopotential_16times/vae41.pt"
   thermaldynamic_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermaldynamic_16times/vae19.pt"
   precipitation_vae_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precipitation_16times/vae16.pt"
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v10/diffusion10.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v10/diffusion16.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v10"
 

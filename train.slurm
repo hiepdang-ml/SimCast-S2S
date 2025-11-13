@@ -1,11 +1,11 @@
 #!/bin/bash
 
-#SBATCH --time=6:00:00
+#SBATCH --time=12:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
-#SBATCH --gres=gpu:h200:2
+#SBATCH --gres=gpu:h200:4
 #SBATCH --partition=gpu
 #SBATCH --mail-user=zgp2ps@virginia.edu
 #SBATCH --mail-type=ALL

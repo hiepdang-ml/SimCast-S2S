@@ -5,8 +5,11 @@ import http
 from urllib.request import build_opener
 
 def main(var_name: str):
-    opener = build_opener()
 
+    """
+    https://gdex.ucar.edu/datasets/d651056/dataaccess/
+    """
+    opener = build_opener()
     urls = [
         f"https://osdf-data.gdex.ucar.edu/ncar/gdex/d651056/CESM2-LE/atm/proc/tseries/day_1/{var_name}/b.e21.BHISTcmip6.f09_g17.LE2-1001.001.cam.h1.{var_name}.18500101-18591231.nc",
         f"https://osdf-data.gdex.ucar.edu/ncar/gdex/d651056/CESM2-LE/atm/proc/tseries/day_1/{var_name}/b.e21.BHISTcmip6.f09_g17.LE2-1001.001.cam.h1.{var_name}.18600101-18691231.nc",
