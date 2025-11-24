@@ -9,7 +9,7 @@ def main(year: int, months: list[int]) -> None:
         "variable": [
             "2m_temperature",
             "mean_sea_level_pressure",
-            "total_precipitation",
+            "total_precip",
             "mean_top_net_long_wave_radiation_flux"
         ],
         "year": str(year),

@@ -27,10 +27,9 @@ class _AbstractTrainer(ABC):
     def __init__(self, 
         net: CNN | UNet | ViT | VAE | UNetDenoiser,
         lr: float,
-        train_dataset: CESM2,
-        val_dataset: CESM2,
-        train_batch_size: int,
-        val_batch_size: int,
+        train_dataset: CESM2, val_dataset: CESM2,
+        train_batch_size: int, val_batch_size: int,
+        local_rank: int,
     ):
         self.net: CNN | UNet | ViT | VAE | UNetDenoiser = net
         self.model_name: str = net.name
@@ -40,8 +39,8 @@ class _AbstractTrainer(ABC):
         self.train_batch_size: int = train_batch_size
         self.val_batch_size: int = val_batch_size
 
-        self.local_rank: int = torch.cuda.current_device()
-        self.device = torch.device(f"cuda:{self.local_rank}")
+        self.local_rank: int = local_rank
+        self.device = torch.device(f"cuda:{local_rank}")
         self.net = DistributedDataParallel(
             module=net.to(self.device), device_ids=[self.local_rank], 
             output_device=self.local_rank, broadcast_buffers=False,
@@ -149,10 +148,12 @@ class BaselineTrainer(_AbstractTrainer):
         lr: float,
         train_dataset: CESM2, val_dataset: CESM2,
         train_batch_size: int, val_batch_size: int,
+        local_rank: int,
     ) -> None:
         super().__init__(
             net=net, lr=lr, train_dataset=train_dataset, val_dataset=val_dataset, 
             train_batch_size=train_batch_size, val_batch_size=val_batch_size,
+            local_rank=local_rank,
         )
         self.loss_function: nn.Module = nn.MSELoss(reduction="mean")
 
@@ -216,10 +217,12 @@ class VAETrainer(_AbstractTrainer):
         net: VAE, lambda_: float, lr: float,
         train_dataset: CESM2, val_dataset: CESM2,
         train_batch_size: int, val_batch_size: int,
+        local_rank: int,
     ) -> None:
         super().__init__(
             net=net, lr=lr, train_dataset=train_dataset, val_dataset=val_dataset, 
             train_batch_size=train_batch_size, val_batch_size=val_batch_size,
+            local_rank=local_rank,
         )
         self.lambda_: float = lambda_
         self.loss_function: nn.Module = VAELoss(lambda_=self.lambda_)
@@ -230,26 +233,32 @@ class VAETrainer(_AbstractTrainer):
         self.net.eval()
         with torch.no_grad():
             for n, batch in enumerate(self.val_dataloader, start=1):
-                reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae = self._eval_step(batch=batch)
+                reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae, mu, sigma = self._eval_step(batch=batch)
                 # Accumulate the val_metrics
                 val_metrics.add(
                     reconstruction_loss=reconstruction_loss, kl_divergence=kl_divergence, negative_elbo=negative_elbo,
-                    reconstruction_mae=reconstruction_mae,
+                    reconstruction_mae=reconstruction_mae, mu=mu, sigma=sigma,
                 )
 
         reconstruction_loss: torch.Tensor = val_metrics["reconstruction_loss"] / n
         kl_divergence: torch.Tensor = val_metrics["kl_divergence"] / n
         negative_elbo: torch.Tensor = val_metrics["negative_elbo"] / n
         reconstruction_mae: torch.Tensor = val_metrics["reconstruction_mae"] / n
+        mu: torch.Tensor = val_metrics["mu"] / n
+        sigma: torch.Tensor = val_metrics["sigma"] / n
         dist.all_reduce(tensor=reconstruction_loss, op=dist.ReduceOp.AVG)
         dist.all_reduce(tensor=kl_divergence, op=dist.ReduceOp.AVG)
         dist.all_reduce(tensor=negative_elbo, op=dist.ReduceOp.AVG)
         dist.all_reduce(tensor=reconstruction_mae, op=dist.ReduceOp.AVG)
+        dist.all_reduce(tensor=mu, op=dist.ReduceOp.AVG)
+        dist.all_reduce(tensor=sigma, op=dist.ReduceOp.AVG)
         return {
             "reconstruction_loss": reconstruction_loss.item(), 
             "kl_divergence": kl_divergence.item(), 
             "negative_elbo": negative_elbo.item(), 
             "reconstruction_mae": reconstruction_mae.item(),
+            "mu": mu.item(),
+            "sigma": sigma.item(),
             "watched_metric": reconstruction_mae.item(),
         }
 
@@ -265,34 +274,41 @@ class VAETrainer(_AbstractTrainer):
             true_x: torch.Tensor = input_tensor[:, day: day+1, :, :, :]
             reconstructed_x, mu, logvar = self.net(true_x)
             # Backward pass
-            reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae = self.loss_function(
+            reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae, mu, sigma = self.loss_function(
                 x_hat=reconstructed_x, true_x=true_x, mu=mu, logvar=logvar,
             )
             negative_elbo.backward()
             self.optimizer.step()
 
     #implement
-    def _eval_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _eval_step(self, batch: DataBatch) -> tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+    ]:
         sampleinfos, input_yearday_indices, output_yearday_indices, input_tensor, target_tensor = batch
         batch_size, n_days, H, W, n_features = input_tensor.shape
         input_tensor = input_tensor.to(self.device, non_blocking=True)
         
-        reconstruction_loss: torch.Tensor = torch.zeros_like(input_tensor).sum()
-        kl_divergence: torch.Tensor = torch.zeros_like(input_tensor).sum()
-        negative_elbo: torch.Tensor = torch.zeros_like(input_tensor).sum()
-        reconstruction_mae: torch.Tensor = torch.zeros_like(input_tensor).sum()
+        reconstruction_loss_sum: torch.Tensor = torch.zeros_like(input_tensor).sum()
+        kl_divergence_sum: torch.Tensor = torch.zeros_like(input_tensor).sum()
+        negative_elbo_sum: torch.Tensor = torch.zeros_like(input_tensor).sum()
+        reconstruction_mae_sum: torch.Tensor = torch.zeros_like(input_tensor).sum()
+        mu_sum: torch.Tensor = torch.zeros_like(input_tensor).sum()
+        sigma_sum: torch.Tensor = torch.zeros_like(input_tensor).sum()
+
         for day in range(input_tensor.shape[1]):
             # Forward pass
             true_x: torch.Tensor = input_tensor[:, day: day+1, :, :, :]
             reconstructed_x, mu, logvar = self.net(true_x)
             # Compute evaluation metrics
-            reconstruction_loss_, kl_divergence_, negative_elbo_, reconstruction_mae_ = self.loss_function(
+            reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae, mu, sigma  = self.loss_function(
                 x_hat=reconstructed_x, true_x=true_x, mu=mu, logvar=logvar,
             )
-            reconstruction_loss += reconstruction_loss_
-            kl_divergence += kl_divergence_
-            negative_elbo += negative_elbo_
-            reconstruction_mae += reconstruction_mae_
+            reconstruction_loss_sum += reconstruction_loss
+            kl_divergence_sum += kl_divergence
+            negative_elbo_sum += negative_elbo
+            reconstruction_mae_sum += reconstruction_mae
+            mu_sum += mu
+            sigma_sum += sigma
 
         n_days: int = input_tensor.shape[1]
         return (
@@ -300,6 +316,8 @@ class VAETrainer(_AbstractTrainer):
             kl_divergence / n_days,
             negative_elbo / n_days,
             reconstruction_mae / n_days,
+            mu_sum / n_days,
+            sigma_sum / n_days,
         )
 
 
@@ -308,35 +326,44 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
     def __init__(
         self,
         denoiser: UNetDenoiser,
-        wind_encoder: VAEEncoder, geopotential_encoder: VAEEncoder,
-        thermaldynamic_encoder: VAEEncoder, precipitation_encoder: VAEEncoder,
+        wind_encoder: VAEEncoder, mass_encoder: VAEEncoder,
+        thermal_encoder: VAEEncoder, hydro_encoder: VAEEncoder, 
+        precip_encoder: VAEEncoder,
         noise_scheduler: LinearNoiseScheduler, lr: float, 
         train_dataset: CESM2, val_dataset: CESM2,
         train_batch_size: int, val_batch_size: int,
+        local_rank: int,
     ) -> None:
         super().__init__(
             net=denoiser, lr=lr, train_dataset=train_dataset, val_dataset=val_dataset, 
             train_batch_size=train_batch_size, val_batch_size=val_batch_size,
+            local_rank=local_rank,
         )
         self.denoiser: UNetDenoiser = denoiser
         self.loss_function = DiffusionLoss()
 
-        # Freeze encoders
-        wind_encoder.freeze()
-        geopotential_encoder.freeze()
-        thermaldynamic_encoder.freeze()
-        precipitation_encoder.freeze()
-        assert wind_encoder.is_frozen
-        assert geopotential_encoder.is_frozen
-        assert thermaldynamic_encoder.is_frozen
-        assert precipitation_encoder.is_frozen
-
+        # NOTE: no need to wrap VAEEncoder(s) with DDP because no backprop
+        # Freeze wind_encoder
         self.wind_encoder: VAEEncoder = wind_encoder.to(self.device)
-        self.geopotential_encoder: VAEEncoder = geopotential_encoder.to(self.device)
-        self.thermaldynamic_encoder: VAEEncoder = thermaldynamic_encoder.to(self.device)
-        self.precipitation_encoder: VAEEncoder = precipitation_encoder.to(self.device)
+        self.wind_encoder.freeze()
+        assert wind_encoder.is_frozen
+        # Freeze mass_encoder
+        self.mass_encoder: VAEEncoder = mass_encoder.to(self.device)
+        self.mass_encoder.freeze()
+        assert self.mass_encoder.is_frozen
+        # Freeze thermal_encoder
+        self.thermal_encoder: VAEEncoder = thermal_encoder.to(self.device)
+        self.thermal_encoder.freeze()
+        assert self.thermal_encoder.is_frozen
+        # Freeze hydro_encoder
+        self.hydro_encoder: VAEEncoder = hydro_encoder.to(self.device)
+        self.hydro_encoder.freeze()
+        # Freeze precip_encoder
+        self.precip_encoder: VAEEncoder = precip_encoder.to(self.device)
+        self.precip_encoder.freeze()
+        assert self.precip_encoder.is_frozen
 
-        self.noise_scheduler: LinearNoiseScheduler = noise_scheduler
+        self.noise_scheduler: LinearNoiseScheduler = noise_scheduler.to(self.device)
         self.n_denoising_steps: int = noise_scheduler.n_steps
         self.step_normalizer: StepNormalizer = StepNormalizer(n_steps=noise_scheduler.n_steps)
         self.forward_process: ForwardProcess = ForwardProcess(noise_scheduler=noise_scheduler)

@@ -23,16 +23,17 @@ class MetaData(BaseConfig):
 
     VAR_LOOKUP_TABLE: dict[str, dict[str, list[str]]] = {
         "cesm2": {
-            "wind": ["U200", "V200", "U500", "V500", "OMEGA500", "U850", "V850"],
-            "geopotential": ["Z200", "Z850", "Z500"],
-            "thermaldynamic": ["FLUT", "TS", "PSL"],
-            "precipitation": ["PRECT"],
+            "wind": ["U200", "V200", "U500", "V500", "OMEGA500", "U850", "V850"],   # flows
+            "mass": ["Z200", "Z500", "Z850", "PSL"],    # mass heights + surface pressure
+            "thermal": ["TS", "T200", "T500", "T850", "FLUT"],   # temperature + radiation
+            "hydro": ["TMQ", "Q200", "Q500", "Q850"],   # moisture
+            "precip": ["PRECT"], # precip
         },
         "era5": {
             "wind": ["u_200", "v_200", "u_500", "v_500", "w_500", "u_850", "v_850"],
-            "geopotential": ["z_200", "z_500", "z_850"],
-            "thermaldynamic": ["avg_tnlwrf", "t2m", "msl"],
-            "precipitation": ["tp"],
+            "mass": ["z_200", "z_500", "z_850"],
+            "thermal": ["avg_tnlwrf", "t2m", "msl"],
+            "precip": ["tp"],
         }
     }
 
@@ -55,7 +56,6 @@ class MetaData(BaseConfig):
         self.n_years: int = len(self.years)
 
     def _load(self) -> None:
-        self.device: str = self.__config["device"]
         self.input_vars: list[str] = self.__config["input_vars"]
         self.output_vars: list[str] = self.__config["output_vars"]
         self.resolution: tuple[int, int] = tuple(self.__config["resolution"])
@@ -89,7 +89,6 @@ class MetaData(BaseConfig):
         return {
             "dataset_name": self.dataset_name,
             "tp": self.tp,
-            "device": self.device,
             "input_vars": self.input_vars,
             "output_vars": self.output_vars,
             "resolution": self.resolution,
@@ -104,7 +103,7 @@ class MetaData(BaseConfig):
     
     def with_var_subset(
         self, 
-        context_group: Literal["wind", "geopotential", "thermaldynamic", "precipitation"],
+        context_group: Literal["wind", "mass", "thermal", "hydro", "precip"],
     ) -> "MetaData":
         input_subset: list[str] = self.var_table[context_group]
         assert set(input_subset).issubset(set(self.input_vars))
@@ -123,7 +122,6 @@ class CNNConfig(BaseConfig):
         self._load()
 
     def _load(self) -> None:
-        self.device: str = self.__config["device"]
         self.in_features: int = self.__config["in_features"]
         self.out_features: int = self.__config["out_features"]
         self.embedding_dim: int = self.__config["embedding_dim"]
@@ -141,7 +139,6 @@ class CNNConfig(BaseConfig):
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "device": self.device,
             "in_features": self.in_features,
             "out_features": self.out_features,
             "embedding_dim": self.embedding_dim,
@@ -166,7 +163,6 @@ class UnetConfig(BaseConfig):
         self._load()
 
     def _load(self) -> None:
-        self.device: str = self.__config["device"]
         self.in_features: int = self.__config["in_features"]
         self.out_features: int = self.__config["out_features"]
         self.embedding_dim: int = self.__config["embedding_dim"]
@@ -183,7 +179,6 @@ class UnetConfig(BaseConfig):
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "device": self.device,
             "in_features": self.in_features,
             "out_features": self.out_features,
             "embedding_dim": self.embedding_dim,
@@ -207,7 +202,6 @@ class ViTConfig(BaseConfig):
         self._load()
 
     def _load(self) -> None:
-        self.device: str = self.__config["device"]
         self.in_features: int = self.__config["in_features"]
         self.out_features: int = self.__config["out_features"]
         self.embedding_dim: int = self.__config["embedding_dim"]
@@ -228,7 +222,6 @@ class ViTConfig(BaseConfig):
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "device": self.device,
             "in_features": self.in_features,
             "out_features": self.out_features,
             "embedding_dim": self.embedding_dim,
@@ -250,8 +243,8 @@ class ViTConfig(BaseConfig):
 
 class VAEConfig(BaseConfig):
 
-    def __init__(self, context_group: Literal["wind", "geopotential", "thermaldynamic", "precipitation"]):
-        self.context_group: Literal["wind", "geopotential", "thermaldynamic", "precipitation"] = context_group
+    def __init__(self, context_group: Literal["wind", "mass", "thermal", "hydro", "precip"]):
+        self.context_group: Literal["wind", "mass", "thermal", "hydro", "precip"] = context_group
 
         with open("./config.yaml", mode="r") as file:
             self.__config: dict[str, Any] = yaml.safe_load(file)[f"vae-{context_group}"]
@@ -259,7 +252,6 @@ class VAEConfig(BaseConfig):
         self._load()
 
     def _load(self) -> None:
-        self.device: str = self.__config["device"]
         self.latent_dim: int = self.__config["latent_dim"]
         self.hidden_dim: int = self.__config["hidden_dim"]
         self.n_scaling_blocks: int = self.__config["n_scaling_blocks"]
@@ -279,7 +271,6 @@ class VAEConfig(BaseConfig):
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "device": self.device,
             "latent_dim": self.latent_dim,
             "hidden_dim": self.hidden_dim,
             "n_scaling_blocks": self.n_scaling_blocks,
@@ -307,7 +298,6 @@ class DiffusionConfig(BaseConfig):
         self._load()
 
     def _load(self) -> None:
-        self.device: str = self.__config["device"]
         self.target_dim: int = self.__config["target_dim"]
         self.condition_dim: int = self.__config["condition_dim"]
         self.n_condition_days: int = self.__config["n_condition_days"]
@@ -337,16 +327,16 @@ class DiffusionConfig(BaseConfig):
         self.tolerance: float = float(self.__config["tolerance"])
         self.save_frequency: int = self.__config["save_frequency"]
 
-        self.wind_vae_checkpoint: pathlib.Path = pathlib.Path(self.__config["wind_vae_checkpoint"])
-        self.geopotential_vae_checkpoint: pathlib.Path = pathlib.Path(self.__config["geopotential_vae_checkpoint"])
-        self.thermaldynamic_vae_checkpoint: pathlib.Path = pathlib.Path(self.__config["thermaldynamic_vae_checkpoint"])
-        self.precipitation_vae_checkpoint: pathlib.Path = pathlib.Path(self.__config["precipitation_vae_checkpoint"])
+        self.vae_wind_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_wind_checkpoint"])
+        self.vae_mass_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_mass_checkpoint"])
+        self.vae_thermal_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_thermal_checkpoint"])
+        self.vae_hydro_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_hydro_checkpoint"])
+        self.vae_precip_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_precip_checkpoint"])
         self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
         self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "device": self.device,
             "target_dim": self.target_dim,
             "condition_dim": self.condition_dim,
             "step_dim": self.step_dim,
@@ -373,10 +363,11 @@ class DiffusionConfig(BaseConfig):
             "patience": self.patience,
             "tolerance": self.tolerance,
             "save_frequency": self.save_frequency,
-            "wind_vae_checkpoint": self.wind_vae_checkpoint,
-            "geopotential_vae_checkpoint": self.geopotential_vae_checkpoint,
-            "thermaldynamic_vae_checkpoint": self.thermaldynamic_vae_checkpoint,
-            "precipitation_vae_checkpoint": self.precipitation_vae_checkpoint,
+            "vae_wind_checkpoint": self.vae_wind_checkpoint,
+            "vae_mass_checkpoint": self.vae_mass_checkpoint,
+            "vae_thermal_checkpoint": self.vae_thermal_checkpoint,
+            "vae_hydro_checkpoint": self.vae_hydro_checkpoint,
+            "vae_precip_checkpoint": self.vae_precip_checkpoint,
             "from_checkpoint": self.from_checkpoint,
             "saved_checkpoint_directory": self.saved_checkpoint_directory,
         }

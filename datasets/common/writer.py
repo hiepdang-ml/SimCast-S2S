@@ -12,6 +12,10 @@ from common.configs import MetaData
 
 class DataWriter:
 
+    """
+    Support individual writes w.r.t. sim_ids
+    """
+
     def __init__(self, metadata: MetaData, fresh: bool):
         """
         |---------------||---------------||---------------|
@@ -159,7 +163,6 @@ class DataWriter:
 
 
     def __del__(self) -> None:
-        assert self._LOCAL_COUNTER > self._GLOBAL_COUNTER
         self.__save_counter()
 
 

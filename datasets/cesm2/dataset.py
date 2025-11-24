@@ -29,31 +29,14 @@ class CESM2(Dataset):
                         f"loaded .pt file has {k} = {loaded_dict[k]!r}, but metadata has {k} = {meta_dict[k]!r}."
                     )
 
-        # Preload filepaths for efficiency
-        # TODO: improve code
-        simid_regex: str = "|".join([sim_id.replace(".","\.") for sim_id in self.metadata.sim_ids])
-        self.__input_filepaths: dict[str, list[pathlib.Path]] = {}
-        for var_name in self.metadata.input_vars:
-            self.__input_filepaths[var_name] = sorted(
-                [
-                    f for f in (self.metadata.write_directory.joinpath("input", var_name)).glob("*.pt")
-                    if re.search(simid_regex, f.name)
-                ],
-                key=lambda x: x.name[:6]
-            )
-
-        self.__output_filepaths: dict[str, list[pathlib.Path]] = {}
-        for var_name in self.metadata.output_vars:
-            self.__output_filepaths[var_name] = sorted(
-                [
-                    f for f in (self.metadata.write_directory.joinpath("output", var_name)).glob("*.pt")
-                    if re.search(simid_regex, f.name)
-                ],
-                key=lambda x: x.name[:6]
-            )
-
-        # Pick any input var_name to count n samples
-        self.n_samples: int = len(self.__input_filepaths[var_name])
+        # Preload filepath lookups for efficiency
+        self.__input_filepaths: dict[str, list[pathlib.Path]] = self.__collect_filepaths(
+            kind="input", var_names=self.metadata.input_vars,
+        )
+        self.__output_filepaths: dict[str, list[pathlib.Path]] = self.__collect_filepaths(
+            kind="output", var_names=self.metadata.output_vars,
+        )
+        self.n_samples: int = len(self.__output_filepaths[self.metadata.output_vars[0]])
 
     @cached_property
     def indices_by_context_group(self) -> dict[str, list[int]]:
@@ -120,6 +103,21 @@ class CESM2(Dataset):
     def __len__(self) -> int:
         return self.n_samples
 
+    def __collect_filepaths(self, kind: str, var_names: list[str]) -> dict[str, list[pathlib.Path]]:
+        """
+        Collect and sort .pt files for each variable by sample id
+        """
+        simid_pattern: re.Pattern[str] = re.compile("|".join(map(re.escape, self.metadata.sim_ids)))
+        results: dict[str, list[pathlib.Path]] = {}
+        base_dir: pathlib.Path = self.metadata.write_directory.joinpath(kind)
+        for var_name in var_names:
+            var_dir: pathlib.Path = base_dir.joinpath(var_name)
+            results[var_name] = sorted(
+                (f for f in var_dir.glob("*.pt") if simid_pattern.search(f.name)),
+                key=lambda f: f.name[:6],
+            )
+        return results
+
     @staticmethod
     def collate_fn(
         batch: list[tuple[SampleInfo, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]
@@ -140,7 +138,5 @@ if __name__ == "__main__":
     dataset = CESM2(metadata)
 
     from torch.utils.data import DataLoader
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=CESM2.collate_fn)
+    dataloader = DataLoader(dataset, batch_size=4, shuffle=False, collate_fn=CESM2.collate_fn)
     batch = next(iter(dataloader))
-
-

@@ -36,74 +36,45 @@ class _SinusoidEmbedding(nn.Module):
         return sinusoid
 
 
-class _NoiseScheduler(ABC):
+class LinearNoiseScheduler(nn.Module):
 
-    def __init__(self, n_steps: int, device: torch.device):
-        assert n_steps > 0
-        self.n_steps: int = n_steps
-        self.device: torch.device = device
-
-    @property
-    @abstractmethod
-    def beta_schedule(self) -> torch.Tensor:
-        """
-        Compute the beta schedule with beta_0 = 0.0.
-        Returns array of shape (n_steps + 1,)
-        """
-        pass
-
-    @property
-    @abstractmethod
-    def alpha_bar_schedule(self) -> torch.Tensor:
-        """
-        Compute the alpha_bar schedule with alpha_bar_0 = 1.0.
-        Returns array of shape (n_steps + 1,)
-        """
-        pass
-
-
-class LinearNoiseScheduler(_NoiseScheduler):
-
-    def __init__(self, n_steps: int, beta_min: float, beta_max: float, device: torch.device) -> None:
-        super().__init__(n_steps=n_steps, device=device)
+    def __init__(self, n_steps: int, beta_min: float, beta_max: float) -> None:
+        super().__init__()
+        self.n_steps = n_steps
         self.beta_min: float = beta_min
         self.beta_max: float = beta_max
-        self.__beta_schedule: torch.Tensor = torch.linspace(
-            start=beta_min, end=beta_max, steps=n_steps,
-            dtype=torch.float32,
-            device=device,
+        self.register_buffer(
+            name="beta_schedule", 
+            tensor=torch.linspace(start=beta_min, end=beta_max, steps=n_steps, dtype=torch.float32),
+            persistent=False,
         )
-
-    @property
-    def beta_schedule(self) -> torch.Tensor:
-        return self.__beta_schedule  # len = self.n_steps
-
-    @cached_property
-    def alpha_bar_schedule(self) -> torch.Tensor:
         alpha_bar_values: torch.Tensor = torch.exp(torch.log(1.0 - self.beta_schedule).cumsum(dim=0))
-        alpha_bar_values = torch.cat([torch.ones(1, device=self.device), alpha_bar_values], dim=0)
-        assert alpha_bar_values.shape[0] == self.n_steps + 1
-        return alpha_bar_values  # len = self.n_steps + 1
-    
+        alpha_bar_values = torch.cat([torch.ones(1, dtype=alpha_bar_values.dtype), alpha_bar_values], dim=0)
+        assert alpha_bar_values.shape[0] == self.n_steps + 1    # len = self.n_steps + 1
+        self.register_buffer(name="alpha_bar_schedule", tensor=alpha_bar_values, persistent=False)
 
-class CosineNoiseScheduler(_NoiseScheduler):
 
-    def __init__(self, n_steps: int, device: torch.device, cosine_offset: float = 0.008) -> None:
-        super().__init__(n_steps=n_steps, device=device)
+class CosineNoiseScheduler(nn.Module):
+
+    def __init__(self, n_steps: int, cosine_offset: float = 0.008) -> None:
+        super().__init__()
         assert cosine_offset >= 0, "cosine_offset must be non-negative"
+        self.n_steps: int = n_steps
         self.cosine_offset: float = cosine_offset
-
-    @cached_property
-    def alpha_bar_schedule(self) -> torch.Tensor:
-        timesteps: torch.Tensor = torch.arange(self.n_steps + 1, dtype=torch.float32, device=self.device)
-        f: Callable[[torch.Tensor], torch.Tensor] = (
-            lambda x: torch.cos((x + self.cosine_offset) / (1 + self.cosine_offset) * torch.pi / 2) ** 2
+        timesteps: torch.Tensor = torch.arange(self.n_steps + 1, dtype=torch.float32)   # len = self.n_steps + 1
+        self.register_buffer(
+            name="alpha_bar_schedule", 
+            tensor=self._f(timesteps / self.n_steps) / self._f(torch.tensor(0.0)),
+            persistent=False,
         )
-        return f(timesteps / self.n_steps) / f(torch.tensor(0.0, device=self.device))
+        self.register_buffer(
+            name="beta_schedule", 
+            tensor=1. - (self.alpha_bar_schedule[1:] / (self.alpha_bar_schedule[:-1] + 1e-10)),
+            persistent=False
+        )
 
-    @cached_property
-    def beta_schedule(self) -> torch.Tensor:
-        return 1. - (self.alpha_bar_schedule[1:] / (self.alpha_bar_schedule[:-1] + 1e-10))
+    def _f(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.cos((x + self.cosine_offset) / (1 + self.cosine_offset) * torch.pi / 2) ** 2
 
 
 class StepNormalizer(nn.Module):
@@ -588,8 +559,8 @@ class UNetDenoiser(NamedModel, nn.Module):
 
 class _DiffusionProcess:
 
-    def __init__(self, noise_scheduler: _NoiseScheduler):
-        self.noise_scheduler: _NoiseScheduler = noise_scheduler
+    def __init__(self, noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler):
+        self.noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler = noise_scheduler
         self.alpha_bar_schedule: torch.Tensor = self.noise_scheduler.alpha_bar_schedule
         self.beta_schedule: torch.Tensor = self.noise_scheduler.beta_schedule
 
@@ -660,7 +631,7 @@ class ForwardProcess(_DiffusionProcess):
 
 class ReverseProcess(_DiffusionProcess):
 
-    def __init__(self, eta: float, noise_scheduler: _NoiseScheduler) -> None:
+    def __init__(self, eta: float, noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler) -> None:
         super().__init__(noise_scheduler=noise_scheduler)
         self.eta: float = eta
         assert 0. <= self.eta <= 1.

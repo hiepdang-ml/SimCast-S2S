@@ -28,12 +28,12 @@ import torch.nn.functional as F
 
 class _AbstractPredictor(ABC):
 
-    def __init__(self, net: CNN | UNet | ViT | VAE | UNetDenoiser, dataset: CESM2):
+    def __init__(self, net: CNN | UNet | ViT | VAE | UNetDenoiser, dataset: CESM2, local_rank: int):
         self.net: CNN | UNet | ViT | VAE | UNetDenoiser = net
         self.dataset: CESM2 = dataset
+        self.local_rank: int = local_rank
         self.indices_by_context_group = dataset.indices_by_context_group
 
-        self.local_rank: int = torch.cuda.current_device()
         self.device = torch.device(f"cuda:{self.local_rank}")
         self.net = DistributedDataParallel(
             module=net.to(self.device), device_ids=[self.local_rank], 
@@ -204,6 +204,8 @@ class VAEPredictor(_AbstractPredictor):
         for day in range(input_tensor.shape[1]):
             true_x: torch.Tensor = input_tensor[:, day: day+1, :, :, :]
             reconstructed_x, mu, logvar = self.net(true_x)
+            mu_mean: torch.Tensor = mu.mean()
+            sigma_mean: torch.Tensor = logvar.exp().sqrt().mean()
             # Compute metrics
             error_tensor: torch.Tensor = self.error_map(prediction=reconstructed_x, groundtruth=true_x)
 
@@ -231,7 +233,9 @@ class VAEPredictor(_AbstractPredictor):
                     f"{self.model_name.upper()}\n"
                     f"{output_name}\n"
                     f"{sampleinfo.sim_id}\n"
-                    f"MSE: {mean_mse:.4f}, RMSE: {mean_rmse:.4f}, MAE: {mean_mae:.4f}\n"
+                    f"MSE: {mean_mse:.4f}, RMSE: {mean_rmse:.4f}, MAE: {mean_mae:.4f},\n"
+                    f"mu: {mu_mean:.4f}, sigma: {sigma_mean:.4f}\n"
+                    # NOTE: `mu` and `sigma` is just a proxy. they come from the latent of all the variables, not just this variable
                 )
                 print(title)
                 print("------")
@@ -274,37 +278,42 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         self, 
         denoiser: UNetDenoiser,
         wind_encoder: VAEEncoder, 
-        geopotential_encoder: VAEEncoder,
-        thermaldynamic_encoder: VAEEncoder,
-        precipitation_encoder: VAEEncoder,
-        precipitation_decoder: VAEDecoder,
+        mass_encoder: VAEEncoder,
+        thermal_encoder: VAEEncoder,
+        hydro_encoder: VAEEncoder,
+        precip_encoder: VAEEncoder,
+        precip_decoder: VAEDecoder,
         noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler,
         eta: float,
         dataset: CESM2,
+        local_rank: int,
     ) -> None:
-        super().__init__(net=denoiser, dataset=dataset)
+        super().__init__(net=denoiser, dataset=dataset, local_rank=local_rank)
         self.denoiser: UNetDenoiser = denoiser
 
         # Freeze wind_encoder
-        self.wind_encoder: VAEEncoder = wind_encoder
+        self.wind_encoder: VAEEncoder = wind_encoder.to(self.device)
         self.wind_encoder.freeze()
         assert wind_encoder.is_frozen
-        # Freeze geopotential_encoder
-        self.geopotential_encoder: VAEEncoder = geopotential_encoder
-        self.geopotential_encoder.freeze()
-        assert self.geopotential_encoder.is_frozen
-        # Freeze thermaldynamic_encoder
-        self.thermaldynamic_encoder: VAEEncoder = thermaldynamic_encoder
-        self.thermaldynamic_encoder.freeze()
-        assert self.thermaldynamic_encoder.is_frozen
-        # Freeze precipitation_encoder
-        self.precipitation_encoder: VAEEncoder = precipitation_encoder
-        self.precipitation_encoder.freeze()
-        assert self.precipitation_encoder.is_frozen
-        # Freeze precipitation_decoder
-        self.precipitation_decoder: VAEDecoder = precipitation_decoder
-        self.precipitation_decoder.freeze()
-        assert self.precipitation_decoder.is_frozen
+        # Freeze mass_encoder
+        self.mass_encoder: VAEEncoder = mass_encoder.to(self.device)
+        self.mass_encoder.freeze()
+        assert self.mass_encoder.is_frozen
+        # Freeze thermal_encoder
+        self.thermal_encoder: VAEEncoder = thermal_encoder.to(self.device)
+        self.thermal_encoder.freeze()
+        assert self.thermal_encoder.is_frozen
+        # Freeze hydro_encoder
+        self.hydro_encoder: VAEEncoder = hydro_encoder.to(self.device)
+        self.hydro_encoder.freeze()
+        # Freeze precip_encoder
+        self.precip_encoder: VAEEncoder = precip_encoder.to(self.device)
+        self.precip_encoder.freeze()
+        assert self.precip_encoder.is_frozen
+        # Freeze precip_decoder
+        self.precip_decoder: VAEDecoder = precip_decoder.to(self.device)
+        self.precip_decoder.freeze()
+        assert self.precip_decoder.is_frozen
 
         self.noise_scheduler: LinearNoiseScheduler = noise_scheduler
         self.n_denoising_steps: int = noise_scheduler.n_steps
@@ -330,7 +339,8 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
             # Backward process
             normalized_step: torch.Tensor = self.step_normalizer(integer_step=integer_step)
             predicted_velocity: torch.Tensor = self.net(
-                target=target_latent_k, condition=condition_latent, 
+                # TESTING
+                target=target_latent_k, condition=condition_latent * 0, 
                 normalized_step=normalized_step, condition_days=input_yearday_indices,
             )
             target_latent_k, target_latent_0 = self.reverse_process.sample(
@@ -338,23 +348,23 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
             )
 
         # At k=0 (last denoising step), target_latent_k = target_latent_0
-        print(f"target_latent_k: {target_latent_k.mean()}")
-        print(f"target_latent_0: {target_latent_0.mean()}")
-        print(f"target_latent_k: {target_latent_k.max()}")
-        print(f"target_latent_0: {target_latent_0.max()}")
-        print(f"target_latent_k: {target_latent_k.min()}")
-        print(f"target_latent_0: {target_latent_0.min()}")
-        print(f"target_latent_k: {target_latent_k.std()}")
-        print(f"target_latent_0: {target_latent_0.std()}")
         assert target_latent_k.isclose(target_latent_0).all()
-        
+        # TESTING
+        latent_error: torch.Tensor = torch.mean(torch.abs(target_latent_0 - target_latent))
+        print(f"latent_error: {latent_error}")
+        print(f"latent_abs: {target_latent.abs().mean()}")
+        print(f"latent_mean: {target_latent.mean()}")
+        print(f"latent_std: {target_latent.std()}")
+        print(f"predicted_abs: {target_latent_0.abs().mean()}")
+        print(f"predicted_mean: {target_latent_0.mean()}")
+        print(f"predicted_std: {target_latent_0.std()}")
         # Decode target back to physical space
-        prediction: torch.Tensor = self.precipitation_decoder(target_latent_k)
+        prediction: torch.Tensor = self.precip_decoder(target_latent_0)
         assert prediction.shape == groundtruth.shape == (1, 1, 192, 288, self.out_features)
-        print(f"Mean prediction: {prediction.mean().item()}")
-        print(f"Min prediction: {prediction.min().item()}")
-        print(f"Max prediction: {prediction.max().item()}")
-        print(f"Std prediction: {prediction.std().item()}")
+        print(f"Mean prediction: {prediction.mean()}")
+        print(f"Min prediction: {prediction.min()}")
+        print(f"Max prediction: {prediction.max()}")
+        print(f"Std prediction: {prediction.std()}")
         # Error map
         error: torch.Tensor = self.error_map(prediction=prediction, groundtruth=groundtruth)
         error = error.squeeze(dim=(0, 1))

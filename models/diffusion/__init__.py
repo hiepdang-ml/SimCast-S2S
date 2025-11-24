@@ -1,5 +1,5 @@
 from .vae import (
-    VAE, VAE_Wind, VAE_Geopotential, VAE_ThermalDynamic, VAE_Precipitation, 
+    VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, 
     VAEEncoder, VAEDecoder
 )
 from .diffusion import (

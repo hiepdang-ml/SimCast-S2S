@@ -7,12 +7,14 @@ class RequireVAEEncoders:
         # Encode condition
         wind_indices: list[int] = self.indices_by_context_group["wind"]
         wind_condition: torch.Tensor = condition[..., wind_indices]
-        geopotential_indices: list[int] = self.indices_by_context_group["geopotential"]
-        geopotential_condition: torch.Tensor = condition[..., geopotential_indices]
-        thermaldynamic_indices: list[int] = self.indices_by_context_group["thermaldynamic"]
-        thermaldynamic_condition: torch.Tensor = condition[..., thermaldynamic_indices]
-        precipitation_indices: list[int] = self.indices_by_context_group["precipitation"]
-        precipitation_condition: torch.Tensor = condition[..., precipitation_indices]
+        mass_indices: list[int] = self.indices_by_context_group["mass"]
+        mass_condition: torch.Tensor = condition[..., mass_indices]
+        thermal_indices: list[int] = self.indices_by_context_group["thermal"]
+        thermal_condition: torch.Tensor = condition[..., thermal_indices]
+        hydro_indices: list[int] = self.indices_by_context_group["hydro"]
+        hydro_condition: torch.Tensor = condition[..., hydro_indices]
+        precip_indices: list[int] = self.indices_by_context_group["precip"]
+        precip_condition: torch.Tensor = condition[..., precip_indices]
     
         condition_latents: list[torch.Tensor] = []
         for day in range(condition.shape[1]):  # n_days
@@ -21,18 +23,20 @@ class RequireVAEEncoders:
                 self.wind_encoder(wind_condition[:, day:day+1, :, :, :])[0]
             )
             condition_latents.append(
-                self.geopotential_encoder(geopotential_condition[:, day:day+1, :, :, :])[0]
+                self.mass_encoder(mass_condition[:, day:day+1, :, :, :])[0]
             )
             condition_latents.append(
-                self.thermaldynamic_encoder(thermaldynamic_condition[:, day:day+1, :, :, :])[0]
+                self.thermal_encoder(thermal_condition[:, day:day+1, :, :, :])[0]
             )
             condition_latents.append(
-                self.precipitation_encoder(precipitation_condition[:, day:day+1, :, :, :])[0]
+                self.hydro_encoder(hydro_condition[:, day:day+1, :, :, :])[0]
             )
-
+            condition_latents.append(
+                self.precip_encoder(precip_condition[:, day:day+1, :, :, :])[0]
+            )
         condition_latent: torch.Tensor = torch.cat(tensors=condition_latents, dim=1)
-        # Encode precipitation target
+        # Encode precip target
         assert target.shape[1] == 1
-        target_latent: torch.Tensor = self.precipitation_encoder(target)[0]
+        target_latent: torch.Tensor = self.precip_encoder(target)[0]
         return target_latent, condition_latent
     
