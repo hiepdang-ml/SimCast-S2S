@@ -383,6 +383,23 @@ class VAE(_Freezable, NamedModel, nn.Module):
         return self.pixel_dim
 
 
-VAE_Wind = VAE_Mass = VAE_Thermal = VAE_Hydro = VAE_Precip = VAE
+class VAE_Wind(VAE):
+    pass
+
+class VAE_Mass(VAE):
+    pass
+
+class VAE_Thermal(VAE):
+    pass
+
+class VAE_Hydro(VAE):
+    pass
+
+class VAE_Precip(VAE):
+    pass
+
+class VAE_Target(VAE):
+    pass
+
 
 

@@ -9,7 +9,7 @@ from workers import BaselineTrainer, VAETrainer, DiffusionTrainer
 from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DiffusionConfig
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, 
+    VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, VAE_Target,
     VAEEncoder, VAEDecoder, UNetDenoiser, 
     LinearNoiseScheduler, CosineNoiseScheduler, ForwardProcess, ReverseProcess,
 )
@@ -391,6 +391,43 @@ def main(
                 n_convhead_layers=vae_config.n_convhead_layers,
             )
 
+    # TODO: optimize
+    elif model.lower() == "vae-target":
+        vae_config: VAEConfig = VAEConfig(context_group=None)
+        train_metadata: MetaData = MetaData(dataset_name=dataset, tp="train")
+        val_metadata: MetaData = MetaData(dataset_name=dataset, tp="val")
+        if dataset == "cesm2":
+            print(f"Training {model} on {dataset}")
+            # NOTE: subset the input for efficiency although never used
+            train_metadata = train_metadata.with_var_subset(context_group="precip")
+            val_metadata = val_metadata.with_var_subset(context_group="precip")
+            train_dataset: CESM2 = CESM2(metadata=train_metadata)
+            val_dataset: CESM2 = CESM2(metadata=val_metadata)
+        # TODO
+        else:
+            print(f"Training {model} on {dataset}")
+            train_metadata = train_metadata.with_var_subset(context_group=vae_config.context_group)
+            val_metadata = val_metadata.with_var_subset(context_group=vae_config.context_group)
+            ...
+
+        if (checkpoint_path := vae_config.from_checkpoint) is not None:
+            print(f"Training from {checkpoint_path}")
+            checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
+            net: VAE_Target = checkpoint_loader.load(scope=globals())
+            assert isinstance(net, VAE_Target)
+            assert net.pixel_dim == len(train_metadata.input_vars)
+        else:
+            print("Training from scratch")
+            net: VAE_Target = VAE_Target(
+                n_days=1,
+                n_features=len(train_metadata.input_vars),
+                latent_dim=vae_config.latent_dim,
+                hidden_dim=vae_config.hidden_dim,
+                n_scaling_blocks=vae_config.n_scaling_blocks,
+                n_convstack_layers=vae_config.n_convstack_layers,
+                n_convhead_layers=vae_config.n_convhead_layers,
+            )
+
         trainer = VAETrainer(
             net=net,
             lambda_=vae_config.lambda_,
@@ -458,6 +495,10 @@ def main(
         print(f"Loading precip_encoder from {diffusion_config.vae_precip_checkpoint}")
         checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_precip_checkpoint)
         precip_encoder: VAE_Precip = checkpoint_loader.load(scope=globals()).encoder
+        # Target encoder
+        print(f"Loading target_encoder from {diffusion_config.vae_target_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_target_checkpoint)
+        target_encoder: VAE_Target = checkpoint_loader.load(scope=globals()).encoder
         # Noise scheduler
         if diffusion_config.noise_scheduler.lower() == "linear":
             print("Training Diffusion with 'linear' scheduler")
@@ -475,11 +516,8 @@ def main(
         
         trainer = DiffusionTrainer(
             denoiser=net,
-            wind_encoder=wind_encoder,
-            mass_encoder=mass_encoder,
-            thermal_encoder=thermal_encoder,
-            hydro_encoder=hydro_encoder,
-            precip_encoder=precip_encoder,
+            wind_encoder=wind_encoder, mass_encoder=mass_encoder, thermal_encoder=thermal_encoder,
+            hydro_encoder=hydro_encoder, precip_encoder=precip_encoder, target_encoder=target_encoder,
             noise_scheduler=noise_scheduler,
             lr=diffusion_config.learning_rate,
             train_dataset=train_dataset,
@@ -524,7 +562,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model", type=str, choices=[
             "cnn", "unet", "vit", 
-            "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", "diffusion",
+            "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", "vae-target", "diffusion",
         ],
         required=True,
     )

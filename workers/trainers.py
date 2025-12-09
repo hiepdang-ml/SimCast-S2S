@@ -15,7 +15,7 @@ from common.utils import Accumulator, EarlyStopping, Timer, Logger, CheckpointSa
 from common.losses import VAELoss, DiffusionLoss
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAEEncoder, UNetDenoiser, LinearNoiseScheduler, ForwardProcess, ReverseProcess, StepNormalizer
+    VAE, VAE_Target, VAEEncoder, UNetDenoiser, LinearNoiseScheduler, ForwardProcess, ReverseProcess, StepNormalizer
 )
 from .common import RequireVAEEncoders
 
@@ -266,12 +266,15 @@ class VAETrainer(_AbstractTrainer):
     def _train_step(self, batch: DataBatch) -> None:
         sampleinfos, input_yearday_indices, output_yearday_indices, input_tensor, target_tensor = batch
         batch_size, n_days, H, W, n_features = input_tensor.shape
-        input_tensor = input_tensor.to(self.device, non_blocking=True)
+        if isinstance(self.net.module, VAE_Target):
+            x: torch.Tensor = target_tensor.to(self.device, non_blocking=True)
+        else:
+            x: torch.Tensor = input_tensor.to(self.device, non_blocking=True)
 
-        for day in range(input_tensor.shape[1]):
+        for day in range(x.shape[1]):
             # Forward pass
             self.optimizer.zero_grad()
-            true_x: torch.Tensor = input_tensor[:, day: day+1, :, :, :]
+            true_x: torch.Tensor = x[:, day: day+1, :, :, :]
             reconstructed_x, mu, logvar = self.net(true_x)
             # Backward pass
             reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae, mu, sigma = self.loss_function(
@@ -286,18 +289,21 @@ class VAETrainer(_AbstractTrainer):
     ]:
         sampleinfos, input_yearday_indices, output_yearday_indices, input_tensor, target_tensor = batch
         batch_size, n_days, H, W, n_features = input_tensor.shape
-        input_tensor = input_tensor.to(self.device, non_blocking=True)
+        if isinstance(self.net.module, VAE_Target):
+            x: torch.Tensor = target_tensor.to(self.device, non_blocking=True)
+        else:
+            x: torch.Tensor = input_tensor.to(self.device, non_blocking=True)
         
-        reconstruction_loss_sum: torch.Tensor = torch.zeros_like(input_tensor).sum()
-        kl_divergence_sum: torch.Tensor = torch.zeros_like(input_tensor).sum()
-        negative_elbo_sum: torch.Tensor = torch.zeros_like(input_tensor).sum()
-        reconstruction_mae_sum: torch.Tensor = torch.zeros_like(input_tensor).sum()
-        mu_sum: torch.Tensor = torch.zeros_like(input_tensor).sum()
-        sigma_sum: torch.Tensor = torch.zeros_like(input_tensor).sum()
+        reconstruction_loss_sum: torch.Tensor = torch.zeros_like(x).sum()
+        kl_divergence_sum: torch.Tensor = torch.zeros_like(x).sum()
+        negative_elbo_sum: torch.Tensor = torch.zeros_like(x).sum()
+        reconstruction_mae_sum: torch.Tensor = torch.zeros_like(x).sum()
+        mu_sum: torch.Tensor = torch.zeros_like(x).sum()
+        sigma_sum: torch.Tensor = torch.zeros_like(x).sum()
 
-        for day in range(input_tensor.shape[1]):
+        for day in range(x.shape[1]):
             # Forward pass
-            true_x: torch.Tensor = input_tensor[:, day: day+1, :, :, :]
+            true_x: torch.Tensor = x[:, day: day+1, :, :, :]
             reconstructed_x, mu, logvar = self.net(true_x)
             # Compute evaluation metrics
             reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae, mu, sigma  = self.loss_function(
@@ -310,7 +316,7 @@ class VAETrainer(_AbstractTrainer):
             mu_sum += mu
             sigma_sum += sigma
 
-        n_days: int = input_tensor.shape[1]
+        n_days: int = x.shape[1]
         return (
             reconstruction_loss / n_days,
             kl_divergence / n_days,
@@ -328,7 +334,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         denoiser: UNetDenoiser,
         wind_encoder: VAEEncoder, mass_encoder: VAEEncoder,
         thermal_encoder: VAEEncoder, hydro_encoder: VAEEncoder, 
-        precip_encoder: VAEEncoder,
+        precip_encoder: VAEEncoder, target_encoder: VAEEncoder,
         noise_scheduler: LinearNoiseScheduler, lr: float, 
         train_dataset: CESM2, val_dataset: CESM2,
         train_batch_size: int, val_batch_size: int,
@@ -358,10 +364,15 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         # Freeze hydro_encoder
         self.hydro_encoder: VAEEncoder = hydro_encoder.to(self.device)
         self.hydro_encoder.freeze()
+        assert self.hydro_encoder.is_frozen
         # Freeze precip_encoder
         self.precip_encoder: VAEEncoder = precip_encoder.to(self.device)
         self.precip_encoder.freeze()
         assert self.precip_encoder.is_frozen
+        # Freeze target_encoder
+        self.target_encoder: VAEEncoder = target_encoder.to(self.device)
+        self.target_encoder.freeze()
+        assert self.target_encoder.is_frozen
 
         self.noise_scheduler: LinearNoiseScheduler = noise_scheduler.to(self.device)
         self.n_denoising_steps: int = noise_scheduler.n_steps
@@ -370,7 +381,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         self.indices_by_context_group = self.train_dataset.indices_by_context_group
 
     #implement
-    def evaluate(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def evaluate(self) -> dict[str, float]:
         val_metrics = Accumulator()
         self.net.eval()
         with torch.no_grad():

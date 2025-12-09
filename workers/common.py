@@ -34,9 +34,10 @@ class RequireVAEEncoders:
             condition_latents.append(
                 self.precip_encoder(precip_condition[:, day:day+1, :, :, :])[0]
             )
+            
         condition_latent: torch.Tensor = torch.cat(tensors=condition_latents, dim=1)
-        # Encode precip target
+        # Encode target
         assert target.shape[1] == 1
-        target_latent: torch.Tensor = self.precip_encoder(target)[0]
+        target_latent: torch.Tensor = self.target_encoder(target)[0]
         return target_latent, condition_latent
     

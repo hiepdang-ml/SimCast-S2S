@@ -9,7 +9,7 @@ from workers import BaselinePredictor, VAEPredictor, DiffusionPredictor
 from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DiffusionConfig
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, 
+    VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, VAE_Target,
     VAEEncoder, VAEDecoder, UNetDenoiser, 
     LinearNoiseScheduler, CosineNoiseScheduler, ForwardProcess, ReverseProcess,
 )
@@ -126,6 +126,20 @@ def main(
         assert net.pixel_dim == len(test_metadata.input_vars)
         VAEPredictor(net=net, dataset=test_dataset, local_rank=local_rank).predict()
 
+    elif model.lower() == "vae-target":
+        test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
+        # NOTE: subset the input for efficiency although never used
+        test_metadata = test_metadata.with_var_subset(context_group="precip")
+        if dataset == "cesm2":
+            test_dataset: CESM2 = CESM2(metadata=test_metadata)
+
+        model_config: VAEConfig = VAEConfig(context_group=None)
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        net: VAE_Precip = checkpoint_loader.load(scope=globals())
+        assert isinstance(net, VAE_Target)
+        assert net.pixel_dim == 1
+        VAEPredictor(net=net, dataset=test_dataset, local_rank=local_rank).predict()
+
     elif model.lower() == "diffusion":
         model_config: DiffusionConfig = DiffusionConfig()
         # Denoiser
@@ -149,11 +163,14 @@ def main(
         print(f"Loading hydro_encoder from {model_config.vae_hydro_checkpoint}")
         checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.vae_hydro_checkpoint))
         hydro_vae: VAE = checkpoint_loader.load(scope=globals())
-        # Precip encoder/decoder
+        # Precip encoder
         print(f"Loading precip_encoder from {model_config.vae_precip_checkpoint}")
-        print(f"Loading precip_decoder from {model_config.vae_precip_checkpoint}")
         checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.vae_precip_checkpoint))
         precip_vae: VAE = checkpoint_loader.load(scope=globals())
+        # Target decoder
+        print(f"Loading target_decoder from {model_config.vae_target_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.vae_target_checkpoint))
+        target_vae: VAE = checkpoint_loader.load(scope=globals())
         # Noise scheduler
         if model_config.noise_scheduler.lower() == "linear":
             noise_scheduler = LinearNoiseScheduler(
@@ -168,9 +185,9 @@ def main(
         
         DiffusionPredictor(
             denoiser=net, 
-            wind_encoder=wind_vae.encoder, 
-            mass_encoder=mass_vae.encoder, thermal_encoder=thermal_vae.encoder, hydro_encoder=hydro_vae.encoder, 
-            precip_encoder=precip_vae.encoder, precip_decoder=precip_vae.decoder,
+            wind_encoder=wind_vae.encoder, mass_encoder=mass_vae.encoder, thermal_encoder=thermal_vae.encoder, 
+            hydro_encoder=hydro_vae.encoder, precip_encoder=precip_vae.encoder, 
+            target_encoder=target_vae.encoder, target_decoder=target_vae.decoder,
             noise_scheduler=noise_scheduler,
             eta=model_config.eta,
             dataset=test_dataset,
@@ -204,7 +221,7 @@ if __name__ == "__main__":
         "--model", 
         type=str, choices=[
             "cnn", "unet", "vit", 
-            "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", 
+            "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", "vae-target",
             "diffusion"
         ],
         required=True,

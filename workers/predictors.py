@@ -17,7 +17,7 @@ from common.metrics import ErrorMap, MAEMap, RsquaredMap
 from common.plotting import MetricPlotter, PredictionPlotter
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAEEncoder, VAEDecoder, UNetDenoiser, 
+    VAE, VAE_Target, VAEEncoder, VAEDecoder, UNetDenoiser, 
     LinearNoiseScheduler, CosineNoiseScheduler, 
     ReverseProcess, StepNormalizer
 )
@@ -196,13 +196,17 @@ class VAEPredictor(_AbstractPredictor):
     #implement
     def _predict_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor]:
         sampleinfos, input_indices, output_indices, input_tensor, target_tensor = batch
-        input_tensor = input_tensor.to(device=self.device)
+        if isinstance(self.net.module, VAE_Target):
+            x: torch.Tensor = target_tensor.to(self.device, non_blocking=True)
+        else:
+            x: torch.Tensor = input_tensor.to(self.device, non_blocking=True)
+
         sampleinfo: SampleInfo = sampleinfos[0] # because batch_size=1
-        batch_size, n_days, H, W, n_features = input_tensor.shape
+        batch_size, n_days, H, W, n_features = x.shape
         reconstructions: list[torch.Tensor] = []
         groundtruths: list[torch.Tensor] = []
-        for day in range(input_tensor.shape[1]):
-            true_x: torch.Tensor = input_tensor[:, day: day+1, :, :, :]
+        for day in range(x.shape[1]):
+            true_x: torch.Tensor = x[:, day: day+1, :, :, :]
             reconstructed_x, mu, logvar = self.net(true_x)
             mu_mean: torch.Tensor = mu.mean()
             sigma_mean: torch.Tensor = logvar.exp().sqrt().mean()
@@ -282,7 +286,8 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         thermal_encoder: VAEEncoder,
         hydro_encoder: VAEEncoder,
         precip_encoder: VAEEncoder,
-        precip_decoder: VAEDecoder,
+        target_encoder: VAEEncoder,
+        target_decoder: VAEDecoder,
         noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler,
         eta: float,
         dataset: CESM2,
@@ -310,10 +315,14 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         self.precip_encoder: VAEEncoder = precip_encoder.to(self.device)
         self.precip_encoder.freeze()
         assert self.precip_encoder.is_frozen
-        # Freeze precip_decoder
-        self.precip_decoder: VAEDecoder = precip_decoder.to(self.device)
-        self.precip_decoder.freeze()
-        assert self.precip_decoder.is_frozen
+        # Freeze target_encoder
+        self.target_encoder: VAEEncoder = target_encoder.to(self.device)
+        self.target_encoder.freeze()
+        assert self.target_encoder.is_frozen
+        # Freeze target_decoder
+        self.target_decoder: VAEDecoder = target_decoder.to(self.device)
+        self.target_decoder.freeze()
+        assert self.target_decoder.is_frozen
 
         self.noise_scheduler: LinearNoiseScheduler = noise_scheduler
         self.n_denoising_steps: int = noise_scheduler.n_steps
@@ -339,8 +348,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
             # Backward process
             normalized_step: torch.Tensor = self.step_normalizer(integer_step=integer_step)
             predicted_velocity: torch.Tensor = self.net(
-                # TESTING
-                target=target_latent_k, condition=condition_latent * 0, 
+                target=target_latent_k, condition=condition_latent, 
                 normalized_step=normalized_step, condition_days=input_yearday_indices,
             )
             target_latent_k, target_latent_0 = self.reverse_process.sample(
@@ -359,7 +367,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         print(f"predicted_mean: {target_latent_0.mean()}")
         print(f"predicted_std: {target_latent_0.std()}")
         # Decode target back to physical space
-        prediction: torch.Tensor = self.precip_decoder(target_latent_0)
+        prediction: torch.Tensor = self.target_decoder(target_latent_0)
         assert prediction.shape == groundtruth.shape == (1, 1, 192, 288, self.out_features)
         print(f"Mean prediction: {prediction.mean()}")
         print(f"Min prediction: {prediction.min()}")

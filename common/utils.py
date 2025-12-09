@@ -267,7 +267,7 @@ class CheckpointSaver:
 
         Parameters:
             - model (nn.Module): The class object of the model
-            - dirpath (os.PathLike): The directory where the checkpoints to save.
+            - dirpath (os.PathLike): The directory where the checkpoints is saved.
         """
         self.dirpath: pathlib.Path = pathlib.Path(dirpath)
         # For model reconstruction

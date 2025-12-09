@@ -243,11 +243,14 @@ class ViTConfig(BaseConfig):
 
 class VAEConfig(BaseConfig):
 
-    def __init__(self, context_group: Literal["wind", "mass", "thermal", "hydro", "precip"]):
-        self.context_group: Literal["wind", "mass", "thermal", "hydro", "precip"] = context_group
+    def __init__(self, context_group: Literal["wind", "mass", "thermal", "hydro", "precip"] | None):
+        self.context_group: Literal["wind", "mass", "thermal", "hydro", "precip"] | None = context_group
 
         with open("./config.yaml", mode="r") as file:
-            self.__config: dict[str, Any] = yaml.safe_load(file)[f"vae-{context_group}"]
+            if self.context_group is None:
+                self.__config: dict[str, Any] = yaml.safe_load(file)[f"vae-target"]
+            else:
+                self.__config: dict[str, Any] = yaml.safe_load(file)[f"vae-{context_group}"]
         
         self._load()
 
@@ -332,6 +335,7 @@ class DiffusionConfig(BaseConfig):
         self.vae_thermal_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_thermal_checkpoint"])
         self.vae_hydro_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_hydro_checkpoint"])
         self.vae_precip_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_precip_checkpoint"])
+        self.vae_target_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_target_checkpoint"])
         self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
         self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
 
@@ -368,6 +372,7 @@ class DiffusionConfig(BaseConfig):
             "vae_thermal_checkpoint": self.vae_thermal_checkpoint,
             "vae_hydro_checkpoint": self.vae_hydro_checkpoint,
             "vae_precip_checkpoint": self.vae_precip_checkpoint,
+            "vae_target_checkpoint": self.vae_target_checkpoint,
             "from_checkpoint": self.from_checkpoint,
             "saved_checkpoint_directory": self.saved_checkpoint_directory,
         }
