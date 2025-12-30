@@ -1,6 +1,54 @@
+from functools import cached_property
 from abc import ABC, abstractmethod
+import xarray as xr
 import torch
 
+
+class _GeographicalMetrics(ABC):
+
+    def __init__(self, tropical_lats: tuple[float, float]):
+        self.tropical_lats: tuple[float, float] = tropical_lats
+
+    @cached_property
+    def tropical_mask(self) -> torch.Tensor:
+        # TODO: make configurable path
+        ds: xr.Dataset = xr.open_dataset(
+            f"/scratch/zgp2ps/cesm2/landmask/b.e21.BHISTcmip6.f09_g17.LE2-1001.001.clm2.h3.C14_SOILC_vr.18500101-18590101.nc"
+        )
+        mask: xr.DataArray = (self.tropical_lats[0] <= ds["lat"]) & (ds["lat"] <= self.tropical_lats[1])
+        mask: torch.Tensor = torch.from_numpy(mask.values)
+        return mask
+
+    @abstractmethod
+    def __call__(self, prediction: torch.Tensor, groundtruth: torch.Tensor) -> torch.Tensor:
+        pass
+
+
+class GeographicalMAE(_GeographicalMetrics):
+    
+    # implement
+    def __call__(self, prediction: torch.Tensor, groundtruth: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        assert prediction.shape == groundtruth.shape
+        assert prediction.shape[0] == self.tropical_mask.shape[0]
+        mae_map: torch.Tensor = torch.nn.functional.l1_loss(input=prediction, target=groundtruth, reduction="none")
+        global_mae: torch.Tensor = torch.mean(mae_map)
+        tropical_mae: torch.Tensor = torch.mean(mae_map[self.tropical_mask])
+        extratropical_mae: torch.Tensor = torch.mean(mae_map[~self.tropical_mask])
+        return global_mae, tropical_mae, extratropical_mae
+
+
+class GeographicalMSE(_GeographicalMetrics):
+    
+    # implement
+    def __call__(self, prediction: torch.Tensor, groundtruth: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        assert prediction.shape == groundtruth.shape
+        assert prediction.shape[0] == self.tropical_mask.shape[0]
+        mse_map: torch.Tensor = torch.nn.functional.mse_loss(input=prediction, target=groundtruth, reduction="none")
+        global_mse: torch.Tensor = torch.mean(mse_map)
+        tropical_mse: torch.Tensor = torch.mean(mse_map[self.tropical_mask])
+        extratropical_mse: torch.Tensor = torch.mean(mse_map[~self.tropical_mask])
+        return global_mse, tropical_mse, extratropical_mse
+    
 
 class _BaseMap(ABC):
 

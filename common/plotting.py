@@ -13,6 +13,7 @@ class _BasePlotter:
         self, 
         ax, data: torch.Tensor, 
         coords: tuple[torch.Tensor, torch.Tensor], 
+        tropical_lats: tuple[float, float],
         title: str,
         cmap: str,
         vmin: float, vmax: float, 
@@ -24,6 +25,8 @@ class _BasePlotter:
             shading='nearest',
         )
         ax.set_title(title, fontsize=12)
+        ax.axhline(y=tropical_lats[0], color="black", linewidth=0.8, linestyle="--")
+        ax.axhline(y=tropical_lats[-1], color="black", linewidth=0.8, linestyle="--")
         cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.035, pad=0.04)
         cbar.ax.tick_params(labelsize=10)
         self._clean_axes(ax)
@@ -49,6 +52,7 @@ class PredictionPlotter(_BasePlotter):
         prediction_frame: torch.Tensor,
         error_frame: torch.Tensor,
         landmask: torch.Tensor,
+        tropical_lats: tuple[float, float],
         coordinates: tuple[torch.Tensor, torch.Tensor],
         title: str,
         filename: str,
@@ -64,7 +68,7 @@ class PredictionPlotter(_BasePlotter):
         H: int = groundtruth_frame.shape[0]
         W: int = groundtruth_frame.shape[1]
         aspect_ratio: float = H / W
-        figwidth: float = 5.5
+        figwidth: float = 5.6
 
         fig, axs = plt.subplots(3, 1, figsize=(figwidth, 3 * figwidth * aspect_ratio))
         q: float = 0.95
@@ -72,12 +76,12 @@ class PredictionPlotter(_BasePlotter):
         vmax: float = limit
         vmin: float = limit * (-1)
 
-        self.plot_layer(ax=axs[0], data=groundtruth_frame, coords=coordinates, title="Groundtruth", cmap="RdBu", vmin=vmin, vmax=vmax)
-        self.plot_layer(ax=axs[1], data=prediction_frame, coords=coordinates, title="Prediction", cmap="RdBu", vmin=vmin, vmax=vmax)
-        self.plot_layer(ax=axs[2], data=error_frame, coords=coordinates, title="Error Map", cmap="RdBu", vmin=vmin, vmax=vmax)
+        self.plot_layer(ax=axs[0], data=groundtruth_frame, coords=coordinates, tropical_lats=tropical_lats, title="Groundtruth", cmap="RdBu", vmin=vmin, vmax=vmax)
+        self.plot_layer(ax=axs[1], data=prediction_frame, coords=coordinates, tropical_lats=tropical_lats, title="Prediction", cmap="RdBu", vmin=vmin, vmax=vmax)
+        self.plot_layer(ax=axs[2], data=error_frame, coords=coordinates, tropical_lats=tropical_lats, title="Error Map", cmap="RdBu", vmin=vmin, vmax=vmax)
         self.add_landmask(axs=axs, landmask=landmask, coords=coordinates)
 
-        fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=0.87, hspace=0.15)
+        fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=0.83, hspace=0.15)
         fig.suptitle(title, fontsize=12)
 
         fig.savefig(self.destination_directory.joinpath(filename), bbox_inches="tight")
@@ -91,6 +95,7 @@ class MetricPlotter(_BasePlotter):
         mae_frame: torch.Tensor,
         rsquared_frame: torch.Tensor,
         landmask: torch.Tensor,
+        tropical_lats: tuple[float, float],
         coordinates: tuple[torch.Tensor, torch.Tensor],
         title: str,
         filename: str,
@@ -108,8 +113,8 @@ class MetricPlotter(_BasePlotter):
         figwidth: float = 5.5
 
         fig, axs = plt.subplots(2, 1, figsize=(figwidth, 2 * figwidth * aspect_ratio))
-        self.plot_layer(ax=axs[0], data=mae_frame, coords=coordinates, title="MAE Map", cmap="Oranges", vmin=0., vmax=0.05)
-        self.plot_layer(ax=axs[1], data=rsquared_frame, coords=coordinates, title="R-squared Map", cmap="Blues", vmin=0., vmax=1.)
+        self.plot_layer(ax=axs[0], data=mae_frame, coords=coordinates, tropical_lats=tropical_lats, title="MAE Map", cmap="Oranges", vmin=0., vmax=0.05)
+        self.plot_layer(ax=axs[1], data=rsquared_frame, coords=coordinates, tropical_lats=tropical_lats, title="R-squared Map", cmap="Blues", vmin=0., vmax=1.)
         self.add_landmask(axs=axs, landmask=landmask, coords=coordinates)
 
         fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=0.88, hspace=0.1)
@@ -119,4 +124,55 @@ class MetricPlotter(_BasePlotter):
         plt.close(fig)
 
 
+class DenoisingPlotter:
+
+    def __init__(self) -> None:
+        self.destination_directory: pathlib.Path = pathlib.Path('./steps')
+        self.destination_directory.mkdir(parents=True, exist_ok=True)
+
+    def plot(
+        self,
+        x0_x0_mae: list[float],
+        xk_x0_mae: list[float],
+        noise: list[float],
+        filename: str,
+    ) -> None:
+
+        fig, axs = plt.subplots(1, 2, figsize=(10, 4))
+        assert len(x0_x0_mae) == len(xk_x0_mae) == len(noise)
+        n_steps: int = len(x0_x0_mae)
+        steps = list(range(1, n_steps + 1))
+
+        axs[0].plot(
+            steps, list(reversed(x0_x0_mae)), 
+            label=r"$| \hat{x}_0 - x_0 |$", color="tab:blue",
+        )
+        axs[0].plot(
+            steps, list(reversed(xk_x0_mae)), 
+            label=r"$| \hat{x}_k - x_0 |$", color="tab:orange",
+        )
+        axs[0].set_xlabel("step")
+        axs[0].set_ylabel("MAE")
+        axs[0].legend()
+        axs[0].grid(True, linestyle="--", alpha=0.5)
+        axs[0].set_xlim(1, n_steps)
+        axs[0].set_ylim(0., 2.)
+        axs[0].invert_xaxis()
+
+        axs[1].plot(
+            steps, noise, 
+            label=r"$\sqrt{1 - \bar{\alpha}_k}$", 
+            color="tab:green",
+        )
+        axs[1].set_xlabel("step")
+        axs[1].set_ylabel("noise")
+        axs[1].legend()
+        axs[1].grid(True, linestyle="--", alpha=0.5)
+        axs[1].set_xlim(1, n_steps)
+        axs[1].set_ylim(0., 1.)
+        axs[1].invert_xaxis()
+
+        fig.subplots_adjust(wspace=0.25, bottom=0.15, top=0.85)
+        fig.savefig(self.destination_directory.joinpath(filename), bbox_inches="tight")
+        plt.close(fig)
 

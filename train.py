@@ -39,13 +39,13 @@ def main(
         print("Training CNN")
         cnn_config: CNNConfig = CNNConfig()
         if (checkpoint_path := cnn_config.from_checkpoint) is not None:
-            print(f"Training from {checkpoint_path}")
+            print(f"Training CNN from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: CNN = checkpoint_loader.load(scope=globals())
             assert isinstance(net, CNN)
             assert net.n_input_days == train_metadata.n_input_days
         else:
-            print("Training from scratch")
+            print(f"Training CNN from scratch with: {cnn_config.to_dict()}")
             net: CNN = CNN(
                 n_input_days=train_metadata.n_input_days,
                 in_features=cnn_config.in_features,
@@ -75,13 +75,13 @@ def main(
         print("Training UNet")
         unet_config: UnetConfig = UnetConfig()
         if (checkpoint_path := unet_config.from_checkpoint) is not None:
-            print(f"Training from {checkpoint_path}")
+            print(f"Training UNet from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: UNet = checkpoint_loader.load(scope=globals())
             assert isinstance(net, UNet)
             assert net.n_input_days == train_metadata.n_input_days
         else:
-            print("Training from scratch")
+            print(f"Training UNet from scratch with: {unet_config.to_dict()}")
             net: UNet = UNet(
                 n_input_days=train_metadata.n_input_days,
                 in_features=unet_config.in_features,
@@ -110,13 +110,13 @@ def main(
         print("Training ViT")
         vit_config: ViTConfig = ViTConfig()
         if (checkpoint_path := vit_config.from_checkpoint) is not None:
-            print(f"Training from {checkpoint_path}")
+            print(f"Training ViT from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: ViT = checkpoint_loader.load(scope=globals())
             assert isinstance(net, ViT)
             assert net.n_input_days == train_metadata.n_input_days
         else:
-            print("Training from scratch")
+            print(f"Training ViT from scratch with: {vit_config.to_dict()}")
             net: ViT = ViT(
                 n_input_days=train_metadata.n_input_days,
                 in_features=vit_config.in_features,
@@ -163,13 +163,13 @@ def main(
             ...
 
         if (checkpoint_path := vae_config.from_checkpoint) is not None:
-            print(f"Training from {checkpoint_path}")
+            print(f"Training VAE_Wind from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: VAE_Wind = checkpoint_loader.load(scope=globals())
             assert isinstance(net, VAE_Wind)
             assert net.pixel_dim == len(train_metadata.input_vars)
         else:
-            print("Training from scratch")
+            print(f"Training VAE_Wind from scratch with: {vae_config.to_dict()}")
             net: VAE_Wind = VAE_Wind(
                 n_days=1,
                 n_features=len(train_metadata.input_vars),
@@ -215,13 +215,13 @@ def main(
             ...
 
         if (checkpoint_path := vae_config.from_checkpoint) is not None:
-            print(f"Training from {checkpoint_path}")
+            print(f"Training VAE_Mass from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: VAE_Mass = checkpoint_loader.load(scope=globals())
             assert isinstance(net, VAE_Mass)
             assert net.pixel_dim == len(train_metadata.input_vars)
         else:
-            print("Training from scratch")
+            print(f"Training VAE_Mass from scratch with: {vae_config.to_dict()}")
             net: VAE_Mass = VAE_Mass(
                 n_days=1,
                 n_features=len(train_metadata.input_vars),
@@ -268,13 +268,13 @@ def main(
             ...
 
         if (checkpoint_path := vae_config.from_checkpoint) is not None:
-            print(f"Training from {checkpoint_path}")
+            print(f"Training VAE_Thermal from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: VAE_Thermal = checkpoint_loader.load(scope=globals())
             assert isinstance(net, VAE_Thermal)
             assert net.pixel_dim == len(train_metadata.input_vars)
         else:
-            print("Training from scratch")
+            print(f"Training VAE_Thermal from scratch with: {vae_config.to_dict()}")
             net: VAE_Thermal = VAE_Thermal(
                 n_days=1,
                 n_features=len(train_metadata.input_vars),
@@ -321,13 +321,13 @@ def main(
             ...
 
         if (checkpoint_path := vae_config.from_checkpoint) is not None:
-            print(f"Training from {checkpoint_path}")
+            print(f"Training VAE_Hydro from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: VAE_Hydro = checkpoint_loader.load(scope=globals())
             assert isinstance(net, VAE_Hydro)
             assert net.pixel_dim == len(train_metadata.input_vars)
         else:
-            print("Training from scratch")
+            print(f"Training VAE_Hydro from scratch with: {vae_config.to_dict()}")
             net: VAE_Hydro = VAE_Hydro(
                 n_days=1,
                 n_features=len(train_metadata.input_vars),
@@ -374,13 +374,13 @@ def main(
             ...
 
         if (checkpoint_path := vae_config.from_checkpoint) is not None:
-            print(f"Training from {checkpoint_path}")
+            print(f"Training VAE_Precip from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: VAE_Precip = checkpoint_loader.load(scope=globals())
             assert isinstance(net, VAE_Precip)
             assert net.pixel_dim == len(train_metadata.input_vars)
         else:
-            print("Training from scratch")
+            print(f"Training VAE_Precip from scratch with: {vae_config.to_dict()}")
             net: VAE_Precip = VAE_Precip(
                 n_days=1,
                 n_features=len(train_metadata.input_vars),
@@ -390,6 +390,24 @@ def main(
                 n_convstack_layers=vae_config.n_convstack_layers,
                 n_convhead_layers=vae_config.n_convhead_layers,
             )
+
+        trainer = VAETrainer(
+            net=net,
+            lambda_=vae_config.lambda_,
+            lr=vae_config.learning_rate,
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
+            train_batch_size=vae_config.train_batch_size,
+            val_batch_size=vae_config.val_batch_size,
+            local_rank=local_rank,
+        )
+        trainer.train(
+            n_epochs=vae_config.n_epochs,
+            patience=vae_config.patience,
+            tolerance=vae_config.tolerance,
+            checkpoint_directory=vae_config.saved_checkpoint_directory,
+            save_frequency=vae_config.save_frequency,
+        )
 
     # TODO: optimize
     elif model.lower() == "vae-target":
@@ -411,13 +429,13 @@ def main(
             ...
 
         if (checkpoint_path := vae_config.from_checkpoint) is not None:
-            print(f"Training from {checkpoint_path}")
+            print(f"Training VAE_Target from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: VAE_Target = checkpoint_loader.load(scope=globals())
             assert isinstance(net, VAE_Target)
             assert net.pixel_dim == len(train_metadata.input_vars)
         else:
-            print("Training from scratch")
+            print(f"Training VAE_Target from scratch with: {vae_config.to_dict()}")
             net: VAE_Target = VAE_Target(
                 n_days=1,
                 n_features=len(train_metadata.input_vars),
@@ -451,15 +469,19 @@ def main(
         # Denoiser
         diffusion_config: DiffusionConfig = DiffusionConfig()
         if (checkpoint_path := diffusion_config.from_checkpoint) is not None:
-            print(f"Training from {checkpoint_path}")
+            print(f"Training UNetDenoiser from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: UNetDenoiser = checkpoint_loader.load(scope=globals())
             assert isinstance(net, UNetDenoiser)
         else:
-            print("Training UNetDenoiser from scratch")
+            print(f"Training UNetDenoiser from scratch with: {diffusion_config.to_dict()}")
             net: UNetDenoiser = UNetDenoiser(
                 target_dim=diffusion_config.target_dim,
-                condition_dim=diffusion_config.condition_dim,
+                wind_condition_dim=diffusion_config.wind_condition_dim, 
+                mass_condition_dim=diffusion_config.mass_condition_dim, 
+                thermal_condition_dim=diffusion_config.thermal_condition_dim, 
+                hydro_condition_dim=diffusion_config.hydro_condition_dim, 
+                precip_condition_dim=diffusion_config.precip_condition_dim, 
                 step_dim=diffusion_config.step_dim,
                 day_dim=diffusion_config.day_dim,
                 n_condition_days=diffusion_config.n_condition_days,
@@ -469,8 +491,10 @@ def main(
                 mid_hidden_dims=diffusion_config.mid_hidden_dims,
                 up_out_dims=diffusion_config.up_out_dims,
                 up_hidden_dims=diffusion_config.up_hidden_dims,
-                n_layers_per_scaling_block=diffusion_config.n_layers_per_scaling_block,
-                n_layers_per_mid_block=diffusion_config.n_layers_per_mid_block,
+                n_conv_layers_per_scaling_block=diffusion_config.n_conv_layers_per_scaling_block,
+                n_attention_layers_per_scaling_block=diffusion_config.n_attention_layers_per_scaling_block,
+                n_conv_layers_per_mid_block=diffusion_config.n_conv_layers_per_mid_block,
+                n_attention_layers_per_mid_block=diffusion_config.n_attention_layers_per_mid_block,
                 n_attention_heads=diffusion_config.n_attention_heads,
                 switch_ratio=diffusion_config.switch_ratio,
             )

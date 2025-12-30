@@ -226,17 +226,18 @@ class VAEEncoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
             del residual
 
         assert h.shape == (batch_size, self.hidden_dim, self.expected_H, self.expected_W)
+        # h = h.contiguous()
         mu: torch.Tensor = self.mu_head(h)
         logvar: torch.Tensor = self.logvar_head(h)
         assert mu.shape == logvar.shape == (batch_size, self.latent_dim, self.expected_H, self.expected_W)
         return mu, logvar
 
     @staticmethod
-    def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+    def reparameterize(mu: torch.Tensor, logvar: torch.Tensor, scale: float = 1.) -> torch.Tensor:
         assert mu.shape == logvar.shape
         std: torch.Tensor = torch.exp(0.5 * logvar)
         eps: torch.Tensor = torch.randn_like(std)
-        return mu + eps * std
+        return mu + scale * eps * std
 
 
 class VAEDecoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):

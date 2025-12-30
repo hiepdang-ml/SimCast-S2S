@@ -1,5 +1,5 @@
 import torch
-
+from models.diffusion.vae import VAEEncoder
 
 class RequireVAEEncoders:
 
@@ -15,29 +15,36 @@ class RequireVAEEncoders:
         hydro_condition: torch.Tensor = condition[..., hydro_indices]
         precip_indices: list[int] = self.indices_by_context_group["precip"]
         precip_condition: torch.Tensor = condition[..., precip_indices]
-    
-        condition_latents: list[torch.Tensor] = []
-        for day in range(condition.shape[1]):  # n_days
-            # NOTE: only get the mean (deterministic latent)
-            condition_latents.append(
-                self.wind_encoder(wind_condition[:, day:day+1, :, :, :])[0]
-            )
-            condition_latents.append(
-                self.mass_encoder(mass_condition[:, day:day+1, :, :, :])[0]
-            )
-            condition_latents.append(
-                self.thermal_encoder(thermal_condition[:, day:day+1, :, :, :])[0]
-            )
-            condition_latents.append(
-                self.hydro_encoder(hydro_condition[:, day:day+1, :, :, :])[0]
-            )
-            condition_latents.append(
-                self.precip_encoder(precip_condition[:, day:day+1, :, :, :])[0]
-            )
-            
-        condition_latent: torch.Tensor = torch.cat(tensors=condition_latents, dim=1)
+
+        wind_mu, wind_logvar = self._encode(self.wind_encoder, wind_condition)
+        mass_mu, mass_logvar = self._encode(self.mass_encoder, mass_condition)
+        thermal_mu, thermal_logvar = self._encode(self.thermal_encoder, thermal_condition)
+        hydro_mu, hydro_logvar = self._encode(self.hydro_encoder, hydro_condition)
+        precip_mu, precip_logvar = self._encode(self.precip_encoder, precip_condition)
+
         # Encode target
         assert target.shape[1] == 1
-        target_latent: torch.Tensor = self.target_encoder(target)[0]
-        return target_latent, condition_latent
+        target_latent: torch.Tensor = VAEEncoder.reparameterize(*self.target_encoder(target), scale=1.)
+        return (
+            wind_mu, wind_logvar, 
+            mass_mu, mass_logvar, 
+            thermal_mu, thermal_logvar, 
+            hydro_mu, hydro_logvar, 
+            precip_mu, precip_logvar,
+            target_latent,
+        )
     
+    @staticmethod
+    def _encode(
+        encoder: VAEEncoder, 
+        input: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+
+        N, T, H, W, E = input.shape
+        input = input.flatten(start_dim=0, end_dim=1).unsqueeze(dim=1) # (N * T, 1, H, W, E)
+        mu, logvar = encoder(input)
+        assert mu.shape == logvar.shape == (N * T, encoder.latent_dim, encoder.expected_H, encoder.expected_W)
+        mu = mu.reshape(N, encoder.latent_dim * T, encoder.expected_H, encoder.expected_W)
+        logvar = logvar.reshape(N, encoder.latent_dim * T, encoder.expected_H, encoder.expected_W)
+        return mu, logvar
+

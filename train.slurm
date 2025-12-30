@@ -1,17 +1,18 @@
 #!/bin/bash
 
-#SBATCH --time=24:00:00
-#SBATCH --nodes=2
+#SBATCH --time=12:00:00
+#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=128G
-#SBATCH --gres=gpu:a100:4
+#SBATCH --mem=256G
+#SBATCH --gres=gpu:a100:8
+#SBATCH --constraint=a100_80gb
 #SBATCH --partition=gpu
 #SBATCH --mail-user=zgp2ps@virginia.edu
 #SBATCH --mail-type=ALL
 #SBATCH --account=mamalakislab
 #SBATCH --output=./.slurmlogs/%j.out
-#SBATCH --job-name="vae-wind"
+#SBATCH --job-name="diff-large"
 
 source $HOME/.bashrc &&
 source $HOME/miniconda3/etc/profile.d/conda.sh &&
@@ -33,5 +34,5 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 
 # Force IPv4 localhost for single-node runs to avoid AF errors
 export MASTER_ADDR=127.0.0.1
-export MASTER_PORT=29504
+export MASTER_PORT=29502
 torchrun --master_addr=${MASTER_ADDR} --nproc_per_node=${SLURM_GPUS_ON_NODE} --master_port=${MASTER_PORT} train.py --model=diffusion --dataset=cesm2

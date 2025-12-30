@@ -15,7 +15,8 @@ from common.utils import Accumulator, EarlyStopping, Timer, Logger, CheckpointSa
 from common.losses import VAELoss, DiffusionLoss
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAE_Target, VAEEncoder, UNetDenoiser, LinearNoiseScheduler, ForwardProcess, ReverseProcess, StepNormalizer
+    VAE, VAE_Target, VAEEncoder, UNetDenoiser, LinearNoiseScheduler, 
+    ForwardProcess, ReverseProcess, StepNormalizer
 )
 from .common import RequireVAEEncoders
 
@@ -54,7 +55,7 @@ class _AbstractTrainer(ABC):
             batch_size=train_batch_size,
             collate_fn=CESM2.collate_fn,
             prefetch_factor=2,
-            num_workers=2,
+            num_workers=4,
             pin_memory=True,
             persistent_workers=False,
             sampler=self.train_sampler,
@@ -65,7 +66,7 @@ class _AbstractTrainer(ABC):
             shuffle=False,
             collate_fn=CESM2.collate_fn,
             prefetch_factor=2,
-            num_workers=2,
+            num_workers=4,
             pin_memory=True,
             persistent_workers=False,
             sampler=self.val_sampler,
@@ -174,6 +175,7 @@ class BaselineTrainer(_AbstractTrainer):
     #implement
     def _train_step(self, batch: DataBatch) -> None:
         sampleinfos, input_yearday_indices, output_yearday_indices, input_tensor, groundtruth_tensor = batch
+        input_yearday_indices = input_yearday_indices.to(self.device, non_blocking=True)
         input_tensor = input_tensor.to(self.device, non_blocking=True)
         groundtruth_tensor = groundtruth_tensor.to(self.device, non_blocking=True)
         # Forward pass
@@ -181,7 +183,7 @@ class BaselineTrainer(_AbstractTrainer):
         if self.model_name in ["cnn", "unet"]:
             prediction_tensor: torch.Tensor = self.net(input=input_tensor)
         elif self.model_name == "vit":
-            prediction_tensor: torch.Tensor = self.net(input=input_tensor, input_yearday_indices=input_yearday_indices)
+            prediction_tensor: torch.Tensor = self.net(input=input_tensor, input_indices=input_yearday_indices)
         else:
             raise NotImplementedError(f"Architecture: {type(self.net)} is not implemented")
 
@@ -195,12 +197,13 @@ class BaselineTrainer(_AbstractTrainer):
     def _eval_step(self, batch: DataBatch) -> torch.Tensor:
         sampleinfos, input_yearday_indices, output_yearday_indices, input_tensor, groundtruth_tensor = batch
         # Forward pass
+        input_yearday_indices = input_yearday_indices.to(self.device, non_blocking=True)
         input_tensor = input_tensor.to(self.device, non_blocking=True)
         groundtruth_tensor = groundtruth_tensor.to(self.device, non_blocking=True)
         if self.model_name in ["cnn", "unet"]:
             prediction_tensor: torch.Tensor = self.net(input=input_tensor)
         elif self.model_name == "vit":
-            prediction_tensor: torch.Tensor = self.net(input=input_tensor, input_yearday_indices=input_yearday_indices)
+            prediction_tensor: torch.Tensor = self.net(input=input_tensor, input_indices=input_yearday_indices)
         else:
             raise NotImplementedError(f"Architecture: {type(self.net)} is not implemented")
 
@@ -433,23 +436,39 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # Encode
         with torch.no_grad():
-            target_latent, condition_latent = self.vae_encode(condition=condition, target=target)
+            (
+                wind_mu, wind_logvar, 
+                mass_mu, mass_logvar, 
+                thermal_mu, thermal_logvar, 
+                hydro_mu, hydro_logvar, 
+                precip_mu, precip_logvar,
+                target_latent,
+            ) = self.vae_encode(condition=condition, target=target)
 
         # Generate step
         batch_size: int = target_latent.shape[0]
         # Diffusion step must range from 1 to K
         integer_step: torch.Tensor = torch.randint(
-            low=1, high=self.n_denoising_steps + 1, size=(batch_size, 1), device=target_latent.device
+            low=1, high=self.n_denoising_steps + 1, size=(batch_size, 1), device=target_latent.device,
         )
-        normalized_step: torch.Tensor = self.step_normalizer(integer_step=integer_step)
+        # normalized_step: torch.Tensor = self.step_normalizer(integer_step=integer_step)
         # Forward process
-        noisy_target, true_velocity = self.forward_process.add_noise(original_latent=target_latent, k=integer_step)
+        noisy_target, true_velocity = self.forward_process.add_noise(
+            original_latent=target_latent, k=integer_step
+        )
         # Predict gaussian using UNetDenoiser
         predicted_velocity: torch.Tensor = self.net(
-            target=noisy_target, condition=condition_latent, 
-            normalized_step=normalized_step, condition_days=condition_days,
+            target=noisy_target, 
+            wind_mu=wind_mu, wind_logvar=wind_logvar,
+            mass_mu=mass_mu, mass_logvar=mass_logvar,
+            thermal_mu=thermal_mu, thermal_logvar=thermal_logvar,
+            hydro_mu=hydro_mu, hydro_logvar=hydro_logvar,
+            precip_mu=precip_mu, precip_logvar=precip_logvar,
+            integer_step=integer_step, condition_days=condition_days,
         )
         # Loss
-        velocity_loss, velocity_mae = self.loss_function(velocity_hat=predicted_velocity, velocity_true=true_velocity)
+        velocity_loss, velocity_mae = self.loss_function(
+            velocity_hat=predicted_velocity, velocity_true=true_velocity
+        )
         return velocity_loss, velocity_mae
 

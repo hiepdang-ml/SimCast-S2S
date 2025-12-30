@@ -9,7 +9,15 @@ from typing import Literal, Any
 class BaseConfig(ABC):
 
     def __init__(self) -> None:
-        raise SyntaxError(f"{self.__class__.__name__} is not meant for initilization")
+        self.learning_rate: float = float(self._config["learning_rate"])
+        self.train_batch_size: int = self._config["train_batch_size"]
+        self.val_batch_size: int = self._config["val_batch_size"]
+        self.n_epochs: int = self._config["n_epochs"]
+        self.patience: float = self._config["patience"]
+        self.tolerance: float = float(self._config["tolerance"])
+        self.save_frequency: int = self._config["save_frequency"]
+        self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self._config["from_checkpoint"]) else None
+        self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self._config["saved_checkpoint_directory"])
 
     @abstractmethod
     def _load(self) -> None:
@@ -42,7 +50,7 @@ class MetaData(BaseConfig):
         self.tp: Literal["train", "val", "test"] = tp
         self.var_table: dict[str, list[str]] = MetaData.VAR_LOOKUP_TABLE[dataset_name]
         with open("./config.yaml", mode="r") as file:
-            self.__config: dict[str, Any] = yaml.safe_load(file)[dataset_name]
+            self._config: dict[str, Any] = yaml.safe_load(file)[dataset_name]
 
         self._load()
         # Note: must preserve order
@@ -56,34 +64,34 @@ class MetaData(BaseConfig):
         self.n_years: int = len(self.years)
 
     def _load(self) -> None:
-        self.input_vars: list[str] = self.__config["input_vars"]
-        self.output_vars: list[str] = self.__config["output_vars"]
-        self.resolution: tuple[int, int] = tuple(self.__config["resolution"])
-        self.sim_ids: list[str] = self.__config["sim_ids"]
+        self.input_vars: list[str] = self._config["input_vars"]
+        self.output_vars: list[str] = self._config["output_vars"]
+        self.resolution: tuple[int, int] = tuple(self._config["resolution"])
+        self.sim_ids: list[str] = self._config["sim_ids"]
 
         if self.tp == "train":
-            self.start_year: int = self.__config["train_start_year"]
-            self.end_year: int = self.__config["train_end_year"]
-            self.write_directory: pathlib.Path = pathlib.Path(self.__config["train_write_directory"])
+            self.start_year: int = self._config["train_start_year"]
+            self.end_year: int = self._config["train_end_year"]
+            self.write_directory: pathlib.Path = pathlib.Path(self._config["train_write_directory"])
         elif self.tp == "val":
-            self.start_year: int = self.__config["val_start_year"]
-            self.end_year: int = self.__config["val_end_year"]
-            self.write_directory: pathlib.Path = pathlib.Path(self.__config["val_write_directory"])
+            self.start_year: int = self._config["val_start_year"]
+            self.end_year: int = self._config["val_end_year"]
+            self.write_directory: pathlib.Path = pathlib.Path(self._config["val_write_directory"])
         elif self.tp == "test":
-            self.start_year: int = self.__config["test_start_year"]
-            self.end_year: int = self.__config["test_end_year"]
-            self.write_directory: pathlib.Path = pathlib.Path(self.__config["test_write_directory"])
+            self.start_year: int = self._config["test_start_year"]
+            self.end_year: int = self._config["test_end_year"]
+            self.write_directory: pathlib.Path = pathlib.Path(self._config["test_write_directory"])
         else:
             raise ValueError(f"Invalid tp for MetaData, expected one of ['train', 'val', 'test'], get: '{self.tp}'")
 
-        self.n_input_days: int = self.__config["n_input_days"]
-        self.n_lead_days: int = self.__config["n_lead_days"]
-        self.n_output_days: int = self.__config["n_output_days"]
-        self.n_step_days: int = self.__config["n_step_days"]
-        self.climatological_window_size: int = self.__config["climatological_window_size"]
+        self.n_input_days: int = self._config["n_input_days"]
+        self.n_lead_days: int = self._config["n_lead_days"]
+        self.n_output_days: int = self._config["n_output_days"]
+        self.n_step_days: int = self._config["n_step_days"]
+        self.climatological_window_size: int = self._config["climatological_window_size"]
 
-        self.detrender_state_directory: pathlib.Path = pathlib.Path(self.__config["detrender_state_directory"])
-        self.climatology_state_directory: pathlib.Path = pathlib.Path(self.__config["climatology_state_directory"])
+        self.detrender_state_directory: pathlib.Path = pathlib.Path(self._config["detrender_state_directory"])
+        self.climatology_state_directory: pathlib.Path = pathlib.Path(self._config["climatology_state_directory"])
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -117,25 +125,16 @@ class CNNConfig(BaseConfig):
 
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
-            self.__config: dict[str, Any] = yaml.safe_load(file)["cnn"]
+            self._config: dict[str, Any] = yaml.safe_load(file)["cnn"]
         
+        super().__init__()
         self._load()
 
     def _load(self) -> None:
-        self.in_features: int = self.__config["in_features"]
-        self.out_features: int = self.__config["out_features"]
-        self.embedding_dim: int = self.__config["embedding_dim"]
-        self.n_hidden_layers: int = self.__config["n_hidden_layers"]
-
-        self.learning_rate: float = float(self.__config["learning_rate"])
-        self.train_batch_size: int = self.__config["train_batch_size"]
-        self.val_batch_size: int = self.__config["val_batch_size"]
-        self.n_epochs: int = self.__config["n_epochs"]
-        self.patience: float = self.__config["patience"]
-        self.tolerance: float = float(self.__config["tolerance"])
-        self.save_frequency: int = self.__config["save_frequency"]
-        self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
-        self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
+        self.in_features: int = self._config["in_features"]
+        self.out_features: int = self._config["out_features"]
+        self.embedding_dim: int = self._config["embedding_dim"]
+        self.n_hidden_layers: int = self._config["n_hidden_layers"]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -158,24 +157,15 @@ class UnetConfig(BaseConfig):
 
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
-            self.__config: dict[str, Any] = yaml.safe_load(file)["unet"]
+            self._config: dict[str, Any] = yaml.safe_load(file)["unet"]
         
+        super().__init__()
         self._load()
 
     def _load(self) -> None:
-        self.in_features: int = self.__config["in_features"]
-        self.out_features: int = self.__config["out_features"]
-        self.embedding_dim: int = self.__config["embedding_dim"]
-
-        self.learning_rate: float = float(self.__config["learning_rate"])
-        self.train_batch_size: int = self.__config["train_batch_size"]
-        self.val_batch_size: int = self.__config["val_batch_size"]
-        self.n_epochs: int = self.__config["n_epochs"]
-        self.patience: float = self.__config["patience"]
-        self.tolerance: float = float(self.__config["tolerance"])
-        self.save_frequency: int = self.__config["save_frequency"]
-        self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
-        self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
+        self.in_features: int = self._config["in_features"]
+        self.out_features: int = self._config["out_features"]
+        self.embedding_dim: int = self._config["embedding_dim"]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -197,28 +187,19 @@ class ViTConfig(BaseConfig):
 
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
-            self.__config: dict[str, Any] = yaml.safe_load(file)["vit"]
+            self._config: dict[str, Any] = yaml.safe_load(file)["vit"]
         
+        super().__init__()
         self._load()
 
     def _load(self) -> None:
-        self.in_features: int = self.__config["in_features"]
-        self.out_features: int = self.__config["out_features"]
-        self.embedding_dim: int = self.__config["embedding_dim"]
-        self.patch_size: int = self.__config["patch_size"]
-        self.n_heads: int = self.__config["n_heads"]
-        self.n_transformer_layers: int = self.__config["n_transformer_layers"]
-        self.dropout: float = self.__config["dropout"]
-
-        self.learning_rate: float = float(self.__config["learning_rate"])
-        self.train_batch_size: int = self.__config["train_batch_size"]
-        self.val_batch_size: int = self.__config["val_batch_size"]
-        self.n_epochs: int = self.__config["n_epochs"]
-        self.patience: float = self.__config["patience"]
-        self.tolerance: float = float(self.__config["tolerance"])
-        self.save_frequency: int = self.__config["save_frequency"]
-        self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
-        self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
+        self.in_features: int = self._config["in_features"]
+        self.out_features: int = self._config["out_features"]
+        self.embedding_dim: int = self._config["embedding_dim"]
+        self.patch_size: int = self._config["patch_size"]
+        self.n_heads: int = self._config["n_heads"]
+        self.n_transformer_layers: int = self._config["n_transformer_layers"]
+        self.dropout: float = self._config["dropout"]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -248,29 +229,21 @@ class VAEConfig(BaseConfig):
 
         with open("./config.yaml", mode="r") as file:
             if self.context_group is None:
-                self.__config: dict[str, Any] = yaml.safe_load(file)[f"vae-target"]
+                self._config: dict[str, Any] = yaml.safe_load(file)[f"vae-target"]
             else:
-                self.__config: dict[str, Any] = yaml.safe_load(file)[f"vae-{context_group}"]
+                self._config: dict[str, Any] = yaml.safe_load(file)[f"vae-{context_group}"]
         
+        super().__init__()
         self._load()
 
     def _load(self) -> None:
-        self.latent_dim: int = self.__config["latent_dim"]
-        self.hidden_dim: int = self.__config["hidden_dim"]
-        self.n_scaling_blocks: int = self.__config["n_scaling_blocks"]
-        self.n_convstack_layers: int = self.__config["n_convstack_layers"]
-        self.n_convhead_layers: int = self.__config["n_convhead_layers"]
+        self.latent_dim: int = self._config["latent_dim"]
+        self.hidden_dim: int = self._config["hidden_dim"]
+        self.n_scaling_blocks: int = self._config["n_scaling_blocks"]
+        self.n_convstack_layers: int = self._config["n_convstack_layers"]
+        self.n_convhead_layers: int = self._config["n_convhead_layers"]
 
-        self.lambda_: float = self.__config["lambda"]
-        self.learning_rate: float = float(self.__config["learning_rate"])
-        self.train_batch_size: int = self.__config["train_batch_size"]
-        self.val_batch_size: int = self.__config["val_batch_size"]
-        self.n_epochs: int = self.__config["n_epochs"]
-        self.patience: float = self.__config["patience"]
-        self.tolerance: float = float(self.__config["tolerance"])
-        self.save_frequency: int = self.__config["save_frequency"]
-        self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
-        self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
+        self.lambda_: float = self._config["lambda"]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -296,53 +269,55 @@ class DiffusionConfig(BaseConfig):
 
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
-            self.__config: dict[str, Any] = yaml.safe_load(file)["diffusion"]
+            self._config: dict[str, Any] = yaml.safe_load(file)["diffusion"]
         
+        super().__init__()
         self._load()
 
     def _load(self) -> None:
-        self.target_dim: int = self.__config["target_dim"]
-        self.condition_dim: int = self.__config["condition_dim"]
-        self.n_condition_days: int = self.__config["n_condition_days"]
-        self.step_dim: int = self.__config["step_dim"]
-        self.day_dim: int = self.__config["day_dim"]
-        self.down_out_dims: list[int] = self.__config["down_out_dims"]
-        self.down_hidden_dims: list[int] = self.__config["down_hidden_dims"]
-        self.mid_out_dims: list[int] = self.__config["mid_out_dims"]
-        self.mid_hidden_dims: list[int] = self.__config["mid_hidden_dims"]
-        self.up_out_dims: list[int] = self.__config["up_out_dims"]
-        self.up_hidden_dims: list[int] = self.__config["up_hidden_dims"]
-        self.n_layers_per_scaling_block: int = self.__config["n_layers_per_scaling_block"]
-        self.n_layers_per_mid_block: int = self.__config["n_layers_per_mid_block"]
-        self.n_attention_heads: int = self.__config["n_attention_heads"]
-        self.switch_ratio: float = float(self.__config["switch_ratio"])
-        self.noise_scheduler: Literal["linear", "cosine"] = self.__config["noise_scheduler"]
-        self.beta_min: float = float(self.__config["beta_min"])
-        self.beta_max: float = float(self.__config["beta_max"])
-        self.n_steps: int = self.__config["n_steps"]
-        self.eta: float = float(self.__config["eta"])
+        self.target_dim: int = self._config["target_dim"]
+        self.wind_condition_dim: int = self._config["wind_condition_dim"]
+        self.mass_condition_dim: int = self._config["mass_condition_dim"]
+        self.thermal_condition_dim: int = self._config["thermal_condition_dim"]
+        self.hydro_condition_dim: int = self._config["hydro_condition_dim"]
+        self.precip_condition_dim: int = self._config["precip_condition_dim"]
+        self.n_condition_days: int = self._config["n_condition_days"]
+        self.step_dim: int = self._config["step_dim"]
+        self.day_dim: int = self._config["day_dim"]
+        self.down_out_dims: list[int] = self._config["down_out_dims"]
+        self.down_hidden_dims: list[int] = self._config["down_hidden_dims"]
+        self.mid_out_dims: list[int] = self._config["mid_out_dims"]
+        self.mid_hidden_dims: list[int] = self._config["mid_hidden_dims"]
+        self.up_out_dims: list[int] = self._config["up_out_dims"]
+        self.up_hidden_dims: list[int] = self._config["up_hidden_dims"]
+        self.n_conv_layers_per_scaling_block: int = self._config["n_conv_layers_per_scaling_block"]
+        self.n_conv_layers_per_mid_block: int = self._config["n_conv_layers_per_mid_block"]
+        self.n_attention_layers_per_scaling_block: int = self._config["n_attention_layers_per_scaling_block"]
+        self.n_attention_layers_per_mid_block: int = self._config["n_attention_layers_per_mid_block"]
+        self.n_attention_heads: int = self._config["n_attention_heads"]
+        self.switch_ratio: float = float(self._config["switch_ratio"])
+        self.noise_scheduler: Literal["linear", "cosine"] = self._config["noise_scheduler"]
+        self.beta_min: float = float(self._config["beta_min"])
+        self.beta_max: float = float(self._config["beta_max"])
+        self.n_steps: int = self._config["n_steps"]
+        self.eta: float = float(self._config["eta"])
 
-        self.learning_rate: float = float(self.__config["learning_rate"])
-        self.train_batch_size: int = self.__config["train_batch_size"]
-        self.val_batch_size: int = self.__config["val_batch_size"]
-        self.n_epochs: int = self.__config["n_epochs"]
-        self.patience: int = self.__config["patience"]
-        self.tolerance: float = float(self.__config["tolerance"])
-        self.save_frequency: int = self.__config["save_frequency"]
-
-        self.vae_wind_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_wind_checkpoint"])
-        self.vae_mass_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_mass_checkpoint"])
-        self.vae_thermal_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_thermal_checkpoint"])
-        self.vae_hydro_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_hydro_checkpoint"])
-        self.vae_precip_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_precip_checkpoint"])
-        self.vae_target_checkpoint: pathlib.Path = pathlib.Path(self.__config["vae_target_checkpoint"])
-        self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self.__config["from_checkpoint"]) else None
-        self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self.__config["saved_checkpoint_directory"])
+        self.learning_rate: float = float(self._config["learning_rate"])
+        self.vae_wind_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_wind_checkpoint"])
+        self.vae_mass_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_mass_checkpoint"])
+        self.vae_thermal_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_thermal_checkpoint"])
+        self.vae_hydro_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_hydro_checkpoint"])
+        self.vae_precip_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_precip_checkpoint"])
+        self.vae_target_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_target_checkpoint"])
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "target_dim": self.target_dim,
-            "condition_dim": self.condition_dim,
+            "wind_condition_dim": self.wind_condition_dim,
+            "mass_condition_dim": self.mass_condition_dim,
+            "thermal_condition_dim": self.thermal_condition_dim,
+            "hydro_condition_dim": self.hydro_condition_dim,
+            "precip_condition_dim": self.precip_condition_dim,
             "step_dim": self.step_dim,
             "day_dim": self.day_dim,
             "down_out_dims": self.down_out_dims,
@@ -351,8 +326,10 @@ class DiffusionConfig(BaseConfig):
             "mid_hidden_dims": self.mid_hidden_dims,
             "up_out_dims": self.up_out_dims,
             "up_hidden_dims": self.up_hidden_dims,
-            "n_layers_per_scaling_block": self.n_layers_per_scaling_block,
-            "n_layers_per_mid_block": self.n_layers_per_mid_block,
+            "n_conv_layers_per_scaling_block": self.n_conv_layers_per_scaling_block,
+            "n_attention_layers_per_scaling_block": self.n_attention_layers_per_scaling_block,
+            "n_conv_layers_per_mid_block": self.n_conv_layers_per_mid_block,
+            "n_attention_layers_per_mid_block": self.n_attention_layers_per_mid_block,
             "n_attention_heads": self.n_attention_heads,
             "switch_ratio": self.switch_ratio,
             "noise_scheduler": self.noise_scheduler,
