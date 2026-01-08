@@ -18,8 +18,7 @@ from common.plotting import MetricPlotter, PredictionPlotter, DenoisingPlotter
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAE_Target, VAEEncoder, VAEDecoder, UNetDenoiser, 
-    LinearNoiseScheduler, CosineNoiseScheduler, 
-    ReverseProcess, StepNormalizer
+    LinearNoiseScheduler, CosineNoiseScheduler, ReverseProcess
 )
 from .common import RequireVAEEncoders
 
@@ -347,7 +346,6 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
 
         self.noise_scheduler: LinearNoiseScheduler = noise_scheduler
         self.n_denoising_steps: int = noise_scheduler.n_steps
-        self.step_normalizer: StepNormalizer = StepNormalizer(n_steps=noise_scheduler.n_steps)
         self.eta: float = eta
         self.reverse_process: ReverseProcess = ReverseProcess(eta=eta, noise_scheduler=noise_scheduler)
         self.denoising_plotter: DenoisingPlotter = DenoisingPlotter()
@@ -434,7 +432,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         print(f"predicted_std: {target_latent_0.std()}")
         # Decode target back to physical space
         # DEBUG
-        prediction: torch.Tensor = self.target_decoder(target_latent_0 + 0.5 * torch.randn_like(target_latent_0))
+        prediction: torch.Tensor = self.target_decoder(target_latent_0)
         # prediction: torch.Tensor = self.target_decoder(target_latent_0)
         assert prediction.shape == groundtruth.shape == (1, 1, 192, 288, self.out_features)
         print(f"Mean prediction: {prediction.mean()}")

@@ -16,7 +16,7 @@ from common.losses import VAELoss, DiffusionLoss
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAE_Target, VAEEncoder, UNetDenoiser, LinearNoiseScheduler, 
-    ForwardProcess, ReverseProcess, StepNormalizer
+    ForwardProcess, ReverseProcess,
 )
 from .common import RequireVAEEncoders
 
@@ -379,7 +379,6 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
 
         self.noise_scheduler: LinearNoiseScheduler = noise_scheduler.to(self.device)
         self.n_denoising_steps: int = noise_scheduler.n_steps
-        self.step_normalizer: StepNormalizer = StepNormalizer(n_steps=noise_scheduler.n_steps)
         self.forward_process: ForwardProcess = ForwardProcess(noise_scheduler=noise_scheduler)
         self.indices_by_context_group = self.train_dataset.indices_by_context_group
 

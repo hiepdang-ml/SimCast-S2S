@@ -83,63 +83,6 @@ class CosineNoiseScheduler(_BaseNoiseScheduler, nn.Module):
         return torch.cos((x + self.cosine_offset) / (1 + self.cosine_offset) * torch.pi / 2) ** 2
 
 
-# TESTING: removed
-class StepNormalizer(nn.Module):
-
-    def __init__(self, n_steps: int) -> None:
-        super().__init__()
-        self.n_steps: int = n_steps
-
-    def forward(self, integer_step: torch.Tensor) -> torch.Tensor:
-        step_N, step_D = integer_step.shape
-        assert step_D == 1
-        return integer_step.float() / self.n_steps
-
-
-class _StepEmbedding(nn.Module):
-
-    def __init__(self, step_in_dim: int, step_out_dim: int):
-        super().__init__()
-        self.step_in_dim: int = step_in_dim
-        self.step_out_dim: int = step_out_dim
-        self.embedding_layer = nn.Sequential(
-            nn.Linear(step_in_dim, step_out_dim),
-            nn.ReLU(), 
-            nn.Linear(step_out_dim, step_out_dim),
-            nn.ReLU(), 
-            nn.Linear(step_out_dim, step_out_dim),
-        )
-
-    def forward(self, step: torch.Tensor) -> torch.Tensor:
-        batch_size, step_in_dim = step.shape
-        assert step_in_dim == self.step_in_dim
-        output: torch.Tensor = self.embedding_layer(step)
-        assert output.shape == (batch_size, self.step_out_dim)
-        return output
-
-
-class _DayEmbedding(nn.Module):
-
-    def __init__(self, day_in_dim: int, day_out_dim: int):
-        super().__init__()
-        self.day_in_dim: int = day_in_dim
-        self.day_out_dim: int = day_out_dim
-        self.embedding_layer = nn.Sequential(
-            nn.Linear(day_in_dim, day_out_dim),
-            nn.ReLU(), 
-            nn.Linear(day_out_dim, day_out_dim),
-            nn.ReLU(), 
-            nn.Linear(day_out_dim, day_out_dim),
-        )
-
-    def forward(self, days: torch.Tensor) -> torch.Tensor:
-        batch_size, n_days, day_in_dim = days.shape
-        assert day_in_dim == self.day_in_dim
-        output: torch.Tensor = self.embedding_layer(days)
-        assert output.shape == (batch_size, n_days, self.day_out_dim)
-        return output.max(dim=1, keepdim=False).values   # pooling
-
-
 class _NormActConv(nn.Module):
 
     def __init__(self, input_dim: int, output_dim: int, n_heads: int):
@@ -163,23 +106,36 @@ class _NormActConv(nn.Module):
 
 class _UncertaintyAwareTransformer(nn.Module):
 
-    def __init__(self, hidden_dim: int, n_attention_layers: int, n_heads: int, maxlength: int = 5000):
+    def __init__(
+        self, 
+        hidden_dim: int, 
+        n_encoder_layers: int, 
+        n_decoder_layers: int, 
+        n_heads: int, 
+        maxlength: int,
+    ):
         super().__init__()
         self.hidden_dim: int = hidden_dim
-        self.n_attention_layers: int = n_attention_layers
+        self.n_encoder_layers: int = n_encoder_layers
+        self.n_decoder_layers: int = n_decoder_layers
         self.n_heads: int = n_heads
         self.maxlenght: int = maxlength
-        self.target_group_norm: nn.Module = nn.GroupNorm(num_groups=n_heads, num_channels=hidden_dim)
-        self.condition_group_norm: nn.Module = nn.GroupNorm(num_groups=n_heads, num_channels=hidden_dim)
+        self.condition_fuse: nn.Module = nn.Sequential(
+            nn.Conv2d(in_channels=hidden_dim * 2, out_channels=hidden_dim * 2, kernel_size=1),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=hidden_dim * 2, out_channels=hidden_dim * 2, kernel_size=1),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=hidden_dim * 2, out_channels=hidden_dim, kernel_size=1),
+        )
         self.transformer = nn.Transformer(
             d_model=hidden_dim, nhead=n_heads, 
-            num_encoder_layers=2, num_decoder_layers=n_attention_layers,
+            num_encoder_layers=n_encoder_layers, num_decoder_layers=n_decoder_layers,
             batch_first=True,
         )
         self.target_pos_embedding = nn.Parameter(torch.randn(1, self.maxlenght, hidden_dim) * 0.02)
         self.condition_pos_embedding = nn.Parameter(torch.randn(1, self.maxlenght, hidden_dim) * 0.02)
 
-    def forward(self, target: torch.Tensor, condition_mu: torch.Tensor, condition_logvar) -> torch.Tensor:
+    def forward(self, target: torch.Tensor, condition_mu: torch.Tensor, condition_logvar: torch.Tensor) -> torch.Tensor:
         target_N, target_D, target_H, target_W = target.shape
         assert condition_mu.shape == condition_logvar.shape
         condition_N, condition_D, condition_H, condition_W = condition_mu.shape
@@ -192,17 +148,10 @@ class _UncertaintyAwareTransformer(nn.Module):
 
         # Preprocess target        
         target_flattened: torch.Tensor = target.flatten(start_dim=2, end_dim=3)
-        target_flattened = (
-            self.target_group_norm(target_flattened).transpose(1, 2) 
-            + self.target_pos_embedding[:, :target_L, :]
-        )
+        target_flattened = target_flattened.transpose(1, 2) + self.target_pos_embedding[:, :target_L, :]
         # Preprocess condition
-        condition_flattened: torch.Tensor = condition_mu.flatten(start_dim=2, end_dim=3)
-        condition_flattened = self.condition_group_norm(condition_flattened).transpose(1, 2)
-        uncertainty: torch.Tensor = condition_logvar.flatten(start_dim=2, end_dim=3).transpose(1, 2)
-        uncertainty = uncertainty.mean(dim=2, keepdim=True) # across D
-        confidence: torch.Tensor = torch.sigmoid(-uncertainty)
-        condition_flattened = condition_flattened * confidence
+        condition: torch.Tensor = self.condition_fuse(torch.cat([condition_mu, condition_logvar], dim=1))
+        condition_flattened: torch.Tensor = condition.flatten(start_dim=2, end_dim=3).transpose(1, 2)
         condition_flattened = condition_flattened + self.condition_pos_embedding[:, :condition_L, :]
         assert condition_flattened.shape == (condition_N, condition_L, condition_D)
         # Fuse
@@ -280,10 +229,12 @@ class _ScalingBlock(nn.Module):
         thermal_condition_dim: int, 
         hydro_condition_dim: int, 
         precip_condition_dim: int, 
-        step_dim: int, day_dim: int,
         hidden_dim: int, output_dim: int, 
         n_conv_layers: int, 
-        n_attention_layers: int, n_attention_heads: int,
+        n_transformer_encoder_layers: int, 
+        n_transformer_decoder_layers: int,
+        n_attention_heads: int,
+        max_sequence_length: int,
         type: Literal["up", "down", "mid"],
     ):
         super().__init__()
@@ -293,13 +244,13 @@ class _ScalingBlock(nn.Module):
         self.thermal_condition_dim: int = thermal_condition_dim
         self.hydro_condition_dim: int = hydro_condition_dim
         self.precip_condition_dim: int = precip_condition_dim
-        self.step_dim: int = step_dim
-        self.day_dim: int = day_dim
         self.hidden_dim: int = hidden_dim
         self.output_dim: int = output_dim
-        self.n_conv_layers: int = n_conv_layers
-        self.n_attention_layers: int = n_attention_layers
+        self.n_conv_layers: int = n_conv_layers; assert n_conv_layers % 2 == 0
+        self.n_transformer_encoder_layers: int = n_transformer_encoder_layers
+        self.n_transformer_decoder_layers: int = n_transformer_decoder_layers
         self.n_attention_heads: int = n_attention_heads
+        self.max_sequence_length: int = max_sequence_length
         self.type: Literal["up", "down", "mid"] = type
         # Condition
         self.wind_mu_projection: nn.Module = nn.Conv2d(
@@ -350,36 +301,46 @@ class _ScalingBlock(nn.Module):
         ])
         # Attention
         self.wind_attention_layer: nn.Module = _UncertaintyAwareTransformer(
-            hidden_dim=hidden_dim, n_attention_layers=n_attention_layers, n_heads=n_attention_heads
+            hidden_dim=hidden_dim, 
+            n_encoder_layers=n_transformer_encoder_layers, 
+            n_decoder_layers=n_transformer_decoder_layers,
+            n_heads=n_attention_heads,
+            maxlength=max_sequence_length,
         )
         self.mass_attention_layer: nn.Module = _UncertaintyAwareTransformer(
-            hidden_dim=hidden_dim, n_attention_layers=n_attention_layers, n_heads=n_attention_heads
+            hidden_dim=hidden_dim, 
+            n_encoder_layers=n_transformer_encoder_layers, 
+            n_decoder_layers=n_transformer_decoder_layers,
+            n_heads=n_attention_heads,
+            maxlength=max_sequence_length,
         )
         self.thermal_attention_layer: nn.Module = _UncertaintyAwareTransformer(
-            hidden_dim=hidden_dim, n_attention_layers=n_attention_layers, n_heads=n_attention_heads
+            hidden_dim=hidden_dim, 
+            n_encoder_layers=n_transformer_encoder_layers, 
+            n_decoder_layers=n_transformer_decoder_layers,
+            n_heads=n_attention_heads,
+            maxlength=max_sequence_length,
         )
         self.hydro_attention_layer: nn.Module = _UncertaintyAwareTransformer(
-            hidden_dim=hidden_dim, n_attention_layers=n_attention_layers, n_heads=n_attention_heads
+            hidden_dim=hidden_dim, 
+            n_encoder_layers=n_transformer_encoder_layers, 
+            n_decoder_layers=n_transformer_decoder_layers,
+            n_heads=n_attention_heads,
+            maxlength=max_sequence_length,
         )
         self.precip_attention_layer: nn.Module = _UncertaintyAwareTransformer(
-            hidden_dim=hidden_dim, n_attention_layers=n_attention_layers, n_heads=n_attention_heads
+            hidden_dim=hidden_dim, 
+            n_encoder_layers=n_transformer_encoder_layers, 
+            n_decoder_layers=n_transformer_decoder_layers,
+            n_heads=n_attention_heads,
+            maxlength=max_sequence_length,
         )
         # Step
-        self.step_projection = nn.Linear(in_features=step_dim, out_features=hidden_dim)
-        self.step_embedding_blocks = nn.ModuleList([
-            _StepEmbedding(step_in_dim=hidden_dim, step_out_dim=hidden_dim)
-            for _ in range(n_conv_layers)
-        ])
+        self.step_embedding_layer: nn.Module = _SinusoidEmbedding(embedding_dim=hidden_dim)
         # Day
-        self.day_projection = nn.Linear(in_features=day_dim, out_features=hidden_dim)
-        self.day_embedding_blocks = nn.ModuleList([
-            _DayEmbedding(day_in_dim=hidden_dim, day_out_dim=hidden_dim)
-            for _ in range(n_conv_layers)
-        ])
+        self.day_embedding_layer: nn.Module = _SinusoidEmbedding(embedding_dim=hidden_dim)
         # Condition weights
-        self.cond_weights: nn.Parameter = nn.Parameter(
-            data=torch.ones(size=(hidden_dim * 6, hidden_dim)) * 0.5, requires_grad=True
-        )
+        self.cond_weights: nn.Parameter = nn.Parameter(torch.ones(size=(hidden_dim * 6, hidden_dim)) * 0.5)
         # Scaling block
         if type == "down":
             self.scaling_block: nn.Module = _DownSample(input_dim=hidden_dim, output_dim=output_dim)
@@ -414,8 +375,8 @@ class _ScalingBlock(nn.Module):
         thermal_N, thermal_D, thermal_H, thermal_W = thermal_mu.shape
         hydro_N, hydro_D, hydro_H, hydro_W = hydro_mu.shape
         precip_N, precip_D, precip_H, precip_W = precip_mu.shape
-        step_N, step_D = step.shape
-        days_N, days_T, days_D = days.shape
+        step_N, step_L = step.shape
+        days_N, days_L = days.shape
         assert target_N == wind_N == mass_N == thermal_N == hydro_N == precip_N == step_N == days_N
         assert target_D == self.input_dim
         assert wind_D == self.wind_condition_dim
@@ -423,7 +384,6 @@ class _ScalingBlock(nn.Module):
         assert thermal_D == self.thermal_condition_dim
         assert hydro_D == self.hydro_condition_dim
         assert precip_D == self.precip_condition_dim
-        assert step_D == self.step_dim
         
         # Linear projection
         target = self.target_projection(target)
@@ -437,8 +397,10 @@ class _ScalingBlock(nn.Module):
         hydro_logvar = self.hydro_logvar_projection(hydro_logvar)
         precip_mu = self.precip_mu_projection(precip_mu)
         precip_logvar = self.precip_logvar_projection(precip_logvar)
-        step = self.step_projection(step)
-        days = self.day_projection(days)
+        step = self.step_embedding_layer(step).mean(dim=1)
+        days = self.day_embedding_layer(days).mean(dim=1)
+        assert step.shape == (step_N, self.hidden_dim)
+        assert days.shape == (days_N, self.hidden_dim)
 
         target_output: torch.Tensor = target
         for i in range(self.n_conv_layers):
@@ -446,8 +408,7 @@ class _ScalingBlock(nn.Module):
             # Resnet block (target)
             target_output = (
                 self.target_conv1_layers[i](target_output) 
-                + self.step_embedding_blocks[i](step)[:, :, None, None] 
-                + self.day_embedding_blocks[i](days)[:, :, None, None]
+                + step[:, :, None, None] + days[:, :, None, None]
             )
             target_output = (
                 self.target_conv2_layers[i](target_output) 
@@ -482,7 +443,7 @@ class _ScalingBlock(nn.Module):
             dim=1
         )
         target_output = torch.einsum("nihw,io->nohw", [concat, self.cond_weights])
-        assert target_output.shape == (target_N, self.hidden_dim, target_H, target_W) 
+        assert target_output.shape == (target_N, self.hidden_dim, target_H, target_W)
         # Scaling
         target_output = self.scaling_block(target_output)
         if self.type == "down":
@@ -507,10 +468,12 @@ class _DownBlock(_ScalingBlock):
         thermal_condition_dim: int, 
         hydro_condition_dim: int, 
         precip_condition_dim: int, 
-        step_dim: int, day_dim: int,
         hidden_dim: int, output_dim: int, 
         n_conv_layers: int, 
-        n_attention_layers: int, n_attention_heads: int,
+        n_transformer_encoder_layers: int, 
+        n_transformer_decoder_layers: int, 
+        n_attention_heads: int,
+        max_sequence_length: int,
     ):
         super().__init__(
             input_dim=input_dim, 
@@ -519,11 +482,12 @@ class _DownBlock(_ScalingBlock):
             thermal_condition_dim=thermal_condition_dim, 
             hydro_condition_dim=hydro_condition_dim, 
             precip_condition_dim=precip_condition_dim, 
-            step_dim=step_dim, day_dim=day_dim,
             hidden_dim=hidden_dim, output_dim=output_dim, 
             n_conv_layers=n_conv_layers, 
-            n_attention_layers=n_attention_layers, 
+            n_transformer_encoder_layers=n_transformer_encoder_layers,
+            n_transformer_decoder_layers=n_transformer_decoder_layers,
             n_attention_heads=n_attention_heads,
+            max_sequence_length=max_sequence_length,
             type="down",
         )
 
@@ -538,10 +502,12 @@ class _UpBlock(_ScalingBlock):
         thermal_condition_dim: int, 
         hydro_condition_dim: int, 
         precip_condition_dim: int, 
-        step_dim: int, day_dim: int,
         hidden_dim: int, output_dim: int, 
         n_conv_layers: int, 
-        n_attention_layers: int, n_attention_heads: int,
+        n_transformer_encoder_layers: int,
+        n_transformer_decoder_layers: int,
+        n_attention_heads: int,
+        max_sequence_length: int,
     ):
         super().__init__(
             input_dim=input_dim + down_output_dim,
@@ -550,11 +516,12 @@ class _UpBlock(_ScalingBlock):
             thermal_condition_dim=thermal_condition_dim, 
             hydro_condition_dim=hydro_condition_dim, 
             precip_condition_dim=precip_condition_dim, 
-            step_dim=step_dim, day_dim=day_dim,
             hidden_dim=hidden_dim, output_dim=output_dim, 
             n_conv_layers=n_conv_layers, 
-            n_attention_layers=n_attention_layers, 
+            n_transformer_encoder_layers=n_transformer_encoder_layers,
+            n_transformer_decoder_layers=n_transformer_decoder_layers,
             n_attention_heads=n_attention_heads,
+            max_sequence_length=max_sequence_length,
             type="up",
         )
 
@@ -569,10 +536,12 @@ class _MidBlock(_ScalingBlock):
         thermal_condition_dim: int, 
         hydro_condition_dim: int, 
         precip_condition_dim: int, 
-        step_dim: int, day_dim: int,
         hidden_dim: int, output_dim: int, 
         n_conv_layers: int, 
-        n_attention_layers: int, n_attention_heads: int,
+        n_transformer_encoder_layers: int, 
+        n_transformer_decoder_layers: int, 
+        n_attention_heads: int,
+        max_sequence_length: int,
     ):
         super().__init__(
             input_dim=input_dim, 
@@ -581,22 +550,15 @@ class _MidBlock(_ScalingBlock):
             thermal_condition_dim=thermal_condition_dim, 
             hydro_condition_dim=hydro_condition_dim, 
             precip_condition_dim=precip_condition_dim, 
-            step_dim=step_dim, day_dim=day_dim,
             hidden_dim=hidden_dim, output_dim=output_dim, 
             n_conv_layers=n_conv_layers, 
-            n_attention_layers=n_attention_layers, 
+            n_transformer_encoder_layers=n_transformer_encoder_layers,
+            n_transformer_decoder_layers=n_transformer_decoder_layers,
             n_attention_heads=n_attention_heads,
+            max_sequence_length=max_sequence_length,
             type="mid",
         )
 
-
-class NormalizerHead(nn.Module):
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        mean: torch.Tensor = x.mean(dim=tuple(range(1, x.ndim)), keepdim=True)
-        std: torch.Tensor = x.std(dim=tuple(range(1, x.ndim)), keepdim=True)
-        return (x - mean) / (std + 1e-5)
-    
 
 class UNetDenoiser(NamedModel, nn.Module):
 
@@ -608,14 +570,18 @@ class UNetDenoiser(NamedModel, nn.Module):
         thermal_condition_dim: int, 
         hydro_condition_dim: int, 
         precip_condition_dim: int, 
-        step_dim: int, day_dim: int,
         n_condition_days: int,
         down_out_dims: list[int], down_hidden_dims: list[int], 
         mid_out_dims: list[int], mid_hidden_dims: list[int], 
         up_out_dims: list[int], up_hidden_dims: list[int], 
-        n_conv_layers_per_scaling_block: int, n_attention_layers_per_scaling_block: int, 
-        n_conv_layers_per_mid_block: int, n_attention_layers_per_mid_block: int,
-        n_attention_heads: int, switch_ratio: float,
+        n_conv_layers_per_scaling_block: int, 
+        n_transformer_encoder_layers_per_scaling_block: int, 
+        n_transformer_decoder_layers_per_scaling_block: int, 
+        n_conv_layers_per_mid_block: int, 
+        n_transformer_encoder_layers_per_mid_block: int,
+        n_transformer_decoder_layers_per_mid_block: int,
+        n_attention_heads: int, max_sequence_length: int,
+        switch_ratio: float,
     ):
         super().__init__()
         self.target_dim: int = target_dim
@@ -624,8 +590,6 @@ class UNetDenoiser(NamedModel, nn.Module):
         self.thermal_condition_dim: int = thermal_condition_dim
         self.hydro_condition_dim: int = hydro_condition_dim
         self.precip_condition_dim: int = precip_condition_dim
-        self.step_dim: int = step_dim
-        self.day_dim: int = day_dim
         self.n_condition_days: int = n_condition_days
         self.down_out_dims: list[int] = down_out_dims
         self.down_hidden_dims: list[int] = down_hidden_dims
@@ -634,10 +598,13 @@ class UNetDenoiser(NamedModel, nn.Module):
         self.up_out_dims: list[int] = up_out_dims
         self.up_hidden_dims: list[int] = up_hidden_dims
         self.n_conv_layers_per_scaling_block: int = n_conv_layers_per_scaling_block
-        self.n_attention_layers_per_scaling_block: int = n_attention_layers_per_scaling_block
+        self.n_transformer_encoder_layers_per_scaling_block: int = n_transformer_encoder_layers_per_scaling_block
+        self.n_transformer_decoder_layers_per_scaling_block: int = n_transformer_decoder_layers_per_scaling_block
         self.n_conv_layers_per_mid_block: int = n_conv_layers_per_mid_block
-        self.n_attention_layers_per_mid_block: int = n_attention_layers_per_mid_block
+        self.n_transformer_encoder_layers_per_mid_block: int = n_transformer_encoder_layers_per_mid_block
+        self.n_transformer_decoder_layers_per_mid_block: int = n_transformer_decoder_layers_per_mid_block
         self.n_attention_heads: int = n_attention_heads
+        self.max_sequence_length: int = max_sequence_length
         self.switch_ratio: float = switch_ratio
 
         assert len(down_hidden_dims) == len(down_out_dims) == len(up_hidden_dims) == len(up_out_dims)
@@ -646,8 +613,6 @@ class UNetDenoiser(NamedModel, nn.Module):
         self.n_scaling_blocks: int = len(down_out_dims)
         self.n_mid_blocks: int = len(mid_out_dims)
 
-        self.step_embedding_layer: nn.Module = _SinusoidEmbedding(embedding_dim=step_dim)
-        self.day_embedding_layer: nn.Module = _SinusoidEmbedding(embedding_dim=day_dim)
         self.down_blocks = nn.ModuleList([
             _DownBlock(
                 input_dim=target_dim if i == 0 else down_out_dims[i - 1], 
@@ -656,11 +621,12 @@ class UNetDenoiser(NamedModel, nn.Module):
                 thermal_condition_dim=thermal_condition_dim, 
                 hydro_condition_dim=hydro_condition_dim, 
                 precip_condition_dim=precip_condition_dim, 
-                step_dim=step_dim, day_dim=day_dim, 
                 hidden_dim=down_hidden_dims[i], output_dim=down_out_dims[i],
                 n_conv_layers=n_conv_layers_per_scaling_block, 
-                n_attention_layers=n_attention_layers_per_scaling_block,
+                n_transformer_encoder_layers=n_transformer_encoder_layers_per_scaling_block,
+                n_transformer_decoder_layers=n_transformer_decoder_layers_per_scaling_block,
                 n_attention_heads=n_attention_heads,
+                max_sequence_length=max_sequence_length,
             )
             for i in range(self.n_scaling_blocks)
         ])
@@ -673,11 +639,12 @@ class UNetDenoiser(NamedModel, nn.Module):
                 thermal_condition_dim=thermal_condition_dim, 
                 hydro_condition_dim=hydro_condition_dim, 
                 precip_condition_dim=precip_condition_dim, 
-                step_dim=step_dim, day_dim=day_dim, 
                 hidden_dim=up_hidden_dims[i], output_dim=up_out_dims[i], 
                 n_conv_layers=n_conv_layers_per_scaling_block, 
-                n_attention_layers=n_attention_layers_per_scaling_block,
+                n_transformer_encoder_layers=n_transformer_encoder_layers_per_scaling_block,
+                n_transformer_decoder_layers=n_transformer_decoder_layers_per_scaling_block,
                 n_attention_heads=n_attention_heads, 
+                max_sequence_length=max_sequence_length,
             )
             for i in range(self.n_scaling_blocks)
         ])
@@ -689,11 +656,12 @@ class UNetDenoiser(NamedModel, nn.Module):
                 thermal_condition_dim=thermal_condition_dim, 
                 hydro_condition_dim=hydro_condition_dim, 
                 precip_condition_dim=precip_condition_dim, 
-                step_dim=step_dim, day_dim=day_dim, 
                 hidden_dim=mid_hidden_dims[i], output_dim=mid_out_dims[i],
                 n_conv_layers=n_conv_layers_per_mid_block, 
-                n_attention_layers=n_attention_layers_per_mid_block,
+                n_transformer_encoder_layers=n_transformer_encoder_layers_per_mid_block,
+                n_transformer_decoder_layers=n_transformer_decoder_layers_per_mid_block,
                 n_attention_heads=n_attention_heads,
+                max_sequence_length=max_sequence_length,
             )
             for i in range(self.n_mid_blocks)
         ])
@@ -722,8 +690,8 @@ class UNetDenoiser(NamedModel, nn.Module):
         thermal_N, thermal_D, thermal_H, thermal_W = thermal_mu.shape
         hydro_N, hydro_D, hydro_H, hydro_W = hydro_mu.shape
         precip_N, precip_D, precip_H, precip_W = precip_mu.shape
-        step_N, step_D = integer_step.shape
-        day_N, day_D = condition_days.shape
+        step_N, step_L = integer_step.shape
+        day_N, day_L = condition_days.shape
         assert target_N == wind_N == mass_N == thermal_N == hydro_N == precip_N == step_N == day_N
         assert target_D == self.target_dim
         assert wind_D == self.wind_condition_dim
@@ -731,22 +699,15 @@ class UNetDenoiser(NamedModel, nn.Module):
         assert thermal_D == self.thermal_condition_dim
         assert hydro_D == self.hydro_condition_dim
         assert precip_D == self.precip_condition_dim
-        assert step_D == 1
-        assert day_D == self.n_condition_days
+        assert step_L == 1
+        assert day_L == self.n_condition_days
         
         # Check if too many scaling blocks on low-dim inputs
-        # _min_dim: float = min(target_H, target_W) / (2 ** self.n_scaling_blocks)
-        # assert _min_dim % 2 == 0, (
-        #     f"too many scaling blocks (self.n_scaling_blocks={self.n_scaling_blocks}) "
-        #     f"for target dimension: {(target_H, target_W)}"
-        # )
-        # Step embedding
-        step_embedding: torch.Tensor = self.step_embedding_layer(t=integer_step)
-        assert step_embedding.shape == (step_N, 1, self.step_dim)
-        step_embedding = step_embedding.squeeze(dim=1)
-        # Condition day embedding
-        day_embedding: torch.Tensor = self.day_embedding_layer(t=condition_days)
-        assert day_embedding.shape == (step_N, self.n_condition_days, self.day_dim)
+        _min_dim: float = min(target_H, target_W) / (2 ** self.n_scaling_blocks)
+        assert _min_dim % 2 == 0, (
+            f"too many scaling blocks (self.n_scaling_blocks={self.n_scaling_blocks}) "
+            f"for target dimension: {(target_H, target_W)}"
+        )
         # Switch condition on/off randomly during training
         if self.training:
             switch: torch.Tensor = torch.rand(size=(target_N,), device=target.device) > self.switch_ratio
@@ -762,8 +723,6 @@ class UNetDenoiser(NamedModel, nn.Module):
             hydro_logvar = hydro_logvar * switch[:, None, None, None]
             precip_mu = precip_mu * switch[:, None, None, None]
             precip_logvar = precip_logvar * switch[:, None, None, None]
-            # Condition day embedding switch
-            day_embedding = day_embedding * switch[:, None, None]
 
         # UNet
         down_input: torch.Tensor = target
@@ -777,7 +736,7 @@ class UNetDenoiser(NamedModel, nn.Module):
                     thermal_mu=thermal_mu, thermal_logvar=thermal_logvar, 
                     hydro_mu=hydro_mu, hydro_logvar=hydro_logvar,
                     precip_mu=precip_mu, precip_logvar=precip_logvar,
-                    step=step_embedding, days=day_embedding,
+                    step=integer_step, days=condition_days,
                 )
             )
             down_input = down_outputs[-1]
@@ -791,7 +750,7 @@ class UNetDenoiser(NamedModel, nn.Module):
                 thermal_mu=thermal_mu, thermal_logvar=thermal_logvar, 
                 hydro_mu=hydro_mu, hydro_logvar=hydro_logvar,
                 precip_mu=precip_mu, precip_logvar=precip_logvar,
-                step=step_embedding, days=day_embedding,
+                step=integer_step, days=condition_days,
             )
 
         up_output: torch.Tensor = mid_output
@@ -814,7 +773,7 @@ class UNetDenoiser(NamedModel, nn.Module):
                 thermal_mu=thermal_mu, thermal_logvar=thermal_logvar,
                 hydro_mu=hydro_mu, hydro_logvar=hydro_logvar,
                 precip_mu=precip_mu, precip_logvar=precip_logvar,
-                step=step_embedding, days=day_embedding,
+                step=integer_step, days=condition_days,
             )
 
         assert len(down_outputs) == 0, f"down_outputs must exhaust, getting {len(down_outputs)} items left"

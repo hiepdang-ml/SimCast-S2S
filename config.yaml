@@ -14,20 +14,19 @@ cesm2:
   sim_ids: [
     # Boundary condition: BHISTsmbb
     "1011.001",
-    # DEBUG
-    # "1031.002",
-    # "1051.003",
-    # "1071.004",
-    # "1091.005",
-    # "1111.006",
-    # "1131.007",
-    # "1151.008",
-    # "1171.009",
-    # "1191.010",
-    # "1231.011",
-    # "1251.011",
-    # "1281.011",
-    # "1301.011",
+    "1031.002",
+    "1051.003",
+    "1071.004",
+    "1091.005",
+    "1111.006",
+    "1131.007",
+    "1151.008",
+    "1171.009",
+    "1191.010",
+    "1231.011",
+    "1251.011",
+    "1281.011",
+    "1301.011",
     # Boundary condition: BHISTcmip6
     # "1001.001",
     # "1021.002",
@@ -302,27 +301,28 @@ vae-target:
 diffusion:
 
   target_dim: 16  # fixed, vae-precip.latent_dim
-  wind_condition_dim: 784 # # fixed, vae-wind.latent_dim * n_condition_days
-  mass_condition_dim: 448 # # fixed, vae-mass.latent_dim * n_condition_days
-  thermal_condition_dim: 560 # # fixed, vae-thermal.latent_dim * n_condition_days
-  hydro_condition_dim: 448 # # fixed, vae-hydro.latent_dim * n_condition_days
-  precip_condition_dim: 448 # # fixed, vae-precip.latent_dim * n_condition_days
+  wind_condition_dim: 784 # fixed, vae-wind.latent_dim * n_condition_days
+  mass_condition_dim: 448 # fixed, vae-mass.latent_dim * n_condition_days
+  thermal_condition_dim: 560 # fixed, vae-thermal.latent_dim * n_condition_days
+  hydro_condition_dim: 448 # fixed, vae-hydro.latent_dim * n_condition_days
+  precip_condition_dim: 448 # fixed, vae-precip.latent_dim * n_condition_days
   n_condition_days: 28  # fixed, dataset.n_input_days
-  step_dim: 256
-  day_dim: 256
   # Unet configurations
-  down_hidden_dims: [1024, 1024]
-  down_out_dims: [512, 512]
-  mid_hidden_dims: [1024, 1024]
-  mid_out_dims: [512, 512]
-  up_hidden_dims: [1024, 1024]
-  up_out_dims: [512, 512]
+  down_hidden_dims: [512, 512]
+  down_out_dims: [64, 128]
+  mid_hidden_dims: [512, 512]
+  mid_out_dims: [128, 128]
+  up_hidden_dims: [512, 512]
+  up_out_dims: [128, 64]
 
   n_conv_layers_per_scaling_block: 6
-  n_attention_layers_per_scaling_block: 6
+  n_transformer_encoder_layers_per_scaling_block: 2
+  n_transformer_decoder_layers_per_scaling_block: 6
   n_conv_layers_per_mid_block: 2
-  n_attention_layers_per_mid_block: 4
-  n_attention_heads: 8
+  n_transformer_encoder_layers_per_mid_block: 2
+  n_transformer_decoder_layers_per_mid_block: 6
+  max_sequence_length: 1000   # must >= target_H * target_W
+  n_attention_heads: 4
   switch_ratio: 0.    # p(condition_switch=off)
   # Diffusion configurations
   noise_scheduler: "cosine" # "linear" | "cosine"
@@ -332,7 +332,7 @@ diffusion:
   # Sampling
   eta: 0.
   # Training
-  learning_rate: 1e-6
+  learning_rate: 1e-5
   train_batch_size: 4
   val_batch_size: 4
   n_epochs: 1000
@@ -347,6 +347,6 @@ diffusion:
   vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times/vaeprecip34.pt"
   vae_target_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_target_4times/vaetarget334.pt"
 
-  from_checkpoint: null
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v16_cosine/"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v20_cosine/diffusion21.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v20_cosine/"
 

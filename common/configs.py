@@ -282,8 +282,6 @@ class DiffusionConfig(BaseConfig):
         self.hydro_condition_dim: int = self._config["hydro_condition_dim"]
         self.precip_condition_dim: int = self._config["precip_condition_dim"]
         self.n_condition_days: int = self._config["n_condition_days"]
-        self.step_dim: int = self._config["step_dim"]
-        self.day_dim: int = self._config["day_dim"]
         self.down_out_dims: list[int] = self._config["down_out_dims"]
         self.down_hidden_dims: list[int] = self._config["down_hidden_dims"]
         self.mid_out_dims: list[int] = self._config["mid_out_dims"]
@@ -291,10 +289,13 @@ class DiffusionConfig(BaseConfig):
         self.up_out_dims: list[int] = self._config["up_out_dims"]
         self.up_hidden_dims: list[int] = self._config["up_hidden_dims"]
         self.n_conv_layers_per_scaling_block: int = self._config["n_conv_layers_per_scaling_block"]
+        self.n_transformer_encoder_layers_per_scaling_block: int = self._config["n_transformer_encoder_layers_per_scaling_block"]
+        self.n_transformer_decoder_layers_per_scaling_block: int = self._config["n_transformer_decoder_layers_per_scaling_block"]
         self.n_conv_layers_per_mid_block: int = self._config["n_conv_layers_per_mid_block"]
-        self.n_attention_layers_per_scaling_block: int = self._config["n_attention_layers_per_scaling_block"]
-        self.n_attention_layers_per_mid_block: int = self._config["n_attention_layers_per_mid_block"]
+        self.n_transformer_encoder_layers_per_mid_block: int = self._config["n_transformer_encoder_layers_per_mid_block"]
+        self.n_transformer_decoder_layers_per_mid_block: int = self._config["n_transformer_decoder_layers_per_mid_block"]
         self.n_attention_heads: int = self._config["n_attention_heads"]
+        self.max_sequence_length: int = self._config["max_sequence_length"]
         self.switch_ratio: float = float(self._config["switch_ratio"])
         self.noise_scheduler: Literal["linear", "cosine"] = self._config["noise_scheduler"]
         self.beta_min: float = float(self._config["beta_min"])
@@ -318,8 +319,6 @@ class DiffusionConfig(BaseConfig):
             "thermal_condition_dim": self.thermal_condition_dim,
             "hydro_condition_dim": self.hydro_condition_dim,
             "precip_condition_dim": self.precip_condition_dim,
-            "step_dim": self.step_dim,
-            "day_dim": self.day_dim,
             "down_out_dims": self.down_out_dims,
             "down_hidden_dims": self.down_hidden_dims,
             "mid_out_dims": self.mid_out_dims,
@@ -327,9 +326,12 @@ class DiffusionConfig(BaseConfig):
             "up_out_dims": self.up_out_dims,
             "up_hidden_dims": self.up_hidden_dims,
             "n_conv_layers_per_scaling_block": self.n_conv_layers_per_scaling_block,
-            "n_attention_layers_per_scaling_block": self.n_attention_layers_per_scaling_block,
+            "n_transformer_encoder_layers_per_scaling_block": self.n_transformer_encoder_layers_per_scaling_block,
+            "n_transformer_decoder_layers_per_scaling_block": self.n_transformer_decoder_layers_per_scaling_block,
             "n_conv_layers_per_mid_block": self.n_conv_layers_per_mid_block,
-            "n_attention_layers_per_mid_block": self.n_attention_layers_per_mid_block,
+            "n_transformer_encoder_layers_per_mid_block": self.n_transformer_encoder_layers_per_mid_block,
+            "n_transformer_decoder_layers_per_mid_block": self.n_transformer_decoder_layers_per_mid_block,
+            "max_sequence_length": self.max_sequence_length,
             "n_attention_heads": self.n_attention_heads,
             "switch_ratio": self.switch_ratio,
             "noise_scheduler": self.noise_scheduler,
