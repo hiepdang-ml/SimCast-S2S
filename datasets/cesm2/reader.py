@@ -23,7 +23,7 @@ class DataReader:
 
     @cached_property
     def filepath(self) -> pathlib.Path:
-        for filepath in pathlib.Path(self.root_directory, self.var_name).glob("*.nc"):
+        for filepath in pathlib.Path(self.root_directory, self.var_name).glob(f"*{self.sim_id}*.nc"):
             start_year, end_year = (int(part[:4]) for part in filepath.name.split(".")[-2].split("-")[:6])
             if start_year <= self.year <= end_year:
                 return filepath

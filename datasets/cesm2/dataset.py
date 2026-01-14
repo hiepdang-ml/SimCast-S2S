@@ -30,13 +30,14 @@ class CESM2(Dataset):
                     )
 
         # Preload filepath lookups for efficiency
-        self.__input_filepaths: dict[str, list[pathlib.Path]] = self.__collect_filepaths(
+        self.input_filepaths: dict[str, list[pathlib.Path]] = self.__collect_filepaths(
             kind="input", var_names=self.metadata.input_vars,
         )
-        self.__output_filepaths: dict[str, list[pathlib.Path]] = self.__collect_filepaths(
+        self.output_filepaths: dict[str, list[pathlib.Path]] = self.__collect_filepaths(
             kind="output", var_names=self.metadata.output_vars,
         )
-        self.n_samples: int = len(self.__output_filepaths[self.metadata.output_vars[0]])
+        self.n_samples: int = len(self.output_filepaths[self.metadata.output_vars[0]])
+        self.__check_data_integrity(input_files=self.input_filepaths, output_files=self.output_filepaths)
 
     @cached_property
     def indices_by_context_group(self) -> dict[str, list[int]]:
@@ -69,7 +70,7 @@ class CESM2(Dataset):
         input_var_tensors: list[torch.Tensor] = []
         for var_name in self.metadata.input_vars:
             # Note: input_yearday_indices remains the same regardless of var_name
-            input_path: pathlib.Path = self.__input_filepaths[var_name][idx]
+            input_path: pathlib.Path = self.input_filepaths[var_name][idx]
             input_yearday_indices, input_var_tensor = torch.load(
                 f=input_path, weights_only=True, map_location="cpu"
             )
@@ -80,7 +81,7 @@ class CESM2(Dataset):
         output_var_tensors: list[torch.Tensor] = []
         for var_name in self.metadata.output_vars:
             # Note: output_yearday_indices remains the same regardless of var_name
-            output_path: pathlib.Path = self.__output_filepaths[var_name][idx]
+            output_path: pathlib.Path = self.output_filepaths[var_name][idx]
             output_yearday_indices, output_var_tensor = torch.load(
                 f=output_path, weights_only=True, map_location="cpu"
             )
@@ -117,6 +118,31 @@ class CESM2(Dataset):
                 key=lambda f: f.name[:6],
             )
         return results
+    
+    def __check_data_integrity(
+        self, 
+        input_files: dict[str, list[pathlib.Path]], 
+        output_files: dict[str, list[pathlib.Path]],
+    ) -> None:
+        # Check missing files
+        lengths: set[int] = set([self.n_samples])
+        for var_name in self.metadata.input_vars:
+            lengths.add(len(input_files[var_name]))
+            assert len(lengths) == 1, f"{var_name} has different number of input files"
+
+        for var_name in self.metadata.output_vars:
+            lengths.add(len(output_files[var_name]))
+            assert len(lengths) == 1, f"{var_name} has different number of output files"
+
+        # Check identical indices
+        for i in range(self.n_samples):
+            indices: set[int] = set()
+            for var_name in self.metadata.input_vars:
+                indices.add(int(input_files[var_name][i].name[:6]))
+                assert len(indices) == 1, f"Unmatched input file at index {i}"
+            for var_name in self.metadata.output_vars:
+                indices.add(int(output_files[var_name][i].name[:6]))
+                assert len(indices) == 1, f"Unmatched output file at index {i}"
 
     @staticmethod
     def collate_fn(

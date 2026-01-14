@@ -466,8 +466,34 @@ def main(
 
     elif model.lower() == "diffusion":
         print("Training Diffusion")
-        # Denoiser
         diffusion_config: DiffusionConfig = DiffusionConfig()
+
+        # Wind encoder
+        print(f"Loading wind_encoder from {diffusion_config.vae_wind_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_wind_checkpoint)
+        wind_encoder: VAEEncoder = checkpoint_loader.load(scope=globals()).encoder
+        # Mass encoder
+        print(f"Loading mass_encoder from {diffusion_config.vae_mass_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_mass_checkpoint)
+        mass_encoder: VAEEncoder = checkpoint_loader.load(scope=globals()).encoder
+        # Thermodynamic encoder
+        print(f"Loading thermal_encoder from {diffusion_config.vae_thermal_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_thermal_checkpoint)
+        thermal_encoder: VAEEncoder = checkpoint_loader.load(scope=globals()).encoder
+        # Hydro encoder
+        print(f"Loading hydro_encoder from {diffusion_config.vae_hydro_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_hydro_checkpoint)
+        hydro_encoder: VAEEncoder = checkpoint_loader.load(scope=globals()).encoder
+        # Precipitation encoder
+        print(f"Loading precip_encoder from {diffusion_config.vae_precip_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_precip_checkpoint)
+        precip_encoder: VAEEncoder = checkpoint_loader.load(scope=globals()).encoder
+        # Target encoder
+        print(f"Loading target_encoder from {diffusion_config.vae_target_checkpoint}")
+        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_target_checkpoint)
+        target_encoder: VAEEncoder = checkpoint_loader.load(scope=globals()).encoder
+
+        # Denoiser
         if (checkpoint_path := diffusion_config.from_checkpoint) is not None:
             print(f"Training UNetDenoiser from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
@@ -475,55 +501,30 @@ def main(
             assert isinstance(net, UNetDenoiser)
         else:
             print(f"Training UNetDenoiser from scratch with: {diffusion_config.to_dict()}")
+            in_H: int = target_encoder.expected_H
+            in_W: int = target_encoder.expected_W
             net: UNetDenoiser = UNetDenoiser(
                 target_dim=diffusion_config.target_dim,
-                wind_condition_dim=diffusion_config.wind_condition_dim, 
-                mass_condition_dim=diffusion_config.mass_condition_dim, 
-                thermal_condition_dim=diffusion_config.thermal_condition_dim, 
-                hydro_condition_dim=diffusion_config.hydro_condition_dim, 
-                precip_condition_dim=diffusion_config.precip_condition_dim, 
-                n_condition_days=diffusion_config.n_condition_days,
+                condition_dim=diffusion_config.condition_dim, 
+                n_condition_days=diffusion_config.n_condition_days, 
+                in_H=in_H, in_W=in_W,
                 down_out_dims=diffusion_config.down_out_dims,
-                down_hidden_dims=diffusion_config.down_hidden_dims,
                 mid_out_dims=diffusion_config.mid_out_dims,
-                mid_hidden_dims=diffusion_config.mid_hidden_dims,
                 up_out_dims=diffusion_config.up_out_dims,
-                up_hidden_dims=diffusion_config.up_hidden_dims,
+                down_transformer_model_dims=diffusion_config.down_transformer_model_dims,
+                mid_transformer_model_dims=diffusion_config.mid_transformer_model_dims,
+                up_transformer_model_dims=diffusion_config.up_transformer_model_dims,
                 n_conv_layers_per_scaling_block=diffusion_config.n_conv_layers_per_scaling_block,
                 n_transformer_encoder_layers_per_scaling_block=diffusion_config.n_transformer_encoder_layers_per_scaling_block,
                 n_transformer_decoder_layers_per_scaling_block=diffusion_config.n_transformer_decoder_layers_per_scaling_block,
                 n_conv_layers_per_mid_block=diffusion_config.n_conv_layers_per_mid_block,
                 n_transformer_encoder_layers_per_mid_block=diffusion_config.n_transformer_encoder_layers_per_mid_block,
                 n_transformer_decoder_layers_per_mid_block=diffusion_config.n_transformer_decoder_layers_per_mid_block,
+                transformer_feedforward_dim=diffusion_config.transformer_feedforward_dim,
                 n_attention_heads=diffusion_config.n_attention_heads,
-                max_sequence_length=diffusion_config.max_sequence_length,
                 switch_ratio=diffusion_config.switch_ratio,
             )
-        
-        # Wind encoder
-        print(f"Loading wind_encoder from {diffusion_config.vae_wind_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_wind_checkpoint)
-        wind_encoder: VAE_Wind = checkpoint_loader.load(scope=globals()).encoder
-        # Mass encoder
-        print(f"Loading mass_encoder from {diffusion_config.vae_mass_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_mass_checkpoint)
-        mass_encoder: VAE_Mass = checkpoint_loader.load(scope=globals()).encoder
-        # Thermodynamic encoder
-        print(f"Loading thermal_encoder from {diffusion_config.vae_thermal_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_thermal_checkpoint)
-        thermal_encoder: VAE_Thermal = checkpoint_loader.load(scope=globals()).encoder
-        # Hydro encoder
-        print(f"Loading hydro_encoder from {diffusion_config.vae_hydro_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_hydro_checkpoint)
-        hydro_encoder: VAE_Hydro = checkpoint_loader.load(scope=globals()).encoder
-        # Precipitation encoder
-        print(f"Loading precip_encoder from {diffusion_config.vae_precip_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_precip_checkpoint)
-        precip_encoder: VAE_Precip = checkpoint_loader.load(scope=globals()).encoder
-        # Target encoder
-        print(f"Loading target_encoder from {diffusion_config.vae_target_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_target_checkpoint)
-        target_encoder: VAE_Target = checkpoint_loader.load(scope=globals()).encoder
+
         # Noise scheduler
         if diffusion_config.noise_scheduler.lower() == "linear":
             print("Training Diffusion with 'linear' scheduler")
@@ -538,7 +539,7 @@ def main(
             noise_scheduler = CosineNoiseScheduler(n_steps=diffusion_config.n_steps)
         else:
             raise ValueError(f"Invalid diffusion_config.noise_scheduler={diffusion_config.noise_scheduler}")
-        
+
         trainer = DiffusionTrainer(
             denoiser=net,
             wind_encoder=wind_encoder, mass_encoder=mass_encoder, thermal_encoder=thermal_encoder,

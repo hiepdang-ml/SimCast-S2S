@@ -58,7 +58,7 @@ class ZipExtractor:
 
         return xr.Dataset(flattened_vars)
 
-    def from_single_level(self, year: int) -> xr.DataArray:
+    def from_single_level(self, year: int) -> xr.Dataset:
         return self._extract(year=year, tp="single_level")
 
     def to_netcdf(self, year: int) -> None:
@@ -83,7 +83,7 @@ class ZipExtractor:
 
 class DataReader:
 
-    def __init__(self, resolution: tuple[int, int] | None, device: str) -> None:
+    def __init__(self, resolution: tuple[int, int], device: str) -> None:
         self.resolution: tuple[int, int] = resolution
         self.H, self.W = self.resolution
         self.device: torch.device = torch.device(device)
@@ -168,7 +168,7 @@ class LandmaskReader:
         value: torch.Tensor = torch.from_numpy(da.values).to(device=self.device).nan_to_num(0.0)
         landmask: torch.Tensor = (value != 0.).float()
         assert landmask.shape == (721, 1440)
-        landmask = LandmaskReader.__resize(landmask)
+        landmask = self.__resize(landmask)
         assert landmask.shape == (self.H, self.W)
         return landmask
 
@@ -182,8 +182,8 @@ class CoordinatesReader:
 
     @cached_property
     def tensors(self) -> tuple[torch.Tensor, torch.Tensor]:
-        lat_tensor: torch.Tensor = torch.arange(start=-90., end=90.01, step=180 / (self.H - 1))
-        lon_tensor: torch.Tensor = torch.arange(start=0., end=360., step=360 / self.W)
+        lat_tensor: torch.Tensor = torch.arange(start=-90., end=90.01, step=180 / (self.H - 1), device=self.device)
+        lon_tensor: torch.Tensor = torch.arange(start=0., end=360., step=360 / self.W, device=self.device)
         assert lat_tensor.shape == (self.H,)
         assert lon_tensor.shape == (self.W,)
         return lat_tensor, lon_tensor

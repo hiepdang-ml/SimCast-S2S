@@ -13,7 +13,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from datasets.cesm2 import CESM2, CoordinatesReader, LandMaskReader
 from datasets.common.utils import DataBatch, SampleInfo
-from common.metrics import ErrorMap, MAEMap, RsquaredMap, GeographicalMAE, GeographicalMSE
+from common.metrics import ErrorMap, MAEMap, GeographicalRsquaredMap, GeographicalMAE, GeographicalMSE
 from common.plotting import MetricPlotter, PredictionPlotter, DenoisingPlotter
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
@@ -61,8 +61,12 @@ class _AbstractPredictor(ABC):
         self.mse = GeographicalMSE(tropical_lats=self.tropical_lats)
         self.mae = GeographicalMAE(tropical_lats=self.tropical_lats)
         self.model_name: str = net.name
-        self.rsquared_map: RsquaredMap = RsquaredMap(n_features=self.out_features)
-        self.mae_map: MAEMap = MAEMap(n_features=self.out_features)
+        self.rsquared_map: GeographicalRsquaredMap = GeographicalRsquaredMap(
+            n_features=self.out_features, tropical_lats=self.tropical_lats
+        )
+        self.mae_map: MAEMap = MAEMap(
+            n_features=self.out_features, tropical_lats=self.tropical_lats
+        )
         self.error_map: ErrorMap = ErrorMap(n_features=self.out_features)
         self.prediction_plotter: PredictionPlotter = PredictionPlotter()
         self.metric_plotter: MetricPlotter = MetricPlotter()
@@ -83,12 +87,12 @@ class _AbstractPredictor(ABC):
                 records["predictions"].append(prediction_tensor)
 
         # Compute aggregate metrics
-        rsquared_frame: torch.Tensor = self.rsquared_map(
+        rsquared_frame, global_rsquared, tropical_rsquared, extratropical_rsquared = self.rsquared_map(
             predictions=records["predictions"], groundtruths=records["groundtruths"],
         )
         assert rsquared_frame.shape == (192, 288, self.out_features)
 
-        mae_frame: torch.Tensor = self.mae_map(
+        mae_frame, global_mae, tropical_mae, extratropical_mae = self.mae_map(
             predictions=records["predictions"], groundtruths=records["groundtruths"],
         )
         assert mae_frame.shape == (192, 288, self.out_features)
@@ -97,11 +101,17 @@ class _AbstractPredictor(ABC):
         for idx, output_name in enumerate(self.output_names):
             self.metric_plotter.plot(
                 mae_frame=mae_frame[..., idx],
+                global_mae=global_mae,
+                tropical_mae=tropical_mae,
+                extratropical_mae=extratropical_mae,
                 rsquared_frame=rsquared_frame[..., idx],
+                global_rsquared=global_rsquared, 
+                tropical_rsquared=tropical_rsquared, 
+                extratropical_rsquared=extratropical_rsquared,
                 landmask=self.landmask_reader.tensor,
                 tropical_lats=self.tropical_lats,
                 coordinates=self.coordinates_reader.tensors,
-                title=f"{output_name}\n{self.dataset.metadata.start_year} - {self.dataset.metadata.end_year}",
+                title=f"{output_name}: {self.dataset.metadata.start_year} - {self.dataset.metadata.end_year}",
                 filename=f"{self.model_name.upper()}_{output_name}_metrics.png",
             )
 
@@ -365,14 +375,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         x0_x0_mae_values: list[float] = []
         xk_x0_mae_values: list[float] = []
         # Encode
-        (
-            wind_mu, wind_logvar, 
-            mass_mu, mass_logvar, 
-            thermal_mu, thermal_logvar, 
-            hydro_mu, hydro_logvar, 
-            precip_mu, precip_logvar,
-            target_latent,
-        ) = self.vae_encode(condition=condition, target=groundtruth)
+        condition_mu, condition_logvar, target_latent = self.vae_encode(condition=condition, target=groundtruth)
         # Generate gaussian
         # DEBUG
         gaussian: torch.Tensor = torch.randn_like(target_latent)
@@ -390,11 +393,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
             # normalized_step: torch.Tensor = self.step_normalizer(integer_step=integer_step)
             predicted_velocity: torch.Tensor = self.net(
                 target=target_latent_k, 
-                wind_mu=wind_mu, wind_logvar=wind_logvar,
-                mass_mu=mass_mu, mass_logvar=mass_logvar,
-                thermal_mu=thermal_mu, thermal_logvar=thermal_logvar,
-                hydro_mu=hydro_mu, hydro_logvar=hydro_logvar,
-                precip_mu=precip_mu, precip_logvar=precip_logvar,
+                condition_mu=condition_mu, condition_logvar=condition_logvar,
                 integer_step=integer_step, condition_days=condition_days,
             )
             target_latent_k, target_latent_0 = self.reverse_process.sample(

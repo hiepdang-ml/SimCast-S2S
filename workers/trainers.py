@@ -435,14 +435,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # Encode
         with torch.no_grad():
-            (
-                wind_mu, wind_logvar, 
-                mass_mu, mass_logvar, 
-                thermal_mu, thermal_logvar, 
-                hydro_mu, hydro_logvar, 
-                precip_mu, precip_logvar,
-                target_latent,
-            ) = self.vae_encode(condition=condition, target=target)
+            condition_mu, condition_logvar, target_latent = self.vae_encode(condition=condition, target=target)
 
         # Generate step
         batch_size: int = target_latent.shape[0]
@@ -458,11 +451,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         # Predict gaussian using UNetDenoiser
         predicted_velocity: torch.Tensor = self.net(
             target=noisy_target, 
-            wind_mu=wind_mu, wind_logvar=wind_logvar,
-            mass_mu=mass_mu, mass_logvar=mass_logvar,
-            thermal_mu=thermal_mu, thermal_logvar=thermal_logvar,
-            hydro_mu=hydro_mu, hydro_logvar=hydro_logvar,
-            precip_mu=precip_mu, precip_logvar=precip_logvar,
+            condition_mu=condition_mu, condition_logvar=condition_logvar,
             integer_step=integer_step, condition_days=condition_days,
         )
         # Loss

@@ -276,26 +276,22 @@ class DiffusionConfig(BaseConfig):
 
     def _load(self) -> None:
         self.target_dim: int = self._config["target_dim"]
-        self.wind_condition_dim: int = self._config["wind_condition_dim"]
-        self.mass_condition_dim: int = self._config["mass_condition_dim"]
-        self.thermal_condition_dim: int = self._config["thermal_condition_dim"]
-        self.hydro_condition_dim: int = self._config["hydro_condition_dim"]
-        self.precip_condition_dim: int = self._config["precip_condition_dim"]
+        self.condition_dim: int = self._config["condition_dim"]
         self.n_condition_days: int = self._config["n_condition_days"]
         self.down_out_dims: list[int] = self._config["down_out_dims"]
-        self.down_hidden_dims: list[int] = self._config["down_hidden_dims"]
+        self.down_transformer_model_dims: list[int] = self._config["down_transformer_model_dims"]
         self.mid_out_dims: list[int] = self._config["mid_out_dims"]
-        self.mid_hidden_dims: list[int] = self._config["mid_hidden_dims"]
+        self.mid_transformer_model_dims: list[int] = self._config["mid_transformer_model_dims"]
         self.up_out_dims: list[int] = self._config["up_out_dims"]
-        self.up_hidden_dims: list[int] = self._config["up_hidden_dims"]
+        self.up_transformer_model_dims: list[int] = self._config["up_transformer_model_dims"]
         self.n_conv_layers_per_scaling_block: int = self._config["n_conv_layers_per_scaling_block"]
         self.n_transformer_encoder_layers_per_scaling_block: int = self._config["n_transformer_encoder_layers_per_scaling_block"]
         self.n_transformer_decoder_layers_per_scaling_block: int = self._config["n_transformer_decoder_layers_per_scaling_block"]
         self.n_conv_layers_per_mid_block: int = self._config["n_conv_layers_per_mid_block"]
         self.n_transformer_encoder_layers_per_mid_block: int = self._config["n_transformer_encoder_layers_per_mid_block"]
         self.n_transformer_decoder_layers_per_mid_block: int = self._config["n_transformer_decoder_layers_per_mid_block"]
+        self.transformer_feedforward_dim: int = self._config["transformer_feedforward_dim"]
         self.n_attention_heads: int = self._config["n_attention_heads"]
-        self.max_sequence_length: int = self._config["max_sequence_length"]
         self.switch_ratio: float = float(self._config["switch_ratio"])
         self.noise_scheduler: Literal["linear", "cosine"] = self._config["noise_scheduler"]
         self.beta_min: float = float(self._config["beta_min"])
@@ -314,24 +310,21 @@ class DiffusionConfig(BaseConfig):
     def to_dict(self) -> dict[str, Any]:
         return {
             "target_dim": self.target_dim,
-            "wind_condition_dim": self.wind_condition_dim,
-            "mass_condition_dim": self.mass_condition_dim,
-            "thermal_condition_dim": self.thermal_condition_dim,
-            "hydro_condition_dim": self.hydro_condition_dim,
-            "precip_condition_dim": self.precip_condition_dim,
+            "condition_dim": self.condition_dim,
+            "n_condition_days": self.n_condition_days,
             "down_out_dims": self.down_out_dims,
-            "down_hidden_dims": self.down_hidden_dims,
+            "down_transformer_model_dims": self.down_transformer_model_dims,
             "mid_out_dims": self.mid_out_dims,
-            "mid_hidden_dims": self.mid_hidden_dims,
+            "mid_transformer_model_dims": self.mid_transformer_model_dims,
             "up_out_dims": self.up_out_dims,
-            "up_hidden_dims": self.up_hidden_dims,
+            "up_transformer_model_dims": self.up_transformer_model_dims,
             "n_conv_layers_per_scaling_block": self.n_conv_layers_per_scaling_block,
             "n_transformer_encoder_layers_per_scaling_block": self.n_transformer_encoder_layers_per_scaling_block,
             "n_transformer_decoder_layers_per_scaling_block": self.n_transformer_decoder_layers_per_scaling_block,
             "n_conv_layers_per_mid_block": self.n_conv_layers_per_mid_block,
             "n_transformer_encoder_layers_per_mid_block": self.n_transformer_encoder_layers_per_mid_block,
             "n_transformer_decoder_layers_per_mid_block": self.n_transformer_decoder_layers_per_mid_block,
-            "max_sequence_length": self.max_sequence_length,
+            "transformer_feedforward_dim": self.transformer_feedforward_dim,
             "n_attention_heads": self.n_attention_heads,
             "switch_ratio": self.switch_ratio,
             "noise_scheduler": self.noise_scheduler,

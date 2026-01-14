@@ -4,7 +4,7 @@ import xarray as xr
 import torch
 
 
-class _GeographicalMetrics(ABC):
+class _GeographicalMetricOrMap(ABC):
 
     def __init__(self, tropical_lats: tuple[float, float]):
         self.tropical_lats: tuple[float, float] = tropical_lats
@@ -17,6 +17,7 @@ class _GeographicalMetrics(ABC):
         )
         mask: xr.DataArray = (self.tropical_lats[0] <= ds["lat"]) & (ds["lat"] <= self.tropical_lats[1])
         mask: torch.Tensor = torch.from_numpy(mask.values)
+        assert mask.shape == (192,)
         return mask
 
     @abstractmethod
@@ -24,7 +25,7 @@ class _GeographicalMetrics(ABC):
         pass
 
 
-class GeographicalMAE(_GeographicalMetrics):
+class GeographicalMAE(_GeographicalMetricOrMap):
     
     # implement
     def __call__(self, prediction: torch.Tensor, groundtruth: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -37,7 +38,7 @@ class GeographicalMAE(_GeographicalMetrics):
         return global_mae, tropical_mae, extratropical_mae
 
 
-class GeographicalMSE(_GeographicalMetrics):
+class GeographicalMSE(_GeographicalMetricOrMap):
     
     # implement
     def __call__(self, prediction: torch.Tensor, groundtruth: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -78,7 +79,11 @@ class ErrorMap(_SampleLevelMap):
         return groundtruth - prediction
 
 
-class RsquaredMap(_SequenceLevelMap):
+class GeographicalRsquaredMap(_SequenceLevelMap, _GeographicalMetricOrMap):
+
+    def __init__(self, n_features: int, tropical_lats: tuple[float, float]):
+        _GeographicalMetricOrMap.__init__(self, tropical_lats)
+        _SequenceLevelMap.__init__(self, n_features)
 
     #implement
     def __call__(self, predictions: list[torch.Tensor], groundtruths: list[torch.Tensor]) -> torch.Tensor:
@@ -95,16 +100,24 @@ class RsquaredMap(_SequenceLevelMap):
         residual_tensor: torch.Tensor = torch.sum(input=(prediction_tensor - groundtruth_tensor) ** 2, dim=0, keepdim=False)
         assert total_variation_tensor.shape == residual_tensor.shape == (192, 288, self.n_features)
         rsquared_map: torch.Tensor = 1 - residual_tensor / (total_variation_tensor + 1e-6)
-        print(f"Max R-squared: {rsquared_map.max().item()}")
-        print(f"Min R-squared: {rsquared_map.min().item()}")
-        print(f"Mean R-squared: {rsquared_map.mean().item()}")
-        print(f"Std R-squared: {rsquared_map.std().item()}")
+        tropical_rsquared_map = rsquared_map[self.tropical_mask]
+        extratropical_rsquared_map = rsquared_map[~self.tropical_mask]
+        global_rsquared: torch.Tensor = rsquared_map[rsquared_map > 0].mean()
+        tropical_rsquared: torch.Tensor = tropical_rsquared_map[tropical_rsquared_map > 0].mean()
+        extratropical_rsquared: torch.Tensor = extratropical_rsquared_map[extratropical_rsquared_map > 0].mean()
+        print(f"R-squared (Global): {global_rsquared}")
+        print(f"R-squared (Tropic): {tropical_rsquared}")
+        print(f"R-squared (Extratropic): {extratropical_rsquared}")
         assert rsquared_map.shape == (192, 288, self.n_features)
-        return rsquared_map
+        return rsquared_map, global_rsquared, tropical_rsquared, extratropical_rsquared
 
 
-class MAEMap(_SequenceLevelMap):
+class MAEMap(_SequenceLevelMap, _GeographicalMetricOrMap):
 
+    def __init__(self, n_features: int, tropical_lats: tuple[float, float]):
+        _GeographicalMetricOrMap.__init__(self, tropical_lats)
+        _SequenceLevelMap.__init__(self, n_features)
+        
     #implement
     def __call__(self, predictions: list[torch.Tensor], groundtruths: list[torch.Tensor]) -> torch.Tensor:
 
@@ -116,13 +129,15 @@ class MAEMap(_SequenceLevelMap):
         prediction_tensor: torch.Tensor = torch.stack(predictions, dim=0).cpu()     # to avoid out of VRAM
         groundtruth_tensor: torch.Tensor = torch.stack(groundtruths, dim=0).cpu()   # to avoid out of VRAM
         mae_map: torch.Tensor = (groundtruth_tensor - prediction_tensor).abs().mean(dim=0, keepdim=False)
-        print(f"Max MAE: {mae_map.max().item()}")
-        print(f"Min MAE: {mae_map.min().item()}")
-        print(f"Mean MAE: {mae_map.mean().item()}")
-        print(f"Std MAE: {mae_map.std().item()}")
-        torch.save(obj=mae_map, f="./mae.pt")
+        tropical_mae_map = mae_map[self.tropical_mask]
+        extratropical_mae_map = mae_map[~self.tropical_mask]
+        global_mae: torch.Tensor = mae_map[mae_map > 0].mean()
+        tropical_mae: torch.Tensor = tropical_mae_map[tropical_mae_map > 0].mean()
+        extratropical_mae: torch.Tensor = extratropical_mae_map[extratropical_mae_map > 0].mean()
+        print(f"MAE (Global): {global_mae}")
+        print(f"MAE (Tropic): {tropical_mae}")
+        print(f"MAE (Extratropic): {extratropical_mae}")
         assert mae_map.shape == (192, 288, self.n_features)
-        return mae_map
-
+        return mae_map, global_mae, tropical_mae, extratropical_mae
 
 

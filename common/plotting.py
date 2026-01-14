@@ -93,7 +93,13 @@ class MetricPlotter(_BasePlotter):
     def plot(
         self,
         mae_frame: torch.Tensor,
+        global_mae: torch.Tensor, 
+        tropical_mae: torch.Tensor, 
+        extratropical_mae: torch.Tensor,
         rsquared_frame: torch.Tensor,
+        global_rsquared: torch.Tensor, 
+        tropical_rsquared: torch.Tensor, 
+        extratropical_rsquared: torch.Tensor,
         landmask: torch.Tensor,
         tropical_lats: tuple[float, float],
         coordinates: tuple[torch.Tensor, torch.Tensor],
@@ -110,14 +116,32 @@ class MetricPlotter(_BasePlotter):
         H: int = rsquared_frame.shape[0]
         W: int = rsquared_frame.shape[1]
         aspect_ratio: float = H / W
-        figwidth: float = 5.5
+        figwidth: float = 5.8
 
         fig, axs = plt.subplots(2, 1, figsize=(figwidth, 2 * figwidth * aspect_ratio))
-        self.plot_layer(ax=axs[0], data=mae_frame, coords=coordinates, tropical_lats=tropical_lats, title="MAE Map", cmap="Oranges", vmin=0., vmax=0.05)
-        self.plot_layer(ax=axs[1], data=rsquared_frame, coords=coordinates, tropical_lats=tropical_lats, title="R-squared Map", cmap="Blues", vmin=0., vmax=1.)
+        sub_title: str = (
+            f"MAE Map\n"
+            f"Global: {global_mae.item():.3f} - "
+            f"Tropic: {tropical_mae.item():.3f} - "
+            f"Extratropic: {global_mae.item():.3f}"
+        )
+        self.plot_layer(
+            ax=axs[0], data=mae_frame, coords=coordinates, 
+            tropical_lats=tropical_lats, title=sub_title, cmap="Oranges", vmin=0., vmax=0.05,
+        )
+        sub_title: str = (
+            f"R-squared Map\n"
+            f"Global: {global_rsquared.item():.3f} - "
+            f"Tropic: {tropical_rsquared.item():.3f} - "
+            f"Extratropic: {global_rsquared.item():.3f}"
+        )
+        self.plot_layer(
+            ax=axs[1], data=rsquared_frame, coords=coordinates, 
+            tropical_lats=tropical_lats, title=sub_title, cmap="Blues", vmin=0., vmax=0.1,
+        )
         self.add_landmask(axs=axs, landmask=landmask, coords=coordinates)
 
-        fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=0.88, hspace=0.1)
+        fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=0.88, hspace=0.18)
         fig.suptitle(title, fontsize=12)
 
         fig.savefig(self.destination_directory.joinpath(filename), bbox_inches="tight")

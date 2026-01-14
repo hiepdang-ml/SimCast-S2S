@@ -99,16 +99,14 @@ class DataWriter:
         # Get yearday_indices
         input_yearday_indices: torch.Tensor = torch.tensor(
             range(yearday_index, yearday_index + self.metadata.n_input_days),
-            dtype=torch.int,
-            device=self.metadata.device,
+            dtype=torch.long, device="cpu",
         )
         output_yearday_indices: torch.Tensor = torch.tensor(
             range(
                 yearday_index + self.metadata.n_input_days + self.metadata.n_lead_days,
                 yearday_index + self.metadata.n_input_days + self.metadata.n_lead_days + self.metadata.n_output_days,
             ),
-            dtype=torch.int,
-            device=self.metadata.device,
+            dtype=torch.long, device="cpu",
         )
         if var_container.var_name in self.metadata.input_vars:
             # Input: Get data
@@ -154,17 +152,21 @@ class DataWriter:
         step_size: int = self.metadata.n_step_days
         for sim_id in self.metadata.sim_ids:
             for year in self.metadata.years:
-                for t in range(0, bound, step_size):
+                for t in range(0, bound + 1, step_size):
                     self.__write_one_sample(
                         var_container=var_container, sim_id=sim_id, year=year,
                         yearday_index=t, sample_index=self._LOCAL_COUNTER,
                     )
                     self._LOCAL_COUNTER += 1
 
+    def __enter__(self) -> "DataWriter":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.__save_counter()
 
     def __del__(self) -> None:
         self.__save_counter()
-
 
 
 

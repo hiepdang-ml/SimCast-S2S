@@ -18,9 +18,9 @@ class _LinearRegressor:
 
     def fit(self, mean_container: VariableContainer, train_metadata: MetaData) -> None:
         assert self.var_name == mean_container.var_name
-        assert (not bool(self.lr_weight)) or (mean_container is None), "Linear regression is already fit"
+        assert (not bool(self.lr_weight)), "Linear regression is already fit"
         self.train_metadata: MetaData = train_metadata
-        mean_container = mean_container.to(train_metadata.device)
+        mean_container = mean_container.to("cpu")
         X: torch.Tensor = self.__get_X(metadata=train_metadata)
         assert X.shape == (train_metadata.n_years, 2)
         for sim_id in train_metadata.sim_ids:
@@ -48,8 +48,8 @@ class _LinearRegressor:
     @staticmethod
     def __get_X(metadata: MetaData) -> torch.Tensor:
         return torch.stack([
-                torch.ones(metadata.n_years, dtype=torch.float, device=metadata.device),
-                torch.tensor(metadata.years, dtype=torch.float, device=metadata.device)
+            torch.ones(metadata.n_years, dtype=torch.float, device="cpu"),
+                torch.tensor(metadata.years, dtype=torch.float, device="cpu")
             ], 
             dim=1
         )
@@ -84,7 +84,7 @@ class Detrender:
         """
         Inplace operation to save memory
         """
-        input_container = input_container.to(device=self.metadata.device)
+        input_container = input_container.to("cpu")
         mean_container: VariableContainer = input_container.yearly_agg(reduce_func="mean")
         lr: _LinearRegressor = _LinearRegressor(
             var_name=input_container.var_name, resolution=self.metadata.resolution
@@ -129,7 +129,7 @@ class _ClimatologicalMean:
         window_size: int = train_metadata.climatological_window_size
         half_window: int = window_size // 2
         n_years: int = train_metadata.n_years
-        input_container = input_container.to(device=train_metadata.device)
+        input_container = input_container.to("cpu")
         
         for sim_id in train_metadata.sim_ids:
             # retrieve input data (ensure ascending year)
@@ -197,7 +197,7 @@ class ClimatologyRemover:
         cm: _ClimatologicalMean = _ClimatologicalMean(
             var_name=input_container.var_name, resolution=self.metadata.resolution
         )
-        input_container = input_container.to(device=self.metadata.device)
+        input_container = input_container.to("cpu")
         if self.metadata.tp == "train":
             # fit new cm (during training)
             assert train_metadata is None
