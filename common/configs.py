@@ -277,29 +277,27 @@ class DiffusionConfig(BaseConfig):
     def _load(self) -> None:
         self.target_dim: int = self._config["target_dim"]
         self.condition_dim: int = self._config["condition_dim"]
-        self.down_out_dims: list[int] = self._config["down_out_dims"]
-        self.down_transformer_model_dims: list[int] = self._config["down_transformer_model_dims"]
-        self.mid_out_dims: list[int] = self._config["mid_out_dims"]
-        self.mid_transformer_model_dims: list[int] = self._config["mid_transformer_model_dims"]
-        self.up_out_dims: list[int] = self._config["up_out_dims"]
-        self.up_transformer_model_dims: list[int] = self._config["up_transformer_model_dims"]
-        self.n_conv_layers_per_scaling_block: int = self._config["n_conv_layers_per_scaling_block"]
+        self.n_scaling_blocks: int = self._config["n_scaling_blocks"]
+        self.n_mid_blocks: int = self._config["n_mid_blocks"]
+        self.scale_factor: int = self._config["scale_factor"]
+        self.n_nonlinear_layers_per_scaling_block: int = self._config["n_nonlinear_layers_per_scaling_block"]
+        self.n_nonlinear_layers_per_mid_block: int = self._config["n_nonlinear_layers_per_mid_block"]
+        self.transformer_dim: int = self._config["transformer_dim"]
+        self.transformer_feedforward_dim: int = self._config["transformer_feedforward_dim"]
         self.n_transformer_encoder_layers_per_scaling_block: int = self._config["n_transformer_encoder_layers_per_scaling_block"]
         self.n_transformer_decoder_layers_per_scaling_block: int = self._config["n_transformer_decoder_layers_per_scaling_block"]
-        self.n_conv_layers_per_mid_block: int = self._config["n_conv_layers_per_mid_block"]
         self.n_transformer_encoder_layers_per_mid_block: int = self._config["n_transformer_encoder_layers_per_mid_block"]
         self.n_transformer_decoder_layers_per_mid_block: int = self._config["n_transformer_decoder_layers_per_mid_block"]
-        self.transformer_feedforward_dim: int = self._config["transformer_feedforward_dim"]
         self.n_attention_heads: int = self._config["n_attention_heads"]
         self.transformer_maxlength: int = self._config["transformer_maxlength"]
         self.switch_ratio: float = float(self._config["switch_ratio"])
+
         self.noise_scheduler: Literal["linear", "cosine"] = self._config["noise_scheduler"]
         self.beta_min: float = float(self._config["beta_min"])
         self.beta_max: float = float(self._config["beta_max"])
         self.n_steps: int = self._config["n_steps"]
         self.eta: float = float(self._config["eta"])
 
-        self.learning_rate: float = float(self._config["learning_rate"])
         self.vae_wind_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_wind_checkpoint"])
         self.vae_mass_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_mass_checkpoint"])
         self.vae_thermal_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_thermal_checkpoint"])
@@ -310,27 +308,33 @@ class DiffusionConfig(BaseConfig):
         return {
             "target_dim": self.target_dim,
             "condition_dim": self.condition_dim,
-            "down_out_dims": self.down_out_dims,
-            "down_transformer_model_dims": self.down_transformer_model_dims,
-            "mid_out_dims": self.mid_out_dims,
-            "mid_transformer_model_dims": self.mid_transformer_model_dims,
-            "up_out_dims": self.up_out_dims,
-            "up_transformer_model_dims": self.up_transformer_model_dims,
-            "n_conv_layers_per_scaling_block": self.n_conv_layers_per_scaling_block,
+            "n_scaling_blocks": self.n_scaling_blocks,
+            "n_mid_blocks": self.n_mid_blocks,
+            "scale_factor": self.scale_factor,
+            "n_nonlinear_layers_per_scaling_block": self.n_nonlinear_layers_per_scaling_block,
+            "n_nonlinear_layers_per_mid_block": self.n_nonlinear_layers_per_mid_block,
+            "transformer_dim": self.transformer_dim,
+            "transformer_feedforward_dim": self.transformer_feedforward_dim,
             "n_transformer_encoder_layers_per_scaling_block": self.n_transformer_encoder_layers_per_scaling_block,
             "n_transformer_decoder_layers_per_scaling_block": self.n_transformer_decoder_layers_per_scaling_block,
-            "n_conv_layers_per_mid_block": self.n_conv_layers_per_mid_block,
             "n_transformer_encoder_layers_per_mid_block": self.n_transformer_encoder_layers_per_mid_block,
             "n_transformer_decoder_layers_per_mid_block": self.n_transformer_decoder_layers_per_mid_block,
-            "transformer_feedforward_dim": self.transformer_feedforward_dim,
             "n_attention_heads": self.n_attention_heads,
             "transformer_maxlength": self.transformer_maxlength,
             "switch_ratio": self.switch_ratio,
+
             "noise_scheduler": self.noise_scheduler,
             "beta_min": self.beta_min,
             "beta_max": self.beta_max,
             "n_steps": self.n_steps,
             "eta": self.eta,
+
+            "vae_wind_checkpoint": self.vae_wind_checkpoint,
+            "vae_mass_checkpoint": self.vae_mass_checkpoint,
+            "vae_thermal_checkpoint": self.vae_thermal_checkpoint,
+            "vae_hydro_checkpoint": self.vae_hydro_checkpoint,
+            "vae_precip_checkpoint": self.vae_precip_checkpoint,
+
             "learning_rate": self.learning_rate,
             "train_batch_size": self.train_batch_size,
             "val_batch_size": self.val_batch_size,
@@ -338,11 +342,6 @@ class DiffusionConfig(BaseConfig):
             "patience": self.patience,
             "tolerance": self.tolerance,
             "save_frequency": self.save_frequency,
-            "vae_wind_checkpoint": self.vae_wind_checkpoint,
-            "vae_mass_checkpoint": self.vae_mass_checkpoint,
-            "vae_thermal_checkpoint": self.vae_thermal_checkpoint,
-            "vae_hydro_checkpoint": self.vae_hydro_checkpoint,
-            "vae_precip_checkpoint": self.vae_precip_checkpoint,
             "from_checkpoint": self.from_checkpoint,
             "saved_checkpoint_directory": self.saved_checkpoint_directory,
         }

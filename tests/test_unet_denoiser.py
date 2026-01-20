@@ -11,8 +11,8 @@ class UNetDenoiserShapeTest(unittest.TestCase):
         model = UNetDenoiser(
             target_dim=4,
             condition_dim=12,
-            in_H=8,
-            in_W=8,
+            target_H=8,
+            target_W=8,
             down_out_dims=[4, 8],
             mid_out_dims=[8, 8],
             up_out_dims=[8, 4],
