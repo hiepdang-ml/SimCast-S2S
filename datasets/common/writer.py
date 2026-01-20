@@ -132,8 +132,6 @@ class DataWriter:
             assert year_tensor.shape == (365, 192, 288)
             output_tensor: torch.Tensor = year_tensor[output_yearday_indices]
             assert output_tensor.shape == (self.metadata.n_output_days, 192, 288)
-            output_tensor = output_tensor.mean(dim=0, keepdim=True)
-            assert output_tensor.shape == (1, 192, 288)
             # Output: Write to .pt
             filename: str = self.__construct_file_name(
                 sim_id=sim_id, var_name=var_container.var_name, year=year,

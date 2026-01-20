@@ -48,6 +48,7 @@ def main(
             print(f"Training CNN from scratch with: {cnn_config.to_dict()}")
             net: CNN = CNN(
                 n_input_days=train_metadata.n_input_days,
+                n_output_days=train_metadata.n_output_days,
                 in_features=cnn_config.in_features,
                 out_features=cnn_config.out_features,
                 embedding_dim=cnn_config.embedding_dim,
@@ -84,6 +85,7 @@ def main(
             print(f"Training UNet from scratch with: {unet_config.to_dict()}")
             net: UNet = UNet(
                 n_input_days=train_metadata.n_input_days,
+                n_output_days=train_metadata.n_output_days,
                 in_features=unet_config.in_features,
                 out_features=unet_config.out_features,
                 embedding_dim=unet_config.embedding_dim,
@@ -119,6 +121,7 @@ def main(
             print(f"Training ViT from scratch with: {vit_config.to_dict()}")
             net: ViT = ViT(
                 n_input_days=train_metadata.n_input_days,
+                n_output_days=train_metadata.n_output_days,
                 in_features=vit_config.in_features,
                 out_features=vit_config.out_features,
                 embedding_dim=vit_config.embedding_dim,
@@ -488,10 +491,6 @@ def main(
         print(f"Loading precip_encoder from {diffusion_config.vae_precip_checkpoint}")
         checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_precip_checkpoint)
         precip_encoder: VAEEncoder = checkpoint_loader.load(scope=globals()).encoder
-        # Target encoder
-        print(f"Loading target_encoder from {diffusion_config.vae_target_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_target_checkpoint)
-        target_encoder: VAEEncoder = checkpoint_loader.load(scope=globals()).encoder
 
         # Denoiser
         if (checkpoint_path := diffusion_config.from_checkpoint) is not None:
@@ -501,13 +500,10 @@ def main(
             assert isinstance(net, UNetDenoiser)
         else:
             print(f"Training UNetDenoiser from scratch with: {diffusion_config.to_dict()}")
-            in_H: int = target_encoder.expected_H
-            in_W: int = target_encoder.expected_W
             net: UNetDenoiser = UNetDenoiser(
                 target_dim=diffusion_config.target_dim,
                 condition_dim=diffusion_config.condition_dim, 
-                n_condition_days=diffusion_config.n_condition_days, 
-                in_H=in_H, in_W=in_W,
+                in_H=precip_encoder.expected_H, in_W=precip_encoder.expected_W,
                 down_out_dims=diffusion_config.down_out_dims,
                 mid_out_dims=diffusion_config.mid_out_dims,
                 up_out_dims=diffusion_config.up_out_dims,
@@ -522,6 +518,7 @@ def main(
                 n_transformer_decoder_layers_per_mid_block=diffusion_config.n_transformer_decoder_layers_per_mid_block,
                 transformer_feedforward_dim=diffusion_config.transformer_feedforward_dim,
                 n_attention_heads=diffusion_config.n_attention_heads,
+                transformer_maxlength=diffusion_config.transformer_maxlength,
                 switch_ratio=diffusion_config.switch_ratio,
             )
 
@@ -543,7 +540,7 @@ def main(
         trainer = DiffusionTrainer(
             denoiser=net,
             wind_encoder=wind_encoder, mass_encoder=mass_encoder, thermal_encoder=thermal_encoder,
-            hydro_encoder=hydro_encoder, precip_encoder=precip_encoder, target_encoder=target_encoder,
+            hydro_encoder=hydro_encoder, precip_encoder=precip_encoder,
             noise_scheduler=noise_scheduler,
             lr=diffusion_config.learning_rate,
             train_dataset=train_dataset,

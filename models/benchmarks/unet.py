@@ -28,20 +28,22 @@ class UNet(NamedModel, nn.Module):
     def __init__(
         self,
         n_input_days: int,
+        n_output_days: int,
         in_features: int,
         out_features: int,
         embedding_dim: int,
     ) -> None:
         super().__init__()
         self.n_input_days: int = n_input_days
+        self.n_output_days: int = n_output_days
         self.in_features: int = in_features
         self.out_features: int = out_features
         self.embedding_dim: int = embedding_dim
 
-        input_channels: int = n_input_days * in_features
-        output_channels: int = out_features
+        in_channels: int = n_input_days * in_features
+        out_channels: int = n_output_days * out_features
 
-        self.inc = DoubleConv(in_features=input_channels, out_features=embedding_dim)
+        self.inc = DoubleConv(in_features=in_channels, out_features=embedding_dim)
         self.down1 = nn.Sequential(
             nn.MaxPool2d(kernel_size=2, stride=2),
             DoubleConv(in_features=embedding_dim, out_features=embedding_dim * 2)
@@ -75,7 +77,7 @@ class UNet(NamedModel, nn.Module):
             nn.ReLU(),
             nn.Conv2d(in_channels=embedding_dim, out_channels=embedding_dim, kernel_size=1),
             nn.ReLU(),
-            nn.Conv2d(in_channels=embedding_dim, out_channels=output_channels, kernel_size=1),
+            nn.Conv2d(in_channels=embedding_dim, out_channels=out_channels, kernel_size=1),
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -102,6 +104,6 @@ class UNet(NamedModel, nn.Module):
         x = self.conv4(torch.cat(tensors=[x, x1], dim=1))  # (N, E + E = 2E, H, W)
 
         output: torch.Tensor = self.outc(x)       # (N, Cout, H, W)
-        assert output.shape == (batch_size, self.out_features, H, W)
-        output: torch.Tensor = output.reshape(batch_size, 1, self.out_features, H, W).permute(0, 1, 3, 4, 2)
+        assert output.shape == (batch_size, self.n_output_days * self.out_features, H, W)
+        output: torch.Tensor = output.reshape(batch_size, self.n_output_days, self.out_features, H, W).permute(0, 1, 3, 4, 2)
         return output

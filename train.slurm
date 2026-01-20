@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
-#SBATCH --gres=gpu:a100:4
+#SBATCH --gres=gpu:h200:2
 #SBATCH --partition=gpu
 #SBATCH --mail-user=zgp2ps@virginia.edu
 #SBATCH --mail-type=ALL

@@ -25,7 +25,6 @@ def main(
 ) -> None:
 
     # Dataset
-    # DEBUG
     test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
     if dataset == "cesm2":
         test_dataset: CESM2 = CESM2(metadata=test_metadata)
@@ -165,10 +164,6 @@ def main(
         print(f"Loading precip_encoder from {model_config.vae_precip_checkpoint}")
         checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.vae_precip_checkpoint))
         precip_vae: VAE = checkpoint_loader.load(scope=globals())
-        # Target decoder
-        print(f"Loading target_decoder from {model_config.vae_target_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.vae_target_checkpoint))
-        target_vae: VAE = checkpoint_loader.load(scope=globals())
         # Noise scheduler
         if model_config.noise_scheduler.lower() == "linear":
             noise_scheduler = LinearNoiseScheduler(
@@ -183,9 +178,9 @@ def main(
         
         DiffusionPredictor(
             denoiser=net, 
-            wind_encoder=wind_vae.encoder, mass_encoder=mass_vae.encoder, thermal_encoder=thermal_vae.encoder, 
-            hydro_encoder=hydro_vae.encoder, precip_encoder=precip_vae.encoder, 
-            target_encoder=target_vae.encoder, target_decoder=target_vae.decoder,
+            wind_encoder=wind_vae.encoder, mass_encoder=mass_vae.encoder, 
+            thermal_encoder=thermal_vae.encoder, hydro_encoder=hydro_vae.encoder, 
+            precip_encoder=precip_vae.encoder, precip_decoder=precip_vae.decoder, 
             noise_scheduler=noise_scheduler,
             eta=model_config.eta,
             dataset=test_dataset,

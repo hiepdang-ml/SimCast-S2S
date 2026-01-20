@@ -1,3 +1,4 @@
+import os
 from abc import ABC, abstractmethod
 
 import torch
@@ -159,14 +160,14 @@ class BaselineTrainer(_AbstractTrainer):
         self.loss_function: nn.Module = nn.MSELoss(reduction="mean")
 
     #implement
+    @torch.no_grad()
     def evaluate(self) -> dict[str, float]:
         val_metrics = Accumulator()
         self.net.eval()
-        with torch.no_grad():
-            for n, batch in enumerate(self.val_dataloader, start=1):
-                batch_mae: torch.Tensor = self._eval_step(batch=batch)
-                # Accumulate the val_metrics
-                val_metrics.add(batch_mae=batch_mae)
+        for n, batch in enumerate(self.val_dataloader, start=1):
+            batch_mae: torch.Tensor = self._eval_step(batch=batch)
+            # Accumulate the val_metrics
+            val_metrics.add(batch_mae=batch_mae)
 
         mae: torch.Tensor = val_metrics["batch_mae"] / n
         dist.all_reduce(tensor=mae, op=dist.ReduceOp.AVG)
@@ -231,17 +232,17 @@ class VAETrainer(_AbstractTrainer):
         self.loss_function: nn.Module = VAELoss(lambda_=self.lambda_)
 
     #implement
+    @torch.no_grad()
     def evaluate(self) -> dict[str, float]:
         val_metrics = Accumulator()
         self.net.eval()
-        with torch.no_grad():
-            for n, batch in enumerate(self.val_dataloader, start=1):
-                reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae, mu, sigma = self._eval_step(batch=batch)
-                # Accumulate the val_metrics
-                val_metrics.add(
-                    reconstruction_loss=reconstruction_loss, kl_divergence=kl_divergence, negative_elbo=negative_elbo,
-                    reconstruction_mae=reconstruction_mae, mu=mu, sigma=sigma,
-                )
+        for n, batch in enumerate(self.val_dataloader, start=1):
+            reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae, mu, sigma = self._eval_step(batch=batch)
+            # Accumulate the val_metrics
+            val_metrics.add(
+                reconstruction_loss=reconstruction_loss, kl_divergence=kl_divergence, negative_elbo=negative_elbo,
+                reconstruction_mae=reconstruction_mae, mu=mu, sigma=sigma,
+            )
 
         reconstruction_loss: torch.Tensor = val_metrics["reconstruction_loss"] / n
         kl_divergence: torch.Tensor = val_metrics["kl_divergence"] / n
@@ -337,7 +338,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         denoiser: UNetDenoiser,
         wind_encoder: VAEEncoder, mass_encoder: VAEEncoder,
         thermal_encoder: VAEEncoder, hydro_encoder: VAEEncoder, 
-        precip_encoder: VAEEncoder, target_encoder: VAEEncoder,
+        precip_encoder: VAEEncoder,
         noise_scheduler: LinearNoiseScheduler, lr: float, 
         train_dataset: CESM2, val_dataset: CESM2,
         train_batch_size: int, val_batch_size: int,
@@ -372,10 +373,6 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         self.precip_encoder: VAEEncoder = precip_encoder.to(self.device)
         self.precip_encoder.freeze()
         assert self.precip_encoder.is_frozen
-        # Freeze target_encoder
-        self.target_encoder: VAEEncoder = target_encoder.to(self.device)
-        self.target_encoder.freeze()
-        assert self.target_encoder.is_frozen
 
         self.noise_scheduler: LinearNoiseScheduler = noise_scheduler.to(self.device)
         self.n_denoising_steps: int = noise_scheduler.n_steps
@@ -383,14 +380,14 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         self.indices_by_context_group = self.train_dataset.indices_by_context_group
 
     #implement
+    @torch.no_grad()
     def evaluate(self) -> dict[str, float]:
         val_metrics = Accumulator()
         self.net.eval()
-        with torch.no_grad():
-            for n, batch in enumerate(self.val_dataloader, start=1):
-                velocity_loss, velocity_mae = self._eval_step(batch=batch)
-                # Accumulate the val_metrics
-                val_metrics.add(velocity_loss=velocity_loss, velocity_mae=velocity_mae)
+        for n, batch in enumerate(self.val_dataloader, start=1):
+            velocity_loss, velocity_mae = self._eval_step(batch=batch)
+            # Accumulate the val_metrics
+            val_metrics.add(velocity_loss=velocity_loss, velocity_mae=velocity_mae)
 
         velocity_loss: torch.Tensor = val_metrics["velocity_loss"] / n
         velocity_mae: torch.Tensor = val_metrics["velocity_mae"] / n
@@ -433,9 +430,8 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
     def _forward_pass(
         self, condition: torch.Tensor, target: torch.Tensor, condition_days: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # Encode
-        with torch.no_grad():
-            condition_mu, condition_logvar, target_latent = self.vae_encode(condition=condition, target=target)
+        # Encode (already @torch.no_grad())
+        condition_mu, condition_logvar, target_latent = self.vae_encode(condition=condition, target=target)
 
         # Generate step
         batch_size: int = target_latent.shape[0]
@@ -443,7 +439,6 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         integer_step: torch.Tensor = torch.randint(
             low=1, high=self.n_denoising_steps + 1, size=(batch_size, 1), device=target_latent.device,
         )
-        # normalized_step: torch.Tensor = self.step_normalizer(integer_step=integer_step)
         # Forward process
         noisy_target, true_velocity = self.forward_process.add_noise(
             original_latent=target_latent, k=integer_step

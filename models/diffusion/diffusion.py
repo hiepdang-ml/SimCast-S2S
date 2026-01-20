@@ -12,6 +12,7 @@ class _SinusoidEmbedding(nn.Module):
     def __init__(self, embedding_dim: int) -> None:
         super().__init__()
         self.embedding_dim: int = embedding_dim
+        assert embedding_dim % 2 == 0
 
         # Frequency scaling
         self.register_buffer(
@@ -83,24 +84,27 @@ class CosineNoiseScheduler(_BaseNoiseScheduler, nn.Module):
         return torch.cos((x + self.cosine_offset) / (1 + self.cosine_offset) * torch.pi / 2) ** 2
 
 
-class _NormActConv(nn.Module):
+class _ConvActConv(nn.Module):
 
-    def __init__(self, input_dim: int, output_dim: int, n_heads: int):
+    def __init__(self, input_dim: int, output_dim: int):
         super().__init__()
         self.input_dim: int = input_dim
         self.output_dim: int = output_dim
-        self.n_heads: int = n_heads
-        self.group_norm: nn.Module = nn.GroupNorm(num_groups=n_heads, num_channels=input_dim)
+        self.conv2d0: nn.Module = nn.Conv2d(
+            in_channels=input_dim, out_channels=output_dim, kernel_size=1, padding=0,
+        )
         self.activation: nn.Module = nn.SiLU()
-        self.conv2d: nn.Module = nn.Conv2d(
-            in_channels=input_dim, out_channels=output_dim, kernel_size=3, padding=1,
+        self.conv2d1: nn.Module = nn.Conv2d(
+            in_channels=output_dim, out_channels=output_dim, kernel_size=1, padding=0,
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        batch_size, input_dim, H, W = input.shape
-        assert input_dim == self.input_dim
-        output: torch.Tensor = self.conv2d(self.activation(self.group_norm(input)))
-        assert output.shape == (batch_size, self.output_dim, H, W)
+        N, T, D, H, W = input.shape
+        assert D == self.input_dim
+        output: torch.Tensor = input.flatten(0, 1)
+        output: torch.Tensor = self.conv2d1(self.activation(self.conv2d0(output)))
+        assert output.shape == (N * T, self.output_dim, H, W)
+        output = output.reshape(N, T, self.output_dim, H, W)
         return output
 
 
@@ -230,6 +234,11 @@ class _TransformerEncoder(nn.Module):
         self.n_heads: int = n_heads
         self.feedforward_dim: int = feedforward_dim
         self.n_layers: int = n_layers
+
+        self.skips = nn.ModuleList(
+            [nn.Linear(in_features=kv_dim, out_features=model_dim)]
+            + [nn.Identity() for i in range(n_layers - 1)]
+        )
         self.layers = nn.ModuleList([
             _TransformerEncoderLayer(
                 kv_dim=kv_dim if i == 0 else model_dim,
@@ -241,8 +250,9 @@ class _TransformerEncoder(nn.Module):
     def forward(self, kv: torch.Tensor) -> torch.Tensor:
         N, L, D = kv.shape
         assert D == self.kv_dim
-        for layer in self.layers:
-            kv = layer(kv)
+        for skip, layer in zip(self.skips, self.layers):
+            kv = skip(kv) + layer(kv)
+
         assert kv.shape == (N, L, self.model_dim)
         return kv
 
@@ -256,6 +266,11 @@ class _TransformerDecoder(nn.Module):
         self.n_heads: int = n_heads
         self.feedforward_dim: int = feedforward_dim
         self.n_layers: int = n_layers
+        
+        self.skips = nn.ModuleList(
+            [nn.Linear(in_features=q_dim, out_features=model_dim)]
+            + [nn.Identity() for i in range(n_layers - 1)]
+        )
         self.layers = nn.ModuleList([
             _TransformerDecoderLayer(
                 q_dim=q_dim if i == 0 else model_dim,
@@ -276,8 +291,8 @@ class _TransformerDecoder(nn.Module):
         kv_N, kv_L, kv_D = kv.shape
         assert q_D == self.q_dim
         assert kv_D == self.model_dim
-        for layer in self.layers:
-            q = layer(q=q, kv=kv)
+        for skip, layer in zip(self.skips, self.layers):
+            q = skip(q) + layer(q=q, kv=kv)
         
         q = self.out_projection(q)
         assert q.shape == (q_N, q_L, q_D)
@@ -318,6 +333,7 @@ class _Transformer(nn.Module):
         tgt_N, tgt_L, tgt_D = tgt.shape
         assert src_D == self.kv_dim
         assert tgt_D == self.q_dim
+        assert src_L <= self.maxlength and tgt_L <= self.maxlength
         src = src + self.kv_pos_embedding[:, :src_L, :]
         tgt = tgt + self.q_pos_embedding[:, :tgt_L, :]
         memory: torch.Tensor = self.encoder(kv=src)
@@ -346,11 +362,12 @@ class _DownSample(nn.Module):
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        batch_size, input_dim, H, W = input.shape
-        assert input_dim == self.input_dim, f"input_dim={input_dim} vs. self.input_dim={self.input_dim}"
-        output: torch.Tensor = torch.cat([self.conv2d(input), self.maxpool2d(input)], dim=1)
-        assert output.shape == (batch_size, self.output_dim, H // 2, W // 2)
-        return output
+        N, T, E, H, W = input.shape
+        assert E == self.input_dim, f"input_dim={E} vs. self.input_dim={self.input_dim}"
+        output: torch.Tensor = input.flatten(0, 1)
+        output = torch.cat([self.conv2d(output), self.maxpool2d(output)], dim=1)
+        assert output.shape == (N * T, self.output_dim, H // 2, W // 2)
+        return output.reshape(N, T, self.output_dim, H // 2, W // 2)
 
 
 class _UpSample(nn.Module):
@@ -373,11 +390,31 @@ class _UpSample(nn.Module):
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        batch_size, input_dim, H, W = input.shape
-        assert input_dim == self.input_dim, f"input_dim={input_dim} vs. self.input_dim={self.input_dim}"
-        output: torch.Tensor = torch.cat([self.convtranspose2d(input), self.up2d(input)], dim=1)
-        assert output.shape == (batch_size, self.output_dim, H * 2, W * 2)
-        return output
+        N, T, E, H, W = input.shape
+        assert E == self.input_dim, f"input_dim={E} vs. self.input_dim={self.input_dim}"
+        output: torch.Tensor = input.flatten(0, 1)
+        output = torch.cat([self.convtranspose2d(output), self.up2d(output)], dim=1)
+        assert output.shape == (N * T, self.output_dim, H * 2, W * 2)
+        return output.reshape(N, T, self.output_dim, H * 2, W * 2)
+
+
+class _MidSample(nn.Module):
+
+    def __init__(self, input_dim: int, output_dim: int):
+        super().__init__()
+        self.input_dim: int = input_dim
+        self.output_dim: int = output_dim
+        self.mid: nn.Module = nn.Conv2d(
+            in_channels=input_dim, out_channels=output_dim, kernel_size=1, stride=1, padding=0
+        )
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        N, T, E, H, W = input.shape
+        assert E == self.input_dim, f"input_dim={E} vs. self.input_dim={self.input_dim}"
+        output: torch.Tensor = input.flatten(0, 1)
+        output = self.mid(output)
+        assert output.shape == (N * T, self.output_dim, H, W)
+        return output.reshape(N, T, self.output_dim, H, W)
 
 
 class _ScalingBlock(nn.Module):
@@ -391,7 +428,6 @@ class _ScalingBlock(nn.Module):
         input_dim: int, 
         output_dim: int, 
         condition_dim: int, 
-        n_condition_days: int,
         n_conv_layers: int, 
         in_H: int, in_W: int,
         transformer_model_dim: int, 
@@ -399,6 +435,7 @@ class _ScalingBlock(nn.Module):
         n_transformer_encoder_layers: int, 
         n_transformer_decoder_layers: int,
         n_attention_heads: int,
+        transformer_maxlength: int,
         type: Literal["up", "down", "mid"],
     ):
         super().__init__()
@@ -407,29 +444,24 @@ class _ScalingBlock(nn.Module):
         self.condition_dim: int = condition_dim
         self.transformer_model_dim: int = transformer_model_dim
         self.transformer_feedforward_dim: int = transformer_feedforward_dim
-        self.n_conv_layers: int = n_conv_layers; assert n_conv_layers % 2 == 0
+        self.n_conv_layers: int = n_conv_layers
         self.in_H: int = in_H
         self.in_W: int = in_W
         self.n_transformer_encoder_layers: int = n_transformer_encoder_layers
         self.n_transformer_decoder_layers: int = n_transformer_decoder_layers
         self.n_attention_heads: int = n_attention_heads
-        self.n_condition_days: int = n_condition_days
+        self.transformer_maxlength: int = transformer_maxlength
         self.type: Literal["up", "down", "mid"] = type
 
         # Condition
         self.condition_fuser: nn.Module = _ConditionFuser(condition_dim=condition_dim)
         # Target
         self.target_conv1_layers: nn.ModuleList = nn.ModuleList([
-            _NormActConv(
-                input_dim=input_dim if i == 0 else output_dim,
-                output_dim=output_dim, n_heads=n_attention_heads
-            )
+            _ConvActConv(input_dim=input_dim if i == 0 else output_dim, output_dim=output_dim)
             for i in range(n_conv_layers)
         ])
         self.target_conv2_layers: nn.ModuleList = nn.ModuleList([
-            _NormActConv(
-                input_dim=output_dim, output_dim=output_dim, n_heads=n_attention_heads
-            )
+            _ConvActConv(input_dim=output_dim, output_dim=output_dim)
             for i in range(n_conv_layers)
         ])
         self.target_res_blocks: nn.ModuleList = nn.ModuleList([
@@ -448,7 +480,7 @@ class _ScalingBlock(nn.Module):
             feedforward_dim=transformer_feedforward_dim,
             n_encoder_layers=n_transformer_encoder_layers,
             n_decoder_layers=n_transformer_decoder_layers,
-            maxlength=n_condition_days,
+            maxlength=transformer_maxlength,
         )
         # Step
         self.step_embedding_layer: nn.Module = _SinusoidEmbedding(embedding_dim=output_dim)
@@ -465,9 +497,7 @@ class _ScalingBlock(nn.Module):
             self.out_H: int = self.in_H * 2
             self.out_W: int = self.in_W * 2
         elif type == "mid":
-            self.scaling_block: nn.Module = nn.Conv2d(
-                in_channels=output_dim, out_channels=output_dim, kernel_size=1, stride=1, padding=0
-            )
+            self.scaling_block: nn.Module = _MidSample(input_dim=output_dim, output_dim=output_dim)
             self.out_H: int = self.in_H
             self.out_W: int = self.in_W
         else:
@@ -482,7 +512,7 @@ class _ScalingBlock(nn.Module):
         assert condition_mu.shape == condition_logvar.shape
         condition_N, condition_L, condition_D = condition_mu.shape
         assert condition_D == self.condition_dim
-        target_N, target_D, target_H, target_W = target.shape
+        target_N, target_T, target_D, target_H, target_W = target.shape
         assert target_D == self.input_dim
         assert (target_H, target_W) == (self.in_H, self.in_W)
         step_N, step_L = step.shape
@@ -498,29 +528,27 @@ class _ScalingBlock(nn.Module):
         assert days.shape == (days_N, self.output_dim)
 
         for i in range(self.n_conv_layers):
-            target_resnet_input: torch.Tensor = target
-            # Resnet block (target)
-            target = self.target_conv1_layers[i](target) + step[:, :, None, None] + days[:, :, None, None]
-            target = self.target_conv2_layers[i](target) + self.target_res_blocks[i](target_resnet_input)
+            target_resnet_input: torch.Tensor = target.flatten(0, 1)
+            target_resnet_input = self.target_res_blocks[i](target_resnet_input).reshape(
+                target_N, target_T, self.output_dim, target_H, target_W
+            )
+            target = self.target_conv1_layers[i](target) + step[:, None, :, None, None] + days[:, None, :, None, None]
+            target = self.target_conv2_layers[i](target) + target_resnet_input
 
-        assert target.shape == (target_N, self.output_dim, target_H, target_W)
+        assert target.shape == (target_N, target_T, self.output_dim, target_H, target_W)
 
         # Conditioning
-        target = target.reshape(target_N, 1, self.output_dim * target_H * target_W)
+        target = target.reshape(target_N, target_T, self.output_dim * target_H * target_W)
         conditioned_target: torch.Tensor = self.transfomer(src=condition, tgt=target)
         assert conditioned_target.shape == target.shape
         weight: torch.Tensor = torch.sigmoid(self.cond_weights)
-        # DEBUG
-        # print(f"weight: {weight.mean()}")
-        # print(f"weight: {weight.flatten()}")
         output: torch.Tensor = weight * conditioned_target + (1 - weight) * target
         assert output.shape == target.shape
-        output = output.reshape(target_N, self.output_dim, target_H, target_W)
+        output = output.reshape(target_N, target_T, self.output_dim, target_H, target_W)
 
         # Scaling
         output = self.scaling_block(output)
-        assert output.shape == (target_N, self.output_dim, self.out_H, self.out_W)
-        return output
+        return output.reshape(target_N, target_T, self.output_dim, self.out_H, self.out_W)
         
 
 class _DownBlock(_ScalingBlock):
@@ -531,7 +559,6 @@ class _DownBlock(_ScalingBlock):
         input_dim: int, 
         output_dim: int, 
         condition_dim: int, 
-        n_condition_days: int,
         n_conv_layers: int, 
         in_H: int, in_W: int,
         transformer_model_dim: int,
@@ -539,12 +566,12 @@ class _DownBlock(_ScalingBlock):
         n_transformer_encoder_layers: int, 
         n_transformer_decoder_layers: int, 
         n_attention_heads: int,
+        transformer_maxlength: int,
     ):
         super().__init__(
             input_dim=input_dim, 
             output_dim=output_dim, 
             condition_dim=condition_dim, 
-            n_condition_days=n_condition_days,
             n_conv_layers=n_conv_layers, 
             in_H=in_H, in_W=in_W,
             transformer_model_dim=transformer_model_dim, 
@@ -552,6 +579,7 @@ class _DownBlock(_ScalingBlock):
             n_transformer_encoder_layers=n_transformer_encoder_layers,
             n_transformer_decoder_layers=n_transformer_decoder_layers,
             n_attention_heads=n_attention_heads,
+            transformer_maxlength=transformer_maxlength,
             type="down",
         )
 
@@ -564,7 +592,6 @@ class _UpBlock(_ScalingBlock):
         output_dim: int, 
         down_output_dim: int,
         condition_dim: int, 
-        n_condition_days: int,
         n_conv_layers: int, 
         in_H: int, in_W: int,
         transformer_model_dim: int, 
@@ -572,12 +599,12 @@ class _UpBlock(_ScalingBlock):
         n_transformer_encoder_layers: int,
         n_transformer_decoder_layers: int,
         n_attention_heads: int,
+        transformer_maxlength: int,
     ):
         super().__init__(
             input_dim=input_dim + down_output_dim,
             output_dim=output_dim, 
             condition_dim=condition_dim, 
-            n_condition_days=n_condition_days, 
             n_conv_layers=n_conv_layers, 
             in_H=in_H, in_W=in_W,
             transformer_model_dim=transformer_model_dim,
@@ -585,6 +612,7 @@ class _UpBlock(_ScalingBlock):
             n_transformer_encoder_layers=n_transformer_encoder_layers,
             n_transformer_decoder_layers=n_transformer_decoder_layers,
             n_attention_heads=n_attention_heads,
+            transformer_maxlength=transformer_maxlength,
             type="up",
         )
 
@@ -596,7 +624,6 @@ class _MidBlock(_ScalingBlock):
         input_dim: int, 
         output_dim: int, 
         condition_dim: int, 
-        n_condition_days: int,
         n_conv_layers: int, 
         in_H: int, in_W: int,
         transformer_model_dim: int,
@@ -604,19 +631,20 @@ class _MidBlock(_ScalingBlock):
         n_transformer_encoder_layers: int, 
         n_transformer_decoder_layers: int, 
         n_attention_heads: int,
+        transformer_maxlength: int,
     ):
         super().__init__(
             input_dim=input_dim, 
             output_dim=output_dim, 
             condition_dim=condition_dim, 
             n_conv_layers=n_conv_layers, 
-            n_condition_days=n_condition_days,
             in_H=in_H, in_W=in_W,
             transformer_model_dim=transformer_model_dim, 
             transformer_feedforward_dim=transformer_feedforward_dim,
             n_transformer_encoder_layers=n_transformer_encoder_layers,
             n_transformer_decoder_layers=n_transformer_decoder_layers,
             n_attention_heads=n_attention_heads,
+            transformer_maxlength=transformer_maxlength,
             type="mid",
         )
 
@@ -627,7 +655,6 @@ class UNetDenoiser(NamedModel, nn.Module):
         self,
         target_dim: int, 
         condition_dim: int, 
-        n_condition_days: int,
         in_H: int, in_W: int,
         down_out_dims: list[int], 
         mid_out_dims: list[int], 
@@ -643,12 +670,12 @@ class UNetDenoiser(NamedModel, nn.Module):
         n_transformer_encoder_layers_per_mid_block: int,
         n_transformer_decoder_layers_per_mid_block: int,
         n_attention_heads: int,
+        transformer_maxlength: int,
         switch_ratio: float,
     ):
         super().__init__()
         self.target_dim: int = target_dim
         self.condition_dim: int = condition_dim
-        self.n_condition_days: int = n_condition_days
         self.in_H: int = in_H
         self.in_W: int = in_W
         self.down_out_dims: list[int] = down_out_dims
@@ -665,6 +692,7 @@ class UNetDenoiser(NamedModel, nn.Module):
         self.n_transformer_encoder_layers_per_mid_block: int = n_transformer_encoder_layers_per_mid_block
         self.n_transformer_decoder_layers_per_mid_block: int = n_transformer_decoder_layers_per_mid_block
         self.n_attention_heads: int = n_attention_heads
+        self.transformer_maxlength: int = transformer_maxlength
         self.switch_ratio: float = switch_ratio
 
         assert len(down_transformer_model_dims) == len(down_out_dims) == len(up_transformer_model_dims) == len(up_out_dims)
@@ -679,7 +707,6 @@ class UNetDenoiser(NamedModel, nn.Module):
                 input_dim=target_dim if i == 0 else down_out_dims[i - 1], 
                 output_dim=down_out_dims[i],
                 condition_dim=condition_dim, 
-                n_condition_days=n_condition_days,
                 n_conv_layers=n_conv_layers_per_scaling_block, 
                 in_H=in_H // (2 ** i), in_W=in_W // (2 ** i),
                 transformer_model_dim=down_transformer_model_dims[i],
@@ -687,6 +714,7 @@ class UNetDenoiser(NamedModel, nn.Module):
                 n_transformer_encoder_layers=n_transformer_encoder_layers_per_scaling_block,
                 n_transformer_decoder_layers=n_transformer_decoder_layers_per_scaling_block,
                 n_attention_heads=n_attention_heads,
+                transformer_maxlength=transformer_maxlength,
             )
             for i in range(self.n_scaling_blocks)
         ])
@@ -696,7 +724,6 @@ class UNetDenoiser(NamedModel, nn.Module):
                 output_dim=up_out_dims[i], 
                 down_output_dim=down_out_dims[-i - 1],
                 condition_dim=condition_dim, 
-                n_condition_days=n_condition_days,
                 n_conv_layers=n_conv_layers_per_scaling_block, 
                 in_H=in_H // (2 ** (self.n_scaling_blocks - i)), in_W=in_W // (2 ** (self.n_scaling_blocks - i)),
                 transformer_model_dim=up_transformer_model_dims[i], 
@@ -704,6 +731,7 @@ class UNetDenoiser(NamedModel, nn.Module):
                 n_transformer_encoder_layers=n_transformer_encoder_layers_per_scaling_block,
                 n_transformer_decoder_layers=n_transformer_decoder_layers_per_scaling_block,
                 n_attention_heads=n_attention_heads, 
+                transformer_maxlength=transformer_maxlength,
             )
             for i in range(self.n_scaling_blocks)
         ])
@@ -712,7 +740,6 @@ class UNetDenoiser(NamedModel, nn.Module):
                 input_dim=down_out_dims[-1] if i == 0 else mid_out_dims[i - 1],
                 output_dim=mid_out_dims[i],
                 condition_dim=condition_dim, 
-                n_condition_days=n_condition_days,
                 n_conv_layers=n_conv_layers_per_mid_block, 
                 in_H=in_H // (2 **self.n_scaling_blocks), in_W=in_W // (2 ** self.n_scaling_blocks),
                 transformer_model_dim=mid_transformer_model_dims[i], 
@@ -720,12 +747,11 @@ class UNetDenoiser(NamedModel, nn.Module):
                 n_transformer_encoder_layers=n_transformer_encoder_layers_per_mid_block,
                 n_transformer_decoder_layers=n_transformer_decoder_layers_per_mid_block,
                 n_attention_heads=n_attention_heads,
+                transformer_maxlength=transformer_maxlength,
             )
             for i in range(self.n_mid_blocks)
         ])
-        self.head: nn.Module = nn.Conv2d(
-            in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1,
-        )
+        self.head: nn.Module = nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
 
     def forward(
         self, 
@@ -733,7 +759,7 @@ class UNetDenoiser(NamedModel, nn.Module):
         condition_mu: torch.Tensor, condition_logvar: torch.Tensor,
         integer_step: torch.Tensor, condition_days: torch.Tensor,
     ) -> torch.Tensor:
-        target_N, target_D, target_H, target_W = target.shape
+        target_N, target_T, target_D, target_H, target_W = target.shape
         condition_N, condition_L, condition_D = condition_mu.shape
         assert condition_mu.shape == condition_logvar.shape
         step_N, step_L = integer_step.shape
@@ -751,9 +777,9 @@ class UNetDenoiser(NamedModel, nn.Module):
         # Switch condition on/off randomly during training
         if self.training:
             switch: torch.Tensor = torch.rand(size=(target_N,), device=target.device) > self.switch_ratio
-            switch = switch[:, None, None].float()
-            condition_mu = condition_mu * switch
-            condition_logvar = condition_logvar * switch
+            condition_mu = condition_mu * switch[:, None, None].float()
+            condition_logvar = condition_logvar * switch[:, None, None].float()
+            condition_days = condition_days * switch[:, None].float()
 
         # UNet
         down_input: torch.Tensor = target
@@ -779,15 +805,15 @@ class UNetDenoiser(NamedModel, nn.Module):
         up_output: torch.Tensor = mid_output
         for i in range(self.n_scaling_blocks):
             skip: torch.Tensor = down_outputs.pop()
-            assert skip.shape[2:] == up_output.shape[2:], (
+            assert skip.shape[3:] == up_output.shape[3:], (
                 "Skip connection and decoder feature maps must share spatial dimensions: "
                 f"skip.shape={skip.shape}, up_output.shape={up_output.shape}"
             )
-            concat: torch.Tensor = torch.cat([skip, up_output], dim=1)
+            concat: torch.Tensor = torch.cat([skip, up_output], dim=2)
             expected_channels: int = self.up_blocks[i].input_dim
-            assert concat.shape[1] == expected_channels, (
+            assert concat.shape[2] == expected_channels, (
                 "Concatenated skip features do not match expected channel count for up block: "
-                f"concat.shape[1]={concat.shape[1]}, expected_channels={expected_channels}"
+                f"concat.shape[2]={concat.shape[2]}, expected_channels={expected_channels}"
             )
             up_output = self.up_blocks[i](
                 target=concat,
@@ -796,8 +822,8 @@ class UNetDenoiser(NamedModel, nn.Module):
             )
 
         assert len(down_outputs) == 0, f"down_outputs must exhaust, getting {len(down_outputs)} items left"
-        output: torch.Tensor = self.head(up_output)
-        assert output.shape == target.shape, f"Shape mismatched: output.shape={output.shape} and target.shape={target.shape}."
+        output: torch.Tensor = self.head(up_output.flatten(0, 1))
+        output = output.reshape_as(target)
         return output
 
 
@@ -808,6 +834,7 @@ class _DiffusionProcess:
         self.alpha_bar_schedule: torch.Tensor = self.noise_scheduler.alpha_bar_schedule
         self.beta_schedule: torch.Tensor = self.noise_scheduler.beta_schedule
 
+    # forward & reverse process
     def compute_alpha_bar(self, step: torch.Tensor) -> torch.Tensor:
         step_N, _ = step.shape  # (batch_size, 1)
         # alpha ranges from k=0,...,K
@@ -816,7 +843,7 @@ class _DiffusionProcess:
         # print(f"self.alpha_bar_schedule: {self.alpha_bar_schedule}")
         alpha_bar: torch.Tensor = self.alpha_bar_schedule.to(step.device)[step.long()]
         assert alpha_bar.shape == (step_N, 1)
-        alpha_bar = alpha_bar[:, :, None, None]
+        alpha_bar = alpha_bar[:, :, None, None, None]
         return alpha_bar
 
     def compute_beta(self, step: torch.Tensor) -> torch.Tensor:
@@ -826,32 +853,39 @@ class _DiffusionProcess:
         assert torch.all(step.long() - 1 <= self.noise_scheduler.n_steps - 1)
         beta: torch.Tensor = self.beta_schedule.to(step.device)[step.long() - 1]
         assert beta.shape == (step_N, 1)
-        beta = beta[:, :, None, None]
+        beta = beta[:, :, None, None, None]
         return beta
     
+    # reverse process
     def compute_tilde_beta(self, alpha_bar_prev: torch.Tensor, alpha_bar: torch.Tensor) -> torch.Tensor:
         return (1 - alpha_bar_prev) / (1 - alpha_bar) * (1 - alpha_bar / alpha_bar_prev)
 
+    # reverse process
     def compute_sigma(self, tilde_beta: torch.Tensor, eta: float) -> torch.Tensor:
         return eta * torch.sqrt(tilde_beta)
     
+    # forward process
     def compute_velocity(self, alpha_bar: torch.Tensor, target_0: torch.Tensor, gaussian: torch.Tensor) -> torch.Tensor:
         return - torch.sqrt(1 - alpha_bar) * target_0 + torch.sqrt(alpha_bar) * gaussian
 
+    # reverse process
     def compute_x0(self, target_k: torch.Tensor, predicted_velocity: torch.Tensor, alpha_bar: torch.Tensor) -> torch.Tensor:
-        target_N, target_D, target_H, target_W = target_k.shape
-        velocity_N, velocity_D, velocity_H, velocity_W = predicted_velocity.shape
-        alpha_bar_N, _, _, _ = alpha_bar.shape  # (batch_size, 1)
+        target_N, target_T, target_D, target_H, target_W = target_k.shape
+        velocity_N, velocity_T, velocity_D, velocity_H, velocity_W = predicted_velocity.shape
+        alpha_bar_N, _, _, _, _ = alpha_bar.shape  # (batch_size, 1, 1, 1, 1)
+        assert target_k.shape == predicted_velocity.shape
         assert target_N == velocity_N == alpha_bar_N
         # Original target prediction at k
         target_0: torch.Tensor = torch.sqrt(alpha_bar) * target_k - torch.sqrt(1 - alpha_bar) * predicted_velocity
         assert target_0.shape == target_k.shape
         return target_0
 
+    # reverse process
     def compute_gaussian(self, target_k: torch.Tensor, predicted_velocity: torch.Tensor, alpha_bar: torch.Tensor) -> torch.Tensor:
-        target_N, target_D, target_H, target_W = target_k.shape
-        velocity_N, velocity_D, velocity_H, velocity_W = predicted_velocity.shape
-        alpha_bar_N, _, _, _ = alpha_bar.shape  # (batch_size, 1)
+        target_N, target_T, target_D, target_H, target_W = target_k.shape
+        velocity_N, velocity_T, velocity_D, velocity_H, velocity_W = predicted_velocity.shape
+        alpha_bar_N, _, _, _, _ = alpha_bar.shape  # (batch_size, 1)
+        assert target_k.shape == predicted_velocity.shape
         assert target_N == velocity_N == alpha_bar_N
         # Original target prediction at k
         gaussian: torch.Tensor = torch.sqrt(1 - alpha_bar) * target_k + torch.sqrt(alpha_bar) * predicted_velocity
@@ -887,9 +921,10 @@ class ReverseProcess(_DiffusionProcess):
         target_k: torch.Tensor, predicted_velocity: torch.Tensor, k: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         
-        target_N, target_D, target_H, target_W = target_k.shape
-        velocity_N, velocity_D, velocity_H, velocity_W = predicted_velocity.shape
+        target_N, target_T, target_D, target_H, target_W = target_k.shape
+        velocity_N, velocity_T, velocity_D, velocity_H, velocity_W = predicted_velocity.shape
         step_N, _ = k.shape  # (batch_size, 1)
+        assert target_k.shape == predicted_velocity.shape
         assert target_N == velocity_N == step_N  # batch_size
 
         # Alpha bar

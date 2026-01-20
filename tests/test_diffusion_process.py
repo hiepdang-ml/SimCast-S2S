@@ -17,7 +17,7 @@ class DiffusionProcessConsistencyTest(unittest.TestCase):
         forward = ForwardProcess(noise_scheduler=scheduler)
         reverse = ReverseProcess(eta=0.0, noise_scheduler=scheduler)
 
-        original = torch.randn(2, 3, 4, 5)
+        original = torch.randn(2, 3, 4, 5, 6)
         for step_value in (1, 5, 10):
             step = torch.full((original.shape[0], 1), step_value, dtype=torch.long)
             noisy, true_velocity = forward.add_noise(original_latent=original, k=step)
@@ -32,7 +32,7 @@ class DiffusionProcessConsistencyTest(unittest.TestCase):
         forward = ForwardProcess(noise_scheduler=scheduler)
         reverse = ReverseProcess(eta=0.0, noise_scheduler=scheduler)
 
-        original = torch.randn(1, 2, 3, 4)
+        original = torch.randn(1, 2, 3, 4, 5)
         for step_value in (1, 6, 12):
             step = torch.full((original.shape[0], 1), step_value, dtype=torch.long)
             noisy, true_velocity = forward.add_noise(original_latent=original, k=step)
@@ -44,5 +44,4 @@ class DiffusionProcessConsistencyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
 

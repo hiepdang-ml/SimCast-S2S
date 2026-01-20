@@ -123,7 +123,7 @@ cnn:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/cnn/cnn2.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/cnn/cnn9.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/cnn/"
 
 
@@ -134,14 +134,14 @@ unet:
   embedding_dim: 256
 
   learning_rate: 1e-5
-  train_batch_size: 8
-  val_batch_size: 8
+  train_batch_size: 4
+  val_batch_size: 4
   n_epochs: 1000
   patience: 10
   tolerance: 0.
   save_frequency: 1
   
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/unet256/unet21.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/unet256/unet6.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/unet256/"
 
 
@@ -149,7 +149,7 @@ vit:
 
   in_features: 21
   out_features: 1
-  embedding_dim: 512
+  embedding_dim: 256
   patch_size: 32
   n_heads: 8
   n_transformer_layers: 6
@@ -163,8 +163,8 @@ vit:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vit_v2/vit5.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vit_v2/"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vit/vit3.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vit/"
 
 
 vae-wind:
@@ -175,7 +175,7 @@ vae-wind:
   n_convstack_layers: 8
   n_convhead_layers: 4
 
-  lambda: 0.999
+  lambda: 1.
   learning_rate: 1e-5
   train_batch_size: 32
   val_batch_size: 32
@@ -184,7 +184,7 @@ vae-wind:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/vaewind25.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/vaewind6.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/"
 
 
@@ -196,7 +196,7 @@ vae-mass:
   n_convstack_layers: 8
   n_convhead_layers: 4
 
-  lambda: 0.999
+  lambda: 1.
   learning_rate: 1e-5
   train_batch_size: 32
   val_batch_size: 32
@@ -205,7 +205,7 @@ vae-mass:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_mass_16times/vaemass26.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_mass_16times/vaemass11.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_mass_16times/"
 
 
@@ -217,7 +217,7 @@ vae-thermal:
   n_convstack_layers: 8
   n_convhead_layers: 4
 
-  lambda: 0.999
+  lambda: 1.
   learning_rate: 1e-5
   train_batch_size: 32
   val_batch_size: 32
@@ -226,7 +226,7 @@ vae-thermal:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermal_16times/vaethermal25.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermal_16times/vaethermal15.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_thermal_16times/"
 
 
@@ -238,8 +238,8 @@ vae-hydro:
   n_convstack_layers: 8
   n_convhead_layers: 4
 
-  lambda: 0.999
-  learning_rate: 1e-4
+  lambda: 1.
+  learning_rate: 1e-5
   train_batch_size: 32
   val_batch_size: 32
   n_epochs: 1000
@@ -247,7 +247,7 @@ vae-hydro:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_hydro_16times/vaehydro26.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_hydro_16times/vaehydro3.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_hydro_16times/"
 
 
@@ -268,44 +268,21 @@ vae-precip:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times/vaeprecip34.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times/vaeprecip6.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times"
-
-
-vae-target:
-
-  latent_dim: 16
-  hidden_dim: 128
-  n_scaling_blocks: 3
-  n_convstack_layers: 8
-  n_convhead_layers: 4
-
-  lambda: 0.999
-  learning_rate: 1e-6
-  train_batch_size: 32
-  val_batch_size: 32
-  n_epochs: 1000
-  patience: 10
-  tolerance: 0.
-  save_frequency: 1
-
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_target_4times/vaetarget334.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_target_4times/"
 
 
 diffusion:
 
   target_dim: 16  # fixed, vae-target.latent_dim
   condition_dim: 82944  # fixed, (vae-wind.latent_dim + vae-mass.latent_dim + vae-thermal.latent_dim + vae-hydro.latent_dim + vae-precip.latent_dim) * target_H * target_W
-  n_condition_days: 28  # fixed, dataset.n_input_days
-  # Unet configurations
+  # Denoiser configurations
   down_out_dims: [256, 512]
   mid_out_dims: [512, 512]
-  up_out_dims: [512, 256]
-  mid_transformer_model_dims: [256, 256]
+  up_out_dims: [512, 256]   # effective dim before transformer: up_out_dims[-1] * target_H * target_W
   down_transformer_model_dims: [256, 256]
+  mid_transformer_model_dims: [256, 256]
   up_transformer_model_dims: [256, 256]
-
   n_conv_layers_per_scaling_block: 6
   n_transformer_encoder_layers_per_scaling_block: 6
   n_transformer_decoder_layers_per_scaling_block: 12
@@ -314,10 +291,11 @@ diffusion:
   n_transformer_decoder_layers_per_mid_block: 12
   transformer_feedforward_dim: 1024
   n_attention_heads: 4
+  transformer_maxlength: 28   # must be >= max(dataset.n_input_days, dataset.n_output_days)
   switch_ratio: 0.    # p(condition_switch=off)
   # Diffusion configurations
   noise_scheduler: "cosine" # "linear" | "cosine"
-  n_steps: 1000
+  n_steps: 200
   beta_min: 0.001  # linear only
   beta_max: 0.020  # linear only
   # Sampling
@@ -331,13 +309,12 @@ diffusion:
   tolerance: 0.
   save_frequency: 1
 
-  vae_wind_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/vaewind25.pt"
-  vae_mass_checkpoint:  "/scratch/zgp2ps/s2s_checkpoints/vae_mass_16times/vaemass26.pt"
-  vae_thermal_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermal_16times/vaethermal25.pt"
-  vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_hydro_16times/vaehydro26.pt"
-  vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times/vaeprecip34.pt"
-  vae_target_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_target_4times/vaetarget334.pt"
+  vae_wind_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/vaewind6.pt"
+  vae_mass_checkpoint:  "/scratch/zgp2ps/s2s_checkpoints/vae_mass_16times/vaemass11.pt"
+  vae_thermal_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermal_16times/vaethermal15.pt"
+  vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_hydro_16times/vaehydro3.pt"
+  vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times/vaeprecip6.pt"
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v21_cosine/diffusion4.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v21_cosine/diffusion5.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v21_cosine/"
 

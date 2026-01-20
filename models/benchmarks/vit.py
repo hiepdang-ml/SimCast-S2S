@@ -68,10 +68,11 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
 
     def __init__(
-        self, n_input_days: int, embedding_dim: int, patch_size: int, out_features: int, dropout: float,
+        self, n_input_days: int, n_output_days: int, embedding_dim: int, patch_size: int, out_features: int, dropout: float,
     ) -> None:
         super().__init__()
         self.n_input_days: int = n_input_days
+        self.n_output_days: int = n_output_days
         self.embedding_dim: int = embedding_dim
         self.patch_size: int = patch_size
         self.out_features: int = out_features
@@ -85,10 +86,11 @@ class Decoder(nn.Module):
         assert self.patch_size & (self.patch_size - 1) == 0, "patch_size must be a power of 2"
         n_layers: int = self.patch_size.bit_length() - 1
         
-        self.hidden_dim: int = 4096
+        self.hidden_dim: int = 2048
         layers: list[nn.Module] = [
             nn.ConvTranspose2d(
-                in_channels=embedding_dim * n_input_days, out_channels=self.hidden_dim, kernel_size=3, stride=2, padding=1, output_padding=1
+                in_channels=embedding_dim * n_input_days, out_channels=self.hidden_dim, 
+                kernel_size=3, stride=2, padding=1, output_padding=1,
             ),
             nn.ReLU(),
             nn.Dropout(p=dropout),
@@ -96,7 +98,8 @@ class Decoder(nn.Module):
         for _ in range(n_layers - 1):
             layers.extend([
                 nn.ConvTranspose2d(
-                    in_channels=self.hidden_dim, out_channels=self.hidden_dim, kernel_size=3, stride=2, padding=1, output_padding=1
+                    in_channels=self.hidden_dim, out_channels=self.hidden_dim, 
+                    kernel_size=3, stride=2, padding=1, output_padding=1,
                 ),
                 nn.ReLU(),
                 nn.Dropout(p=dropout),
@@ -113,7 +116,7 @@ class Decoder(nn.Module):
             nn.Linear(in_features=self.hidden_dim, out_features=self.hidden_dim),
             nn.ReLU(),
             nn.Dropout(p=dropout),
-            nn.Linear(in_features=self.hidden_dim, out_features=self.out_features),
+            nn.Linear(in_features=self.hidden_dim, out_features=self.out_features * n_output_days),
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -127,11 +130,10 @@ class Decoder(nn.Module):
         output = self.upscale(output)
         assert output.shape == (batch_size, self.hidden_dim, 192, 288)
         output = output.permute(0, 2, 3, 1)
-        output = output.unsqueeze(dim=1)
         
-        assert output.shape == (batch_size, 1, 192, 288, self.hidden_dim)
-        output = self.mlp(output)
-        assert output.shape == (batch_size, 1, 192, 288, self.out_features)
+        assert output.shape == (batch_size, 192, 288, self.hidden_dim)
+        output = self.mlp(output).reshape(batch_size, 192, 288, self.out_features, self.n_output_days)
+        output = output.permute(0, 4, 1, 2, 3)
         return output
 
 
@@ -139,13 +141,14 @@ class ViT(NamedModel, nn.Module):
 
     def __init__(
         self, 
-        n_input_days: int,
+        n_input_days: int, n_output_days: int,
         in_features: int, out_features: int, embedding_dim: int,
         patch_size: int, n_heads: int, n_transformer_layers: int,
         dropout: float = 0.1,
     ) -> None:
         super().__init__()
         self.n_input_days: int = n_input_days
+        self.n_output_days: int = n_output_days
         self.in_features: int = in_features
         self.out_features: int = out_features
         self.embedding_dim: int = embedding_dim
@@ -169,7 +172,7 @@ class ViT(NamedModel, nn.Module):
             embedding_dim=embedding_dim, n_heads=n_heads, n_layers=n_transformer_layers, dropout=dropout,
         )
         self.decoder = Decoder(
-            n_input_days=n_input_days, 
+            n_input_days=n_input_days, n_output_days=n_output_days,
             embedding_dim=embedding_dim, patch_size=patch_size,
             out_features=out_features, dropout=dropout,
         )
@@ -190,7 +193,7 @@ class ViT(NamedModel, nn.Module):
         output: torch.Tensor = self.encoder(input=patch_embedding + pos_embedding)
         assert output.shape == (batch_size, self.sequence_length, self.embedding_dim)
         output = self.decoder(input=output)
-        assert output.shape == (batch_size, 1, 192, 288, self.out_features)
+        assert output.shape == (batch_size, self.n_output_days, 192, 288, self.out_features)
         return output
 
 

@@ -277,7 +277,6 @@ class DiffusionConfig(BaseConfig):
     def _load(self) -> None:
         self.target_dim: int = self._config["target_dim"]
         self.condition_dim: int = self._config["condition_dim"]
-        self.n_condition_days: int = self._config["n_condition_days"]
         self.down_out_dims: list[int] = self._config["down_out_dims"]
         self.down_transformer_model_dims: list[int] = self._config["down_transformer_model_dims"]
         self.mid_out_dims: list[int] = self._config["mid_out_dims"]
@@ -292,6 +291,7 @@ class DiffusionConfig(BaseConfig):
         self.n_transformer_decoder_layers_per_mid_block: int = self._config["n_transformer_decoder_layers_per_mid_block"]
         self.transformer_feedforward_dim: int = self._config["transformer_feedforward_dim"]
         self.n_attention_heads: int = self._config["n_attention_heads"]
+        self.transformer_maxlength: int = self._config["transformer_maxlength"]
         self.switch_ratio: float = float(self._config["switch_ratio"])
         self.noise_scheduler: Literal["linear", "cosine"] = self._config["noise_scheduler"]
         self.beta_min: float = float(self._config["beta_min"])
@@ -305,13 +305,11 @@ class DiffusionConfig(BaseConfig):
         self.vae_thermal_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_thermal_checkpoint"])
         self.vae_hydro_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_hydro_checkpoint"])
         self.vae_precip_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_precip_checkpoint"])
-        self.vae_target_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_target_checkpoint"])
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "target_dim": self.target_dim,
             "condition_dim": self.condition_dim,
-            "n_condition_days": self.n_condition_days,
             "down_out_dims": self.down_out_dims,
             "down_transformer_model_dims": self.down_transformer_model_dims,
             "mid_out_dims": self.mid_out_dims,
@@ -326,6 +324,7 @@ class DiffusionConfig(BaseConfig):
             "n_transformer_decoder_layers_per_mid_block": self.n_transformer_decoder_layers_per_mid_block,
             "transformer_feedforward_dim": self.transformer_feedforward_dim,
             "n_attention_heads": self.n_attention_heads,
+            "transformer_maxlength": self.transformer_maxlength,
             "switch_ratio": self.switch_ratio,
             "noise_scheduler": self.noise_scheduler,
             "beta_min": self.beta_min,
@@ -344,7 +343,6 @@ class DiffusionConfig(BaseConfig):
             "vae_thermal_checkpoint": self.vae_thermal_checkpoint,
             "vae_hydro_checkpoint": self.vae_hydro_checkpoint,
             "vae_precip_checkpoint": self.vae_precip_checkpoint,
-            "vae_target_checkpoint": self.vae_target_checkpoint,
             "from_checkpoint": self.from_checkpoint,
             "saved_checkpoint_directory": self.saved_checkpoint_directory,
         }

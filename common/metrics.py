@@ -73,9 +73,7 @@ class ErrorMap(_SampleLevelMap):
 
     #implement
     def __call__(self, prediction: torch.Tensor, groundtruth: torch.Tensor) -> torch.Tensor:
-        batch_size: int = prediction.shape[0]
-        assert batch_size == 1
-        assert prediction.shape == groundtruth.shape == (batch_size, 1, 192, 288, self.n_features)
+        assert prediction.shape == groundtruth.shape == (192, 288, self.n_features)
         return groundtruth - prediction
 
 

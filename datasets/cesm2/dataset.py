@@ -86,7 +86,7 @@ class CESM2(Dataset):
                 f=output_path, weights_only=True, map_location="cpu"
             )
             assert output_yearday_indices.shape == (self.metadata.n_output_days,)
-            assert output_var_tensor.shape == (1, 192, 288)
+            assert output_var_tensor.shape == (self.metadata.n_output_days, 192, 288)
             output_var_tensors.append(output_var_tensor)
     
         sampleinfo: SampleInfo = CESM2._get_sample_info(
@@ -98,7 +98,7 @@ class CESM2(Dataset):
         assert input_yearday_indices.shape == (self.metadata.n_input_days,)
         assert output_yearday_indices.shape == (self.metadata.n_output_days,)
         assert input_tensor.shape == (self.metadata.n_input_days, 192, 288, len(self.metadata.input_vars))
-        assert output_tensor.shape == (1, 192, 288, len(self.metadata.output_vars))
+        assert output_tensor.shape == (self.metadata.n_output_days, 192, 288, len(self.metadata.output_vars))
         return sampleinfo, input_yearday_indices, output_yearday_indices, input_tensor, output_tensor
 
     def __len__(self) -> int:
