@@ -519,7 +519,6 @@ def main(
                 transformer_feedforward_dim=diffusion_config.transformer_feedforward_dim,
                 n_attention_heads=diffusion_config.n_attention_heads,
                 transformer_maxlength=diffusion_config.transformer_maxlength,
-                switch_ratio=diffusion_config.switch_ratio,
             )
 
         # Noise scheduler

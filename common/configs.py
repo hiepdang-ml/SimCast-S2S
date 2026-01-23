@@ -292,7 +292,6 @@ class DiffusionConfig(BaseConfig):
         self.transformer_feedforward_dim: int = self._config["transformer_feedforward_dim"]
         self.n_attention_heads: int = self._config["n_attention_heads"]
         self.transformer_maxlength: int = self._config["transformer_maxlength"]
-        self.switch_ratio: float = float(self._config["switch_ratio"])
         self.noise_scheduler: Literal["linear", "cosine"] = self._config["noise_scheduler"]
         self.beta_min: float = float(self._config["beta_min"])
         self.beta_max: float = float(self._config["beta_max"])
@@ -325,7 +324,6 @@ class DiffusionConfig(BaseConfig):
             "transformer_feedforward_dim": self.transformer_feedforward_dim,
             "n_attention_heads": self.n_attention_heads,
             "transformer_maxlength": self.transformer_maxlength,
-            "switch_ratio": self.switch_ratio,
             "noise_scheduler": self.noise_scheduler,
             "beta_min": self.beta_min,
             "beta_max": self.beta_max,

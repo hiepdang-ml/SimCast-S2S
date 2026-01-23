@@ -28,7 +28,6 @@ class UNetDenoiserShapeTest(unittest.TestCase):
             n_transformer_decoder_layers_per_mid_block=1,
             n_attention_heads=1,
             transformer_maxlength=4,
-            switch_ratio=0.0,
         )
         model.eval()
 

@@ -274,34 +274,33 @@ vae-precip:
 
 diffusion:
 
-  target_dim: 16  # fixed, vae-target.latent_dim
-  condition_dim: 82944  # fixed, (vae-wind.latent_dim + vae-mass.latent_dim + vae-thermal.latent_dim + vae-hydro.latent_dim + vae-precip.latent_dim) * target_H * target_W
+  target_dim: 16  # fixed, vae-precip.latent_dim
+  condition_dim: 96  # fixed, vae-wind.latent_dim + vae-mass.latent_dim + vae-thermal.latent_dim + vae-hydro.latent_dim + vae-precip.latent_dim
   # Denoiser configurations
-  down_out_dims: [256, 512]
-  mid_out_dims: [512, 512]
-  up_out_dims: [512, 256]   # effective dim before transformer: up_out_dims[-1] * target_H * target_W
-  down_transformer_model_dims: [256, 256]
-  mid_transformer_model_dims: [256, 256]
-  up_transformer_model_dims: [256, 256]
-  n_conv_layers_per_scaling_block: 6
+  down_out_dims: [512, 1024]
+  mid_out_dims: [1024, 1024]
+  up_out_dims: [1024, 512]   # effective dim before transformer: up_out_dims[-1]
+  down_transformer_model_dims: [512, 512]
+  mid_transformer_model_dims: [512, 512]
+  up_transformer_model_dims: [512, 512]
+  n_conv_layers_per_scaling_block: 8
   n_transformer_encoder_layers_per_scaling_block: 6
-  n_transformer_decoder_layers_per_scaling_block: 12
-  n_conv_layers_per_mid_block: 2
+  n_transformer_decoder_layers_per_scaling_block: 6
+  n_conv_layers_per_mid_block: 3
   n_transformer_encoder_layers_per_mid_block: 6
-  n_transformer_decoder_layers_per_mid_block: 12
-  transformer_feedforward_dim: 1024
+  n_transformer_decoder_layers_per_mid_block: 6
+  transformer_feedforward_dim: 2048
   n_attention_heads: 4
   transformer_maxlength: 28   # must be >= max(dataset.n_input_days, dataset.n_output_days)
-  switch_ratio: 0.    # p(condition_switch=off)
   # Diffusion configurations
   noise_scheduler: "cosine" # "linear" | "cosine"
-  n_steps: 200
+  n_steps: 1000
   beta_min: 0.001  # linear only
   beta_max: 0.020  # linear only
   # Sampling
   eta: 0.
   # Training
-  learning_rate: 1e-4
+  learning_rate: 1e-6
   train_batch_size: 4
   val_batch_size: 4
   n_epochs: 1000
@@ -315,6 +314,5 @@ diffusion:
   vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_hydro_16times/vaehydro3.pt"
   vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times/vaeprecip6.pt"
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v21_cosine/diffusion5.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v21_cosine/"
-
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v23_cosine/diffusion16.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v23_cosine/"

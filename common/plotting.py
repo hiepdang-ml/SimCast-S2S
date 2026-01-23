@@ -137,7 +137,7 @@ class MetricPlotter(_BasePlotter):
         )
         self.plot_layer(
             ax=axs[1], data=rsquared_frame, coords=coordinates, 
-            tropical_lats=tropical_lats, title=sub_title, cmap="Blues", vmin=0., vmax=0.1,
+            tropical_lats=tropical_lats, title=sub_title, cmap="Blues", vmin=0., vmax=0.6,
         )
         self.add_landmask(axs=axs, landmask=landmask, coords=coordinates)
 

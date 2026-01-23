@@ -30,24 +30,16 @@ class RequireVAEEncoders:
             [wind_logvar, mass_logvar, thermal_logvar, hydro_logvar, precip_logvar], dim=2
         )
         # Encode target
-        N, T, E, H, W = target.shape
-        target_latent: torch.Tensor = VAEEncoder.reparameterize(
-            *self._encode(self.precip_encoder, target, is_target=True), scale=1.
-        )
-        target_latent = target_latent.reshape(
-            N, T, self.precip_encoder.latent_dim, self.precip_encoder.expected_H, self.precip_encoder.expected_W
-        )
+        target_mu, target_logvar = self._encode(self.precip_encoder, target)
+        target_latent: torch.Tensor = VAEEncoder.reparameterize(target_mu, target_logvar, scale=1.)
         return condition_mu, condition_logvar, target_latent
     
     @staticmethod
-    def _encode(encoder: VAEEncoder, input: torch.Tensor, is_target: bool = False) -> tuple[torch.Tensor, torch.Tensor]:
+    def _encode(encoder: VAEEncoder, input: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         N, T, H, W, E = input.shape
         input = input.flatten(start_dim=0, end_dim=1).unsqueeze(dim=1) # (N * T, 1, H, W, E)
         mu, logvar = encoder(input)
         assert mu.shape == logvar.shape == (N * T, encoder.latent_dim, encoder.expected_H, encoder.expected_W)
-        if not is_target:
-            mu = mu.reshape(N, T, encoder.latent_dim * encoder.expected_H * encoder.expected_W)
-            logvar = logvar.reshape(N, T, encoder.latent_dim * encoder.expected_H * encoder.expected_W)
-
+        mu = mu.reshape(N, T, encoder.latent_dim, encoder.expected_H, encoder.expected_W)
+        logvar = logvar.reshape(N, T, encoder.latent_dim, encoder.expected_H, encoder.expected_W)
         return mu, logvar
-
