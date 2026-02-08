@@ -7,10 +7,11 @@ def main(year: int, months: list[int]) -> None:
     request = {
         "product_type": "reanalysis",
         "variable": [
-            "2m_temperature",
-            "mean_sea_level_pressure",
-            "total_precip",
-            "mean_top_net_long_wave_radiation_flux"
+            # "mean_sea_level_pressure",
+            # "total_precipitation",
+            # "mean_top_net_long_wave_radiation_flux",
+            "skin_temperature",
+            "total_column_water_vapour",
         ],
         "year": str(year),
         "month": [str(m) for m in months],

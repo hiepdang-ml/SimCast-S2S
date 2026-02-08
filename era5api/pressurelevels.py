@@ -6,10 +6,12 @@ def main(year: int, months: list[int]) -> None:
     request = {
         "product_type": "reanalysis",
         "variable": [
-            "mass",
-            "u_component_of_wind",
-            "v_component_of_wind",
-            "vertical_velocity"
+            # "mass",
+            # "u_component_of_wind",
+            # "v_component_of_wind",
+            # "vertical_velocity",
+            "specific_humidity",
+            "temperature",
         ],
         "year": str(year),
         "month": [str(m) for m in months],

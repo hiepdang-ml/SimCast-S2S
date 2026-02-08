@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Iterable
+from typing import Iterable, Any
 from functools import cached_property
 from itertools import product
+from pathlib import Path
 from tqdm import tqdm
 
 import torch
@@ -15,6 +16,7 @@ from datasets.cesm2 import CESM2, CoordinatesReader, LandMaskReader
 from datasets.common.utils import DataBatch, SampleInfo
 from common.metrics import ErrorMap, MAEMap, GeographicalRsquaredMap, GeographicalMAE, GeographicalMSE
 from common.plotting import MetricPlotter, PredictionPlotter, DenoisingPlotter
+from common.utils import TorchDictIO
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAE_Target, VAEEncoder, VAEDecoder, UNetDenoiser, 
@@ -22,18 +24,17 @@ from models.diffusion import (
 )
 from .common import RequireVAEEncoders
 
-import torch.nn.functional as F
-
 
 class _AbstractPredictor(ABC):
 
-    def __init__(self, net: CNN | UNet | ViT | VAE, dataset: CESM2, local_rank: int):
+    def __init__(self, net: CNN | UNet | ViT | VAE, dataset: CESM2, target_path: str, local_rank: int):
         self.net: CNN | UNet | ViT | VAE | UNetDenoiser = net
         self.dataset: CESM2 = dataset
+        self.target_path = Path(target_path)
         self.local_rank: int = local_rank
-        self.indices_by_context_group = dataset.indices_by_context_group
 
         self.device = torch.device(f"cuda:{self.local_rank}")
+        self.indices_by_context_group = dataset.indices_by_context_group
         self.net = DistributedDataParallel(
             module=net.to(self.device), device_ids=[self.local_rank], 
             output_device=self.local_rank, broadcast_buffers=False,
@@ -66,8 +67,9 @@ class _AbstractPredictor(ABC):
         )
         self.mae_map: MAEMap = MAEMap(n_features=self.out_features, tropical_lats=self.tropical_lats)
         self.error_map: ErrorMap = ErrorMap(n_features=self.out_features)
-        self.prediction_plotter: PredictionPlotter = PredictionPlotter()
-        self.metric_plotter: MetricPlotter = MetricPlotter()
+        self.torchio: TorchDictIO = TorchDictIO(dirpath=target_path)
+        self.prediction_plotter: PredictionPlotter = PredictionPlotter(dirpath=target_path)
+        self.metric_plotter: MetricPlotter = MetricPlotter(dirpath=target_path)
         self.landmask_reader: LandMaskReader = LandMaskReader(device="cpu")
         self.coordinates_reader: CoordinatesReader = CoordinatesReader(device="cpu")
 
@@ -125,8 +127,8 @@ class _AbstractPredictor(ABC):
 
 class BaselinePredictor(_AbstractPredictor):
 
-    def __init__(self, net: CNN | UNet | ViT | VAE, dataset: CESM2, local_rank: int):
-        super().__init__(net=net, dataset=dataset, local_rank=local_rank)
+    def __init__(self, net: CNN | UNet | ViT | VAE, dataset: CESM2, target_path: str, local_rank: int):
+        super().__init__(net=net, dataset=dataset, target_path=target_path, local_rank=local_rank)
         self.in_features: int = net.in_features
         self.n_input_days: int = dataset.metadata.n_input_days
         self.n_output_days: int = dataset.metadata.n_output_days
@@ -149,74 +151,63 @@ class BaselinePredictor(_AbstractPredictor):
         else:
             raise NotImplementedError(f"{self.model_name} is not implemented")
 
-        prediction_mean: torch.Tensor = prediction_tensor.mean(dim=1, keepdim=True) # along T
-        prediction_tensor = torch.cat([prediction_tensor, prediction_mean], dim=1)
-        groundtruth_mean: torch.Tensor = groundtruth_tensor.mean(dim=1, keepdim=True) # along T
-        groundtruth_tensor = torch.cat([groundtruth_tensor, groundtruth_mean], dim=1)
-        assert prediction_tensor.shape == groundtruth_tensor.shape == (1, self.n_output_days + 1, 192, 288, self.out_features)
-        assert len(sampleinfo.out_dates) == self.n_output_days
-        out_dates: list[str] = sampleinfo.out_dates + ["mean"]
+        prediction_tensor = prediction_tensor.mean(dim=1, keepdim=False).squeeze(dim=0) # along T
+        groundtruth_tensor = groundtruth_tensor.mean(dim=1, keepdim=False).squeeze(dim=0) # along T
+        error_tensor: torch.Tensor = self.error_map(prediction=prediction_tensor, groundtruth=groundtruth_tensor)
+        assert prediction_tensor.shape == groundtruth_tensor.shape == error_tensor.shape == (192, 288, self.out_features)
 
-        for d in range(self.n_output_days + 1):
-            out_date: str = out_dates[d]
-            prediction_d: torch.Tensor = prediction_tensor[0, d]
-            groundtruth_d: torch.Tensor = groundtruth_tensor[0, d]
-            error_d: torch.Tensor = self.error_map(prediction=prediction_d, groundtruth=groundtruth_d)
+        # Plotting
+        for idx, output_name in enumerate(self.output_names):
+            # Select by output variable
+            groundtruth_frame: torch.Tensor = groundtruth_tensor[..., idx]
+            prediction_frame: torch.Tensor = prediction_tensor[..., idx]
+            error_frame: torch.Tensor = error_tensor[..., idx]
+            # MSE value
+            global_mse, tropical_mse, extratropical_mse = self.mse(prediction=prediction_frame, groundtruth=groundtruth_frame)
+            global_mse: float = global_mse.item()
+            tropical_mse: float = tropical_mse.item()
+            extratropical_mse: float = extratropical_mse.item()
+            # RMSE value
+            global_rmse: float = global_mse ** 0.5
+            tropical_rmse: float = tropical_mse ** 0.5
+            extratropical_rmse: float = extratropical_mse ** 0.5
+            # MAE value
+            global_mae, tropical_mae, extratropical_mae = self.mae(prediction=prediction_frame, groundtruth=groundtruth_frame)
+            global_mae: float = global_mae.item()
+            tropical_mae: float = tropical_mae.item()
+            extratropical_mae: float = extratropical_mae.item()
+            # Save results
+            result_object: dict[str, Any] = {
+                "groundtruth": groundtruth_frame,
+                "prediction": prediction_frame,
+                "error_map": error_frame,
+                "global_mse": global_mse,
+                "tropical_mse": tropical_mse,
+                "extratropical_mse": extratropical_mse,
+                "global_rmse": global_rmse,
+                "tropical_rmse": tropical_rmse,
+                "extratropical_rmse": extratropical_rmse,
+                "global_mae": global_mae,
+                "tropical_mae": tropical_mae,
+                "extratropical_mae": extratropical_mae,
+                "model_name": self.model_name.upper(),
+                "output_name": output_name,
+                "sim_id": sampleinfo.sim_id,
+                "in_startdate": sampleinfo.in_startdate,
+                "in_enddate": sampleinfo.in_enddate,
+                "out_startdate": sampleinfo.out_startdate,
+                "out_enddate": sampleinfo.out_enddate,
+                "tropical_lats": self.tropical_lats,
+            }
+            filename: str = (
+                f"{self.model_name.upper()}_{output_name}_{sampleinfo.sim_id}_"
+                f"{sampleinfo.in_startdate}{sampleinfo.in_enddate}_"
+                f"{sampleinfo.out_startdate}{sampleinfo.out_enddate}.pt"
+            ).replace("/", "")
+            self.torchio.save(obj=result_object, filename=filename)
+            print({k: v for k, v in result_object.items() if isinstance(v, (str, float, int, tuple))})
 
-            # Plotting
-            for idx, output_name in enumerate(self.output_names):
-                # Select by output variable
-                groundtruth_frame: torch.Tensor = groundtruth_d[..., idx]
-                prediction_frame: torch.Tensor = prediction_d[..., idx]
-                error_frame: torch.Tensor = error_d[..., idx]
-                # MSE value
-                global_mse, tropical_mse, extratropical_mse = self.mse(prediction=prediction_frame, groundtruth=groundtruth_frame)
-                global_mse: float = global_mse.item()
-                tropical_mse: float = tropical_mse.item()
-                extratropical_mse: float = extratropical_mse.item()
-                # RMSE value
-                global_rmse: float = global_mse ** 0.5
-                tropical_rmse: float = tropical_mse ** 0.5
-                extratropical_rmse: float = extratropical_mse ** 0.5
-                # MAE value
-                global_mae, tropical_mae, extratropical_mae = self.mae(prediction=prediction_frame, groundtruth=groundtruth_frame)
-                global_mae: float = global_mae.item()
-                tropical_mae: float = tropical_mae.item()
-                extratropical_mae: float = extratropical_mae.item()
-                # Make title
-                title: str = (
-                    f"{self.model_name.upper()}: {output_name} - {sampleinfo.sim_id}\n"
-                    f"[In]: {sampleinfo.in_startdate} - {sampleinfo.in_enddate}\n"
-                    f"[Out]: {sampleinfo.out_startdate} - {sampleinfo.out_enddate} ({out_date.capitalize()})\n"
-                    f"RMSE (Global): {global_rmse:.4f}, MAE (Global): {global_mae:.4f}\n"
-                    f"RMSE (Tropic): {tropical_rmse:.4f}, MAE (Tropic): {tropical_mae:.4f}\n"
-                    f"RMSE (Extratropic): {extratropical_rmse:.4f}, MAE (Extratropic): {extratropical_mae:.4f}\n"
-                )
-                print(title)
-                print("------")
-                # Make file name
-                filename: str = (
-                    f"{self.model_name.upper()}_{output_name}_{sampleinfo.sim_id}_"
-                    f"{sampleinfo.in_startdate}{sampleinfo.in_enddate}_"
-                    f"{sampleinfo.out_startdate}{sampleinfo.out_enddate}_"
-                    f"{out_date}.png"
-                )
-                filename = filename.replace("/", "")
-                # Plot single frame
-                self.prediction_plotter.plot(
-                    groundtruth_frame=groundtruth_frame,
-                    prediction_frame=prediction_frame,
-                    error_frame=error_frame,
-                    tropical_lats=self.tropical_lats,
-                    landmask=self.landmask_reader.tensor,
-                    coordinates=self.coordinates_reader.tensors,
-                    title=title,
-                    filename=filename,
-                )
-
-        prediction_mean = prediction_mean.squeeze(0).squeeze(0)
-        groundtruth_mean = groundtruth_mean.squeeze(0).squeeze(0)
-        return prediction_mean, groundtruth_mean
+        return prediction_tensor, groundtruth_tensor
 
     #implement
     @property
@@ -269,40 +260,41 @@ class VAEPredictor(_AbstractPredictor):
                 global_mae: float = global_mae.item()
                 tropical_mae: float = tropical_mae.item()
                 extratropical_mae: float = extratropical_mae.item()
-                # Make title
+                
+                # Save results
                 output_name: str = self.output_names[day * len(self.dataset.metadata.input_vars) + idx]
-                title: str = (
-                    f"{self.model_name.upper()}\n"
-                    f"{output_name}\n"
-                    f"{sampleinfo.sim_id}\n"
-                    f"RMSE (Global): {global_rmse:.4f}, MAE (Global): {global_mae:.4f},\n"
-                    f"RMSE (Tropic): {tropical_rmse:.4f}, MAE (Tropic): {tropical_mae:.4f},\n"
-                    f"RMSE (Extratropic): {extratropical_rmse:.4f}, MAE (Extratropic): {extratropical_mae:.4f},\n"
-                    f"mu: {mu_mean:.4f}, sigma: {sigma_mean:.4f}\n"
+                result_object: dict[str, Any] = {
+                    "groundtruth": true_frame,
+                    "reconstruction": reconstructed_frame,
+                    "error_map": error_frame,
+                    "global_mse": global_mse,
+                    "tropical_mse": tropical_mse,
+                    "extratropical_mse": extratropical_mse,
+                    "global_rmse": global_rmse,
+                    "tropical_rmse": tropical_rmse,
+                    "extratropical_rmse": extratropical_rmse,
+                    "global_mae": global_mae,
+                    "tropical_mae": tropical_mae,
+                    "extratropical_mae": extratropical_mae,
+                    "mu": mu_mean,
+                    "sigma": sigma_mean,
                     # NOTE: `mu` and `sigma` is just a proxy. they come from the latent of all the variables, not just this variable
-                )
-                print(title)
-                print("------")
-
-                # Make file name
+                    "model_name": self.model_name.upper(),
+                    "output_name": output_name,
+                    "sim_id": sampleinfo.sim_id,
+                    "in_startdate": sampleinfo.in_startdate,
+                    "in_enddate": sampleinfo.in_enddate,
+                    "out_startdate": sampleinfo.out_startdate,
+                    "out_enddate": sampleinfo.out_enddate,
+                    "tropical_lats": self.tropical_lats,
+                }
                 filename: str = (
                     f"{self.model_name.upper()}_{output_name}_{sampleinfo.sim_id}_"
                     f"{sampleinfo.in_startdate}{sampleinfo.in_enddate}_"
-                    f"{sampleinfo.out_startdate}{sampleinfo.out_enddate}"
-                    f".png"
-                )
-                filename = filename.replace("/", "")
-                # Plot single frame
-                self.prediction_plotter.plot(
-                    groundtruth_frame=true_frame,
-                    prediction_frame=reconstructed_frame,
-                    error_frame=error_frame,
-                    landmask=self.landmask_reader.tensor,
-                    tropical_lats=self.tropical_lats,
-                    coordinates=self.coordinates_reader.tensors,
-                    title=title,
-                    filename=filename,
-                )
+                    f"{sampleinfo.out_startdate}{sampleinfo.out_enddate}.pt"
+                ).replace("/", "")
+                self.torchio.save(obj=result_object, filename=filename)
+                print({k: v for k, v in result_object.items() if isinstance(v, (str, float, int, tuple))})
 
         reconstruction: torch.Tensor = torch.stack(reconstructions, dim=0)
         groundtruth: torch.Tensor = torch.stack(groundtruths, dim=0)
@@ -327,13 +319,15 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         thermal_encoder: VAEEncoder,
         hydro_encoder: VAEEncoder,
         precip_encoder: VAEEncoder,
-        precip_decoder: VAEEncoder,
+        precip_decoder: VAEDecoder,
         noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler,
         eta: float,
         dataset: CESM2,
+        target_path: str,
         local_rank: int,
+        ensemble_size: int,
     ) -> None:
-        super().__init__(net=denoiser, dataset=dataset, local_rank=local_rank)
+        super().__init__(net=denoiser, dataset=dataset, target_path=target_path, local_rank=local_rank)
         self.denoiser: UNetDenoiser = denoiser
 
         # Freeze wind_encoder
@@ -363,8 +357,9 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         self.noise_scheduler: LinearNoiseScheduler = noise_scheduler
         self.n_denoising_steps: int = noise_scheduler.n_steps
         self.eta: float = eta
+        self.ensemble_size: int = ensemble_size
+        assert ensemble_size > 0
         self.reverse_process: ReverseProcess = ReverseProcess(eta=eta, noise_scheduler=noise_scheduler)
-        self.denoising_plotter: DenoisingPlotter = DenoisingPlotter()
 
     def _predict_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor]:
         sampleinfos, condition_days, _, condition, groundtruth = batch
@@ -375,51 +370,54 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
 
         # Encode
         condition_mu, condition_logvar, target_latent = self.vae_encode(condition=condition, target=groundtruth)
-        # Generate gaussian
-        gaussian: torch.Tensor = torch.randn_like(target_latent)
-        # Denoise
-        target_latent_k: torch.Tensor = gaussian
-        # Denoising step must range from 1 to K
-        for k in tqdm(list(reversed(range(1, self.noise_scheduler.n_steps + 1))), desc=f"Sampling step: "):
-            integer_step: torch.Tensor = torch.ones((1, 1), device=target_latent.device, dtype=torch.long) * k
-            # Backward process
-            predicted_velocity: torch.Tensor = self.net(
-                target=target_latent_k, 
-                condition_mu=condition_mu, condition_logvar=condition_logvar,
-                integer_step=integer_step, condition_days=condition_days,
-            )
-            target_latent_k, target_latent_0 = self.reverse_process.sample(
-                target_k=target_latent_k, predicted_velocity=predicted_velocity, k=integer_step,
-            )
-
-        # At k=0 (last denoising step), target_latent_k = target_latent_0
-        assert target_latent_k.isclose(target_latent_0).all()
-        # Decode target back to physical space
-        L: int = target_latent_0.shape[1]
-        prediction: torch.Tensor = self.precip_decoder(target_latent_0.flatten(0, 1)).transpose(0, 1)
-        assert prediction.shape == (1, L, 192, 288, self.out_features)
-        prediction_mean: torch.Tensor = prediction.mean(dim=1, keepdim=True)
-        prediction = torch.cat([prediction, prediction_mean], dim=1)
-        groundtruth_mean: torch.Tensor = groundtruth.mean(dim=1, keepdim=True)
-        groundtruth = torch.cat([groundtruth, groundtruth_mean], dim=1)
-        assert prediction.shape == groundtruth.shape == (1, L + 1, 192, 288, self.out_features)
-        assert len(sampleinfo.out_dates) == L
-        out_dates: list[str] = sampleinfo.out_dates + ["mean"]
+        L: int = groundtruth.shape[1]
+        groundtruth: torch.Tensor = groundtruth.mean(dim=1, keepdim=False).squeeze(dim=0)
         
-        for d in range(L + 1):
-            out_date: str = out_dates[d]
-            prediction_d: torch.Tensor = prediction[0, d]
-            groundtruth_d: torch.Tensor = groundtruth[0, d]
-            error_d: torch.Tensor = self.error_map(prediction=prediction_d, groundtruth=groundtruth_d)
+        member_predictions: list[torch.Tensor] = []
+        for member_idx in range(self.ensemble_size):
+            # Generate gaussian
+            gaussian: torch.Tensor = torch.randn_like(target_latent)
+            # Denoise
+            target_latent_k: torch.Tensor = gaussian
+            # Denoising step must range from 1 to K
+            for k in tqdm(
+                range(self.noise_scheduler.n_steps, 0, -1),
+                desc=f"Sampling step (Ensemble member {member_idx + 1}/{self.ensemble_size}): ",
+            ):
+                integer_step: torch.Tensor = (
+                    torch.ones((1, 1), device=target_latent.device, dtype=torch.long) * k
+                )
+                # Backward process
+                predicted_velocity: torch.Tensor = self.net(
+                    target=target_latent_k,
+                    condition_mu=condition_mu,
+                    condition_logvar=condition_logvar,
+                    integer_step=integer_step,
+                    condition_days=condition_days,
+                )
+                target_latent_k, target_latent_0 = self.reverse_process.sample(
+                    target_k=target_latent_k, predicted_velocity=predicted_velocity, k=integer_step,
+                )
 
-            # Prediction plots
+            # At k=0 (last denoising step), target_latent_k = target_latent_0
+            assert target_latent_k.isclose(target_latent_0).all()
+            # Decode target back to physical space
+            prediction: torch.Tensor = self.precip_decoder(target_latent_0.flatten(0, 1))
+            assert prediction.shape == (L, 1, 192, 288, self.out_features)
+            prediction = prediction.squeeze(dim=1)
+            prediction: torch.Tensor = prediction.mean(dim=0, keepdim=False)
+            member_predictions.append(prediction)
+            error_map: torch.Tensor = self.error_map(prediction=prediction, groundtruth=groundtruth)
+            
             for idx, output_name in enumerate(self.output_names):
                 # Select by output variable
-                groundtruth_frame: torch.Tensor = groundtruth_d[..., idx]
-                prediction_frame: torch.Tensor = prediction_d[..., idx]
-                error_frame: torch.Tensor = error_d[..., idx]
+                groundtruth_frame: torch.Tensor = groundtruth[..., idx]
+                prediction_frame: torch.Tensor = prediction[..., idx]
+                error_frame: torch.Tensor = error_map[..., idx]
                 # MSE value
-                global_mse, tropical_mse, extratropical_mse = self.mse(prediction=prediction_frame, groundtruth=groundtruth_frame)
+                global_mse, tropical_mse, extratropical_mse = self.mse(
+                    prediction=prediction_frame, groundtruth=groundtruth_frame
+                )
                 global_mse: float = global_mse.item()
                 tropical_mse: float = tropical_mse.item()
                 extratropical_mse: float = extratropical_mse.item()
@@ -428,46 +426,266 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
                 tropical_rmse: float = tropical_mse ** 0.5
                 extratropical_rmse: float = extratropical_mse ** 0.5
                 # MAE value
-                global_mae, tropical_mae, extratropical_mae = self.mae(prediction=prediction_frame, groundtruth=groundtruth_frame)
+                global_mae, tropical_mae, extratropical_mae = self.mae(
+                    prediction=prediction_frame, groundtruth=groundtruth_frame
+                )
                 global_mae: float = global_mae.item()
                 tropical_mae: float = tropical_mae.item()
                 extratropical_mae: float = extratropical_mae.item()
-                # Make title
-                title: str = (
-                    f"{self.model_name.upper()}: {output_name} - {sampleinfo.sim_id}\n"
-                    f"[In]: {sampleinfo.in_startdate} - {sampleinfo.in_enddate}\n"
-                    f"[Out]: {sampleinfo.out_startdate} - {sampleinfo.out_enddate} ({out_date.capitalize()})\n"
-                    f"RMSE (Global): {global_rmse:.4f}, MAE (Global): {global_mae:.4f}\n"
-                    f"RMSE (Tropic): {tropical_rmse:.4f}, MAE (Tropic): {tropical_mae:.4f}\n"
-                    f"RMSE (Extratropic): {extratropical_rmse:.4f}, MAE (Extratropic): {extratropical_mae:.4f}\n"
-                )
-                print(title)
-                print("------")
-                # Make file name
-                filename: str = (
-                    f"{self.model_name.upper()}_{sampleinfo.sim_id}_"
-                    f"{sampleinfo.in_startdate}{sampleinfo.in_enddate}_"
-                    f"{sampleinfo.out_startdate}{sampleinfo.out_enddate}_"
-                    f"{out_date}.png"
-                )
-                filename = filename.replace("/", "")
-                # Plot single frame
-                self.prediction_plotter.plot(
-                    groundtruth_frame=groundtruth_frame,
-                    prediction_frame=prediction_frame,
-                    error_frame=error_frame,
-                    landmask=self.landmask_reader.tensor,
-                    tropical_lats=self.tropical_lats,
-                    coordinates=self.coordinates_reader.tensors,
-                    title=title,
-                    filename=filename,
-                )
 
-        prediction_mean = prediction_mean.squeeze(0).squeeze(0)
-        groundtruth_mean = groundtruth_mean.squeeze(0).squeeze(0)
-        return prediction_mean, groundtruth_mean
+                # Save member results
+                prefix: str = self._make_filename_prefix(sampleinfo=sampleinfo, output_name=output_name)
+                suffix: str = f"ens_{member_idx:04d}.pt"
+                result_object: dict[str, Any] = {
+                    "groundtruth": groundtruth_frame,
+                    "prediction": prediction_frame,
+                    "error_map": error_frame,
+                    "global_mse": global_mse,
+                    "tropical_mse": tropical_mse,
+                    "extratropical_mse": extratropical_mse,
+                    "global_rmse": global_rmse,
+                    "tropical_rmse": tropical_rmse,
+                    "extratropical_rmse": extratropical_rmse,
+                    "global_mae": global_mae,
+                    "tropical_mae": tropical_mae,
+                    "extratropical_mae": extratropical_mae,
+                    "model_name": self.model_name.upper(),
+                    "output_name": output_name,
+                    "sim_id": sampleinfo.sim_id,
+                    "in_startdate": sampleinfo.in_startdate,
+                    "in_enddate": sampleinfo.in_enddate,
+                    "out_startdate": sampleinfo.out_startdate,
+                    "out_enddate": sampleinfo.out_enddate,
+                    "tropical_lats": self.tropical_lats,
+                    "ensemble_size": self.ensemble_size,
+                    "ensemble_member": member_idx + 1,
+                    "ensemble_stat": "member",
+                    "prefix": prefix,
+                    "suffix": suffix,
+                }
+                self.torchio.save(obj=result_object, filename=f"{prefix}_{suffix}")
+                print({k: v for k, v in result_object.items() if isinstance(v, (str, float, int, tuple))})
+
+        stack: torch.Tensor = torch.stack(member_predictions, dim=0)
+        ensemble_mean: torch.Tensor = stack.mean(dim=0, keepdim=False)
+        ensemble_var: torch.Tensor = stack.var(dim=0, unbiased=True, keepdim=False)
+        ensemble_std: torch.Tensor = stack.std(dim=0, unbiased=True, keepdim=False)
+        ensemble_q001: torch.Tensor = stack.quantile(q=0.01, dim=0, keepdim=False)
+        ensemble_q005: torch.Tensor = stack.quantile(q=0.05, dim=0, keepdim=False)
+        ensemble_q010: torch.Tensor = stack.quantile(q=0.10, dim=0, keepdim=False)
+        ensemble_q025: torch.Tensor = stack.quantile(q=0.25, dim=0, keepdim=False)
+        ensemble_q050: torch.Tensor = stack.quantile(q=0.50, dim=0, keepdim=False)
+        ensemble_q075: torch.Tensor = stack.quantile(q=0.75, dim=0, keepdim=False)
+        ensemble_q090: torch.Tensor = stack.quantile(q=0.90, dim=0, keepdim=False)
+        ensemble_q095: torch.Tensor = stack.quantile(q=0.95, dim=0, keepdim=False)
+        ensemble_q099: torch.Tensor = stack.quantile(q=0.99, dim=0, keepdim=False)
+        ensemble_error_mean: torch.Tensor = self.error_map(prediction=ensemble_mean, groundtruth=groundtruth)
+        ensemble_error_q050: torch.Tensor = self.error_map(prediction=ensemble_q050, groundtruth=groundtruth)
+
+        # Save ensemble results
+        for idx, output_name in enumerate(self.output_names):
+            groundtruth_frame: torch.Tensor = groundtruth[..., idx]
+            ensemble_mean_frame: torch.Tensor = ensemble_mean[..., idx]
+            ensemble_std_frame: torch.Tensor = ensemble_std[..., idx]
+            ensemble_var_frame: torch.Tensor = ensemble_var[..., idx]
+            ensemble_q001_frame: torch.Tensor = ensemble_q001[..., idx]
+            ensemble_q005_frame: torch.Tensor = ensemble_q005[..., idx]
+            ensemble_q010_frame: torch.Tensor = ensemble_q010[..., idx]
+            ensemble_q025_frame: torch.Tensor = ensemble_q025[..., idx]
+            ensemble_q050_frame: torch.Tensor = ensemble_q050[..., idx]
+            ensemble_q075_frame: torch.Tensor = ensemble_q075[..., idx]
+            ensemble_q090_frame: torch.Tensor = ensemble_q090[..., idx]
+            ensemble_q095_frame: torch.Tensor = ensemble_q095[..., idx]
+            ensemble_q099_frame: torch.Tensor = ensemble_q099[..., idx]
+            error_mean_frame: torch.Tensor = ensemble_error_mean[..., idx]
+            error_q050_frame: torch.Tensor = ensemble_error_q050[..., idx]
+
+            # MSE value
+            global_mse, tropical_mse, extratropical_mse = self.mse(
+                prediction=ensemble_q050_frame, groundtruth=groundtruth_frame
+            )
+            global_mse: float = global_mse.item()
+            tropical_mse: float = tropical_mse.item()
+            extratropical_mse: float = extratropical_mse.item()
+            # RMSE value
+            global_rmse: float = global_mse ** 0.5
+            tropical_rmse: float = tropical_mse ** 0.5
+            extratropical_rmse: float = extratropical_mse ** 0.5
+            # MAE value
+            global_mae, tropical_mae, extratropical_mae = self.mae(
+                prediction=ensemble_q050_frame, groundtruth=groundtruth_frame
+            )
+            global_mae: float = global_mae.item()
+            tropical_mae: float = tropical_mae.item()
+            extratropical_mae: float = extratropical_mae.item()
+
+            prefix: str = self._make_filename_prefix(sampleinfo=sampleinfo, output_name=output_name)
+            suffix: str = f"ens_aggregate.pt"
+            result_object: dict[str, Any] = {
+                "groundtruth": groundtruth_frame,
+                "ensemble_mean": ensemble_mean_frame,
+                "ensemble_std": ensemble_std_frame,
+                "ensemble_var": ensemble_var_frame,
+                "ensemble_q001": ensemble_q001_frame,
+                "ensemble_q005": ensemble_q005_frame,
+                "ensemble_q010": ensemble_q010_frame,
+                "ensemble_q025": ensemble_q025_frame,
+                "ensemble_q050": ensemble_q050_frame,
+                "ensemble_q075": ensemble_q075_frame,
+                "ensemble_q090": ensemble_q090_frame,
+                "ensemble_q095": ensemble_q095_frame,
+                "ensemble_q099": ensemble_q099_frame,
+                "error_mean_frame": error_mean_frame,
+                "error_q050_frame": error_q050_frame,
+                "global_mse": global_mse,
+                "tropical_mse": tropical_mse,
+                "extratropical_mse": extratropical_mse,
+                "global_rmse": global_rmse,
+                "tropical_rmse": tropical_rmse,
+                "extratropical_rmse": extratropical_rmse,
+                "global_mae": global_mae,
+                "tropical_mae": tropical_mae,
+                "extratropical_mae": extratropical_mae,
+                "model_name": self.model_name.upper(),
+                "output_name": output_name,
+                "sim_id": sampleinfo.sim_id,
+                "in_startdate": sampleinfo.in_startdate,
+                "in_enddate": sampleinfo.in_enddate,
+                "out_startdate": sampleinfo.out_startdate,
+                "out_enddate": sampleinfo.out_enddate,
+                "tropical_lats": self.tropical_lats,
+                "ensemble_size": self.ensemble_size,
+                "ensemble_member": -1,
+                "ensemble_stat": "aggregate",
+                "prefix": prefix,
+                "suffix": suffix,
+            }
+            self.torchio.save(obj=result_object, filename=f"{prefix}_{suffix}")
+            print({k: v for k, v in result_object.items() if isinstance(v, (str, float, int, tuple))})
+
+        return ensemble_mean, groundtruth
 
     #implement
     @cached_property
     def output_names(self) -> list[str]:
         return self.dataset.metadata.output_vars
+
+    def _make_filename_prefix(self, sampleinfo: SampleInfo, output_name: str) -> str:
+        filename_prefix: str = (
+            f"{self.model_name.upper()}_{output_name}_{sampleinfo.sim_id}_"
+            f"{sampleinfo.in_startdate}{sampleinfo.in_enddate}_"
+            f"{sampleinfo.out_startdate}{sampleinfo.out_enddate}"
+        )
+        return filename_prefix.replace("/", "")
+
+
+class Visualizer:
+
+    def __init__(self, source_dir: str, target_dir: str):
+        self.source_dir = Path(source_dir)
+        self.target_dir = Path(target_dir)
+        self.torchio = TorchDictIO(dirpath=source_dir)
+        self.prediction_plotter = PredictionPlotter(dirpath=target_dir)
+        self.landmask_reader: LandMaskReader = LandMaskReader(device="cpu")
+        self.coordinates_reader: CoordinatesReader = CoordinatesReader(device="cpu")
+
+    def plot_baseline_prediction(self, filename: str) -> None:
+        result_object: dict[str, torch.Tensor | float | str] = self.torchio.load(filename=filename)
+        # Make title
+        title: str = (
+            f"{result_object['model_name']}: {result_object['output_name']} - {result_object['sim_id']}\n"
+            f"[In]: {result_object['in_startdate']} - {result_object['in_enddate']}\n"
+            f"[Out]: {result_object['out_startdate']} - {result_object['out_enddate']} (Mean)\n"
+            f"RMSE (Global): {result_object['global_rmse']:.4f}, MAE (Global): {result_object['global_mae']:.4f}\n"
+            f"RMSE (Tropic): {result_object['tropical_rmse']:.4f}, MAE (Tropic): {result_object['tropical_mae']:.4f}\n"
+            f"RMSE (Extratropic): {result_object['extratropical_rmse']:.4f}, MAE (Extratropic): {result_object['extratropical_mae']:.4f}\n"
+        )
+        print(title)
+        print("------")
+        self.prediction_plotter.plot(
+            groundtruth_frame=result_object["groundtruth"],
+            prediction_frame=result_object["prediction"],
+            error_frame=result_object["error_map"],
+            uncertainty_frame=None,
+            tropical_lats=result_object["tropical_lats"],
+            landmask=self.landmask_reader.tensor,
+            coordinates=self.coordinates_reader.tensors,
+            title=title,
+            filename=filename.replace(".pt", ".png"),
+            vlim=0.04,
+        )
+
+    def plot_vae_prediction(self, filename: str) -> None:
+        result_object: dict[str, torch.Tensor | float | str] = self.torchio.load(filename=filename)
+        # Make title
+        title: str = (
+            f"{result_object['model_name']}: {result_object['output_name']} - {result_object['sim_id']}\n"
+            f"[In]: {result_object['in_startdate']} - {result_object['in_enddate']}\n"
+            f"[Out]: {result_object['out_startdate']} - {result_object['out_enddate']} (Mean)\n"
+            f"RMSE (Global): {result_object['global_rmse']:.4f}, MAE (Global): {result_object['global_mae']:.4f}\n"
+            f"RMSE (Tropic): {result_object['tropical_rmse']:.4f}, MAE (Tropic): {result_object['tropical_mae']:.4f}\n"
+            f"RMSE (Extratropic): {result_object['extratropical_rmse']:.4f}, MAE (Extratropic): {result_object['extratropical_mae']:.4f}\n"
+            f"mu: {float(result_object['mu']):.4f}, sigma: {float(result_object['sigma']):.4f}\n"
+        )
+        print(title)
+        print("------")
+        self.prediction_plotter.plot(
+            groundtruth_frame=result_object["groundtruth"],
+            prediction_frame=result_object["reconstruction"],
+            error_frame=result_object["error_map"],
+            uncertainty_frame=None,
+            landmask=self.landmask_reader.tensor,
+            tropical_lats=result_object["tropical_lats"],
+            coordinates=self.coordinates_reader.tensors,
+            title=title,
+            filename=filename.replace(".pt", ".png"),
+            vlim=None,
+        )
+
+    def plot_diffusion_prediction(self, filename: str) -> None:
+        result_object: dict[str, torch.Tensor | float | str] = self.torchio.load(filename=filename)
+        if result_object["ensemble_stat"] == "member":
+            ensemble_label: str = f"Ensemble Member: {result_object['ensemble_member']}/{result_object['ensemble_size']}"
+            prediction_frame: torch.Tensor = result_object["prediction"]
+            groundtruth_frame = None
+            error_frame = None
+            uncertainty_frame = None
+        else:
+            ensemble_label: str = "Ensemble Mean"
+            prediction_frame: torch.Tensor = result_object["ensemble_q050"]
+            groundtruth_frame: torch.Tensor = result_object["groundtruth"]
+            error_frame: torch.Tensor = result_object["error_q050_frame"]
+            uncertainty_frame: torch.Tensor = result_object["ensemble_var"]
+        
+        # Make title
+        title: str = (
+            f"{result_object['model_name']}: {result_object['output_name']} - {result_object['sim_id']} ({ensemble_label})\n"
+            f"[In]: {result_object['in_startdate']} - {result_object['in_enddate']}\n"
+            f"[Out]: {result_object['out_startdate']} - {result_object['out_enddate']} (Mean)\n"
+            f"RMSE (Global): {result_object['global_rmse']:.4f}, MAE (Global): {result_object['global_mae']:.4f}\n"
+            f"RMSE (Tropic): {result_object['tropical_rmse']:.4f}, MAE (Tropic): {result_object['tropical_mae']:.4f}\n"
+            f"RMSE (Extratropic): {result_object['extratropical_rmse']:.4f}, MAE (Extratropic): {result_object['extratropical_mae']:.4f}\n"
+        )
+        print(title)
+        print("------")
+        # Plot single frame
+        self.prediction_plotter.plot(
+            prediction_frame=prediction_frame,
+            groundtruth_frame=groundtruth_frame,
+            error_frame=error_frame,
+            uncertainty_frame=uncertainty_frame,
+            tropical_lats=result_object["tropical_lats"],
+            landmask=self.landmask_reader.tensor,
+            coordinates=self.coordinates_reader.tensors,
+            title=title,
+            filename=filename.replace(".pt", ".png"),
+            vlim=0.04,
+        )
+
+
+
+
+
+
+
+

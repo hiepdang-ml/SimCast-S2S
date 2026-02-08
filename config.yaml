@@ -125,6 +125,7 @@ cnn:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/cnn/cnn9.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/cnn/"
+  target_path: "/scratch/zgp2ps/s2s_results/cnn/tensors/"
 
 
 unet:
@@ -141,8 +142,9 @@ unet:
   tolerance: 0.
   save_frequency: 1
   
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/unet256/unet6.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/unet256/unet2.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/unet256/"
+  target_path: "/scratch/zgp2ps/s2s_results/unet256/tensors/"
 
 
 vit:
@@ -165,6 +167,7 @@ vit:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vit/vit3.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vit/"
+  target_path: "/scratch/zgp2ps/s2s_results/vit/tensors/"
 
 
 vae-wind:
@@ -186,6 +189,7 @@ vae-wind:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/vaewind6.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/"
+  target_path: "/scratch/zgp2ps/s2s_results/vae_wind_16times/tensors/"
 
 
 vae-mass:
@@ -207,6 +211,7 @@ vae-mass:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_mass_16times/vaemass11.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_mass_16times/"
+  target_path: "/scratch/zgp2ps/s2s_results/vae_mass_16times/tensors/"
 
 
 vae-thermal:
@@ -228,6 +233,7 @@ vae-thermal:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermal_16times/vaethermal15.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_thermal_16times/"
+  target_path: "/scratch/zgp2ps/s2s_results/vae_thermal_16times/tensors/"
 
 
 vae-hydro:
@@ -249,6 +255,7 @@ vae-hydro:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_hydro_16times/vaehydro3.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_hydro_16times/"
+  target_path: "/scratch/zgp2ps/s2s_results/vae_hydro_16times/tensors/"
 
 
 vae-precip:
@@ -270,6 +277,7 @@ vae-precip:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times/vaeprecip6.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times"
+  target_path: "/scratch/zgp2ps/s2s_results/vae_precip_4times/tensors/"
 
 
 diffusion:
@@ -298,7 +306,8 @@ diffusion:
   beta_min: 0.001  # linear only
   beta_max: 0.020  # linear only
   # Sampling
-  eta: 0.
+  eta: 1.
+  ensemble_size: 20
   # Training
   learning_rate: 1e-6
   train_batch_size: 4
@@ -314,5 +323,7 @@ diffusion:
   vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_hydro_16times/vaehydro3.pt"
   vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times/vaeprecip6.pt"
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v23_cosine/diffusion16.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v23_cosine/diffusion24.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v23_cosine/"
+  # target_path: "/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors/"  # eta 000, median
+  target_path: "/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors_eta100_median/"

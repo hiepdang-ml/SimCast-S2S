@@ -18,7 +18,8 @@ from models.diffusion import (
 def main(
     model: Literal[
         "cnn", "unet", "vit", 
-        "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", "diffusion"
+        "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", 
+         "diffusion",
     ],
     dataset: Literal["cesm2", "era5"],
     local_rank: int,
@@ -40,7 +41,7 @@ def main(
         net: CNN = checkpoint_loader.load(scope=globals())
         assert isinstance(net, CNN)
         assert net.n_input_days == test_metadata.n_input_days
-        BaselinePredictor(net=net, dataset=test_dataset, local_rank=local_rank).predict()
+        BaselinePredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
 
     elif model.lower() == "unet":
         model_config: UnetConfig = UnetConfig()
@@ -48,7 +49,7 @@ def main(
         net: UNet = checkpoint_loader.load(scope=globals())
         assert isinstance(net, UNet)
         assert net.n_input_days == test_metadata.n_input_days
-        BaselinePredictor(net=net, dataset=test_dataset, local_rank=local_rank).predict()
+        BaselinePredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
 
     elif model.lower() == "vit":
         model_config: ViTConfig = ViTConfig()
@@ -56,7 +57,7 @@ def main(
         net: ViT = checkpoint_loader.load(scope=globals())
         assert isinstance(net, ViT)
         assert net.n_input_days == test_metadata.n_input_days
-        BaselinePredictor(net=net, dataset=test_dataset, local_rank=local_rank).predict()
+        BaselinePredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
 
     elif model.lower() == "vae-wind":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -82,7 +83,7 @@ def main(
         net: VAE_Mass = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Mass)
         assert net.pixel_dim == len(test_metadata.input_vars)
-        VAEPredictor(net=net, dataset=test_dataset, local_rank=local_rank).predict()
+        VAEPredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
 
     elif model.lower() == "vae-thermal":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -95,7 +96,7 @@ def main(
         net: VAE_Thermal = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Thermal)
         assert net.pixel_dim == len(test_metadata.input_vars)
-        VAEPredictor(net=net, dataset=test_dataset, local_rank=local_rank).predict()
+        VAEPredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
 
     elif model.lower() == "vae-hydro":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -108,7 +109,7 @@ def main(
         net: VAE_Hydro = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Hydro)
         assert net.pixel_dim == len(test_metadata.input_vars)
-        VAEPredictor(net=net, dataset=test_dataset, local_rank=local_rank).predict()
+        VAEPredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
 
     elif model.lower() == "vae-precip":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -121,7 +122,7 @@ def main(
         net: VAE_Precip = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Precip)
         assert net.pixel_dim == len(test_metadata.input_vars)
-        VAEPredictor(net=net, dataset=test_dataset, local_rank=local_rank).predict()
+        VAEPredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
 
     elif model.lower() == "vae-target":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -135,7 +136,9 @@ def main(
         net: VAE_Precip = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Target)
         assert net.pixel_dim == 1
-        VAEPredictor(net=net, dataset=test_dataset, local_rank=local_rank).predict()
+        VAEPredictor(
+            net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank
+        ).predict()
 
     elif model.lower() == "diffusion":
         model_config: DiffusionConfig = DiffusionConfig()
@@ -183,7 +186,9 @@ def main(
             precip_encoder=precip_vae.encoder, precip_decoder=precip_vae.decoder, 
             noise_scheduler=noise_scheduler,
             eta=model_config.eta,
+            ensemble_size=model_config.ensemble_size,
             dataset=test_dataset,
+            target_path=model_config.target_path,
             local_rank=local_rank,
         ).predict()
 
@@ -227,4 +232,3 @@ if __name__ == "__main__":
         main(model=args.model, dataset=args.dataset, local_rank=local_rank)
     finally:
         cleanup_ddp()
-

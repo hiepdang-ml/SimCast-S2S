@@ -379,3 +379,37 @@ class CheckpointLoader:
         
         return model
 
+
+class TorchDictIO:
+    """
+    Save/load a dictionary of named tensors under a directory.
+    This is a thin wrapper around `torch.save` / `torch.load`.
+
+    Notes:
+        - The target directory is created if it does not exist.
+    """
+
+    def __init__(self, dirpath: str) -> None:
+        self.dirpath: pathlib.Path = pathlib.Path(dirpath)
+        os.makedirs(name=self.dirpath, exist_ok=True)
+
+    def save(self, obj: dict[str, torch.Tensor | float | str], filename: str) -> None:
+        """
+        Serialize objections to a file.
+
+        Parameters:
+            - obj: Mapping from name -> object.
+            - filename (str): Target filename within `dirpath` (e.g. "preds.pt").
+        """
+        torch.save(obj=obj, f=self.dirpath.joinpath(filename))
+
+    def load(self, filename: str) -> dict[str, torch.Tensor | float | str]:
+        """
+        Load objects from a file created by :meth:`save`.
+
+        Parameters:
+            - filename (str): Source filename within `dirpath`.
+
+        """
+        return torch.load(f=self.dirpath.joinpath(filename), weights_only=True, map_location="cpu")
+

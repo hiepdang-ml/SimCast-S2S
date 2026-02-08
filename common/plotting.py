@@ -5,9 +5,9 @@ import torch
 
 class _BasePlotter:
 
-    def __init__(self) -> None:
-        self.destination_directory: pathlib.Path = pathlib.Path('./results')
-        self.destination_directory.mkdir(parents=True, exist_ok=True)
+    def __init__(self, dirpath: str) -> None:
+        self.dirpath: pathlib.Path = pathlib.Path(dirpath)
+        self.dirpath.mkdir(parents=True, exist_ok=True)
 
     def plot_layer(
         self, 
@@ -48,43 +48,75 @@ class PredictionPlotter(_BasePlotter):
 
     def plot(
         self,
-        groundtruth_frame: torch.Tensor,
-        prediction_frame: torch.Tensor,
-        error_frame: torch.Tensor,
+        groundtruth_frame: torch.Tensor | None,
+        prediction_frame: torch.Tensor | None,
+        error_frame: torch.Tensor | None,
+        uncertainty_frame: torch.Tensor | None,
         landmask: torch.Tensor,
         tropical_lats: tuple[float, float],
         coordinates: tuple[torch.Tensor, torch.Tensor],
-        title: str,
-        filename: str,
+        title: str, filename: str,
+        vlim: float | None,
     ) -> None:
 
-        assert groundtruth_frame.shape == prediction_frame.shape == error_frame.shape == landmask.shape == (192, 288)
+        for frame in (groundtruth_frame, prediction_frame, error_frame, uncertainty_frame):
+            if frame is not None:
+                assert frame.shape == landmask.shape
 
-        groundtruth_frame = groundtruth_frame.cpu()
-        prediction_frame = prediction_frame.cpu()
-        error_frame = error_frame.cpu()
+        plot_items: list[tuple[str, torch.Tensor]] = []
+        if prediction_frame is not None:
+            plot_items.append(("Prediction", prediction_frame.cpu()))
+        if groundtruth_frame is not None:
+            plot_items.append(("Groundtruth", groundtruth_frame.cpu()))
+        if error_frame is not None:
+            plot_items.append(("Error Map", error_frame.cpu()))
+        if uncertainty_frame is not None:
+            plot_items.append(("Uncertainty", uncertainty_frame.cpu()))
+        if not plot_items:
+            raise ValueError("At least one of groundtruth_frame, prediction_frame, error_frame, uncertainty_frame must be provided.")
+
         landmask = landmask.cpu()
-
-        H: int = groundtruth_frame.shape[0]
-        W: int = groundtruth_frame.shape[1]
+        H: int = landmask.shape[0]
+        W: int = landmask.shape[1]
         aspect_ratio: float = H / W
-        figwidth: float = 5.6
+        subplot_width: float = 5.6
+        subplot_height: float = subplot_width * aspect_ratio
+        nrows: int = len(plot_items)
+        fig, axs = plt.subplots(nrows, 1, figsize=(subplot_width, int((nrows + 0.6) * subplot_height)))
+        if nrows == 1: 
+            axs = [axs]
 
-        fig, axs = plt.subplots(3, 1, figsize=(figwidth, 3 * figwidth * aspect_ratio))
-        q: float = 0.95
-        limit: float = max(groundtruth_frame.quantile(q=q).item(), groundtruth_frame.neg().quantile(q=q).item())
-        vmax: float = limit
-        vmin: float = limit * (-1)
+        if vlim is None:
+            q: float = 0.95
+            reference_frame: torch.Tensor = plot_items[0][1]
+            vlim: float = reference_frame.abs().quantile(q=q).item()
+        else:
+            assert vlim > 0
 
-        self.plot_layer(ax=axs[0], data=groundtruth_frame, coords=coordinates, tropical_lats=tropical_lats, title="Groundtruth", cmap="RdBu", vmin=vmin, vmax=vmax)
-        self.plot_layer(ax=axs[1], data=prediction_frame, coords=coordinates, tropical_lats=tropical_lats, title="Prediction", cmap="RdBu", vmin=vmin, vmax=vmax)
-        self.plot_layer(ax=axs[2], data=error_frame, coords=coordinates, tropical_lats=tropical_lats, title="Error Map", cmap="RdBu", vmin=vmin, vmax=vmax)
+        for ax, (subplot_title, frame) in zip(axs, plot_items):
+            if subplot_title == "Uncertainty":
+                (cmap, vmin, vmax) = ("Blues", 0, vlim ** 2)
+            else:
+                (cmap, vmin, vmax) = ("RdBu", -vlim, vlim)
+            self.plot_layer(
+                ax=ax, data=frame, coords=coordinates, tropical_lats=tropical_lats,
+                title="" if nrows == 1 else subplot_title,
+                cmap=cmap, vmin=vmin, vmax=vmax,
+            )
         self.add_landmask(axs=axs, landmask=landmask, coords=coordinates)
 
-        fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=0.83, hspace=0.15)
-        fig.suptitle(title, fontsize=12)
+        if nrows == 4:
+            top: float = 0.89
+        elif nrows == 3:
+            top: float = 0.87
+        elif nrows == 2:
+            top: float = 0.82
+        else:
+            top: float = 0.75
 
-        fig.savefig(self.destination_directory.joinpath(filename), bbox_inches="tight")
+        fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=top, hspace=0.14)
+        fig.suptitle(title, fontsize=12)
+        fig.savefig(self.dirpath.joinpath(filename), bbox_inches="tight", dpi=500)
         plt.close(fig)
 
 
@@ -123,7 +155,7 @@ class MetricPlotter(_BasePlotter):
             f"MAE Map\n"
             f"Global: {global_mae.item():.3f} - "
             f"Tropic: {tropical_mae.item():.3f} - "
-            f"Extratropic: {global_mae.item():.3f}"
+            f"Extratropic: {extratropical_mae.item():.3f}"
         )
         self.plot_layer(
             ax=axs[0], data=mae_frame, coords=coordinates, 
@@ -133,7 +165,7 @@ class MetricPlotter(_BasePlotter):
             f"R-squared Map\n"
             f"Global: {global_rsquared.item():.3f} - "
             f"Tropic: {tropical_rsquared.item():.3f} - "
-            f"Extratropic: {global_rsquared.item():.3f}"
+            f"Extratropic: {extratropical_rsquared.item():.3f}"
         )
         self.plot_layer(
             ax=axs[1], data=rsquared_frame, coords=coordinates, 
@@ -144,15 +176,15 @@ class MetricPlotter(_BasePlotter):
         fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=0.88, hspace=0.18)
         fig.suptitle(title, fontsize=12)
 
-        fig.savefig(self.destination_directory.joinpath(filename), bbox_inches="tight")
+        fig.savefig(self.dirpath.joinpath(filename), bbox_inches="tight", dpi=500)
         plt.close(fig)
 
 
 class DenoisingPlotter:
 
     def __init__(self) -> None:
-        self.destination_directory: pathlib.Path = pathlib.Path('./steps')
-        self.destination_directory.mkdir(parents=True, exist_ok=True)
+        self.dirpath: pathlib.Path = pathlib.Path('./steps')
+        self.dirpath.mkdir(parents=True, exist_ok=True)
 
     def plot(
         self,
@@ -197,6 +229,5 @@ class DenoisingPlotter:
         axs[1].invert_xaxis()
 
         fig.subplots_adjust(wspace=0.25, bottom=0.15, top=0.85)
-        fig.savefig(self.destination_directory.joinpath(filename), bbox_inches="tight")
+        fig.savefig(self.dirpath.joinpath(filename), bbox_inches="tight", dpi=500)
         plt.close(fig)
-

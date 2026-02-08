@@ -18,7 +18,8 @@ from models.diffusion import (
 def main(
     model: Literal[
         "cnn", "unet", "vit", 
-        "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip",
+        "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", 
+        "diffusion",
     ],
     dataset: Literal["cesm2", "era5"],
     local_rank: int,

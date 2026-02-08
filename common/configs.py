@@ -18,6 +18,7 @@ class BaseConfig(ABC):
         self.save_frequency: int = self._config["save_frequency"]
         self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self._config["from_checkpoint"]) else None
         self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self._config["saved_checkpoint_directory"])
+        self.target_path: pathlib.Path = pathlib.Path(self._config["target_path"])
 
     @abstractmethod
     def _load(self) -> None:
@@ -151,6 +152,7 @@ class CNNConfig(BaseConfig):
             "save_frequency": self.save_frequency,
             "from_checkpoint": self.from_checkpoint,
             "saved_checkpoint_directory": self.saved_checkpoint_directory,
+            "target_path": self.target_path,
         }
 
 class UnetConfig(BaseConfig):
@@ -181,6 +183,7 @@ class UnetConfig(BaseConfig):
             "save_frequency": self.save_frequency,
             "from_checkpoint": self.from_checkpoint,
             "saved_checkpoint_directory": self.saved_checkpoint_directory,
+            "target_path": self.target_path,
         }
 
 class ViTConfig(BaseConfig):
@@ -219,6 +222,7 @@ class ViTConfig(BaseConfig):
             "save_frequency": self.save_frequency,
             "from_checkpoint": self.from_checkpoint,
             "saved_checkpoint_directory": self.saved_checkpoint_directory,
+            "target_path": self.target_path,
         }
 
 
@@ -262,6 +266,7 @@ class VAEConfig(BaseConfig):
             "save_frequency": self.save_frequency,
             "from_checkpoint": self.from_checkpoint,
             "saved_checkpoint_directory": self.saved_checkpoint_directory,
+            "target_path": self.target_path,
         }
     
 
@@ -297,6 +302,7 @@ class DiffusionConfig(BaseConfig):
         self.beta_max: float = float(self._config["beta_max"])
         self.n_steps: int = self._config["n_steps"]
         self.eta: float = float(self._config["eta"])
+        self.ensemble_size: int = int(self._config["ensemble_size"])
 
         self.learning_rate: float = float(self._config["learning_rate"])
         self.vae_wind_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_wind_checkpoint"])
@@ -329,6 +335,7 @@ class DiffusionConfig(BaseConfig):
             "beta_max": self.beta_max,
             "n_steps": self.n_steps,
             "eta": self.eta,
+            "ensemble_size": self.ensemble_size,
             "learning_rate": self.learning_rate,
             "train_batch_size": self.train_batch_size,
             "val_batch_size": self.val_batch_size,
@@ -343,4 +350,5 @@ class DiffusionConfig(BaseConfig):
             "vae_precip_checkpoint": self.vae_precip_checkpoint,
             "from_checkpoint": self.from_checkpoint,
             "saved_checkpoint_directory": self.saved_checkpoint_directory,
+            "target_path": self.target_path,
         }
