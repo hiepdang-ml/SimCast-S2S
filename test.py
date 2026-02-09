@@ -41,43 +41,17 @@ from models.diffusion import (
 #     elif model.lower() == "diffusion":
 #         vae_config: VAE_Precip = DiffusionConfig()
     
-
 from common.utils import TorchDictIO
-torchio = TorchDictIO(dirpath="/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors/")
 from workers.predictors import Visualizer
-v = Visualizer("/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors/", "/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors/")
 
+torchio = TorchDictIO(
+    dirpath="/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors_eta100_median/",
+)
+v = Visualizer(
+    "/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors_eta100_median/", 
+    "/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/plots_eta100_median/"
+)
 for f in sorted(v.source_dir.glob("*")):
     print(f)
     v.plot_diffusion_prediction(f.name)
-
-
-# from common.utils import TorchDictIO
-# torchio = TorchDictIO(dirpath="/scratch/zgp2ps/s2s_results/unet256/tensors/")
-# from workers.predictors import Visualizer
-# v = Visualizer("/scratch/zgp2ps/s2s_results/unet256/tensors/", "/scratch/zgp2ps/s2s_results/unet256/plots/")
-
-# for f in sorted(v.source_dir.glob("*")):
-#     print(f)
-#     v.plot_baseline_prediction(f.name)
-
-
-# from common.utils import TorchDictIO
-# torchio = TorchDictIO(dirpath="/scratch/zgp2ps/s2s_results/cnn/tensors/")
-# from workers.predictors import Visualizer
-# v = Visualizer("/scratch/zgp2ps/s2s_results/cnn/tensors/", "/scratch/zgp2ps/s2s_results/cnn/plots/")
-
-# for f in sorted(v.source_dir.glob("*")):
-#     print(f)
-#     v.plot_baseline_prediction(f.name)
-
-
-# from common.utils import TorchDictIO
-# torchio = TorchDictIO(dirpath="/scratch/zgp2ps/s2s_results/vit/tensors/")
-# from workers.predictors import Visualizer
-# v = Visualizer("/scratch/zgp2ps/s2s_results/vit/tensors/", "/scratch/zgp2ps/s2s_results/vit/plots/")
-
-# for f in sorted(v.source_dir.glob("*")):
-#     print(f)
-#     v.plot_baseline_prediction(f.name)
 
