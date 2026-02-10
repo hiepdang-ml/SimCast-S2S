@@ -7,9 +7,10 @@ def main(year: int, months: list[int]) -> None:
     request = {
         "product_type": "reanalysis",
         "variable": [
-            # "mean_sea_level_pressure",
-            # "total_precipitation",
-            # "mean_top_net_long_wave_radiation_flux",
+            "mean_sea_level_pressure",
+            "total_precipitation",
+            "mean_top_net_long_wave_radiation_flux",
+            "2m_temperature",
             "skin_temperature",
             "total_column_water_vapour",
         ],
@@ -32,5 +33,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     main(args.year, args.months)
 
-# Example: 
+# Example:
 # python era5api/singlelevel.py --year=2025 --months=1,2,3
