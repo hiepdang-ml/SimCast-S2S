@@ -45,7 +45,7 @@ class Era5SafeUnzip:
 
         return [dirpath.joinpath(fn) for fn in filenames]
 
-    def checkall(self, ncfiles: list[Path]) -> bool:
+    def checkall(self, ncfiles: list[Path]) -> None:
         expected_ym: set[tuple[int, int]] = set((self.year, m) for m in self.months)
         for ncfile in ncfiles:
             ds: xr.Dataset = xr.open_dataset(ncfile)
@@ -53,11 +53,9 @@ class Era5SafeUnzip:
                 (t.item().year, t.item().month) for t in ds.valid_time.dt.date
             )
             if seen_ym != expected_ym:
-                print(f"expected to see {expected_ym}, {ncfile.as_posix()} has {seen_ym}")
-                return False
+                raise RuntimeError(f"expected to see {expected_ym}, {ncfile.as_posix()} has {seen_ym}")
             else:
                 print(f"{ncfile.as_posix()}: OK")
-        return True
 
 
 if __name__ == "__main__":
@@ -88,4 +86,4 @@ if __name__ == "__main__":
         ncfiles: list[Path] = worker.extractall()
         worker.checkall(ncfiles)
 
-# Example: python dataapi/era5/unzip.py --data-dir "./devdata" -y 2025 -q 4
+# Example: python dataapi/era5/unzip.py --data-dir "./devdata" --fromyear 1940 --toyear 2025 -q
