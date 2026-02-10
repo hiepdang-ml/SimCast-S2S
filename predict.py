@@ -10,15 +10,15 @@ from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, VAE_Target,
-    VAEEncoder, VAEDecoder, UNetDenoiser, 
+    VAEEncoder, VAEDecoder, UNetDenoiser,
     LinearNoiseScheduler, CosineNoiseScheduler, ForwardProcess, ReverseProcess,
 )
 
 
 def main(
     model: Literal[
-        "cnn", "unet", "vit", 
-        "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", 
+        "cnn", "unet", "vit",
+        "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip",
          "diffusion",
     ],
     dataset: Literal["cesm2", "era5"],
@@ -41,7 +41,11 @@ def main(
         net: CNN = checkpoint_loader.load(scope=globals())
         assert isinstance(net, CNN)
         assert net.n_input_days == test_metadata.n_input_days
-        BaselinePredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
+        BaselinePredictor(
+            net=net, dataset=test_dataset,
+            target_path=model_config.target_path.as_posix(),
+            local_rank=local_rank,
+        ).predict()
 
     elif model.lower() == "unet":
         model_config: UnetConfig = UnetConfig()
@@ -49,7 +53,11 @@ def main(
         net: UNet = checkpoint_loader.load(scope=globals())
         assert isinstance(net, UNet)
         assert net.n_input_days == test_metadata.n_input_days
-        BaselinePredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
+        BaselinePredictor(
+            net=net, dataset=test_dataset,
+            target_path=model_config.target_path.as_posix(),
+            local_rank=local_rank,
+        ).predict()
 
     elif model.lower() == "vit":
         model_config: ViTConfig = ViTConfig()
@@ -57,7 +65,7 @@ def main(
         net: ViT = checkpoint_loader.load(scope=globals())
         assert isinstance(net, ViT)
         assert net.n_input_days == test_metadata.n_input_days
-        BaselinePredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
+        BaselinePredictor(net=net, dataset=test_dataset, target_path=model_config.target_path.as_posix(), local_rank=local_rank).predict()
 
     elif model.lower() == "vae-wind":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -70,20 +78,28 @@ def main(
         net: VAE_Wind = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Wind)
         assert net.pixel_dim == len(test_metadata.input_vars)
-        VAEPredictor(net=net, dataset=test_dataset, local_rank=local_rank).predict()
+        VAEPredictor(
+            net=net, dataset=test_dataset,
+            target_path=model_config.target_path.as_posix(),
+            local_rank=local_rank
+        ).predict()
 
     elif model.lower() == "vae-mass":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
         test_metadata = test_metadata.with_var_subset(context_group="mass")
         if dataset == "cesm2":
             test_dataset: CESM2 = CESM2(metadata=test_metadata)
-    
+
         model_config: VAEConfig = VAEConfig(context_group="mass")
         checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
         net: VAE_Mass = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Mass)
         assert net.pixel_dim == len(test_metadata.input_vars)
-        VAEPredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
+        VAEPredictor(
+            net=net, dataset=test_dataset,
+            target_path=model_config.target_path.as_posix(),
+            local_rank=local_rank
+        ).predict()
 
     elif model.lower() == "vae-thermal":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -96,7 +112,11 @@ def main(
         net: VAE_Thermal = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Thermal)
         assert net.pixel_dim == len(test_metadata.input_vars)
-        VAEPredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
+        VAEPredictor(
+            net=net, dataset=test_dataset,
+            target_path=model_config.target_path.as_posix(),
+            local_rank=local_rank
+        ).predict()
 
     elif model.lower() == "vae-hydro":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -109,7 +129,11 @@ def main(
         net: VAE_Hydro = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Hydro)
         assert net.pixel_dim == len(test_metadata.input_vars)
-        VAEPredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
+        VAEPredictor(
+            net=net, dataset=test_dataset,
+            target_path=model_config.target_path.as_posix(),
+            local_rank=local_rank
+        ).predict()
 
     elif model.lower() == "vae-precip":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -122,7 +146,11 @@ def main(
         net: VAE_Precip = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Precip)
         assert net.pixel_dim == len(test_metadata.input_vars)
-        VAEPredictor(net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank).predict()
+        VAEPredictor(
+            net=net, dataset=test_dataset,
+            target_path=model_config.target_path.as_posix(),
+            local_rank=local_rank
+        ).predict()
 
     elif model.lower() == "vae-target":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -137,7 +165,9 @@ def main(
         assert isinstance(net, VAE_Target)
         assert net.pixel_dim == 1
         VAEPredictor(
-            net=net, dataset=test_dataset, target_path=model_config.target_path, local_rank=local_rank
+            net=net, dataset=test_dataset,
+            target_path=model_config.target_path.as_posix(),
+            local_rank=local_rank
         ).predict()
 
     elif model.lower() == "diffusion":
@@ -170,25 +200,25 @@ def main(
         # Noise scheduler
         if model_config.noise_scheduler.lower() == "linear":
             noise_scheduler = LinearNoiseScheduler(
-                n_steps=model_config.n_steps, 
-                beta_min=model_config.beta_min, 
-                beta_max=model_config.beta_max, 
+                n_steps=model_config.n_steps,
+                beta_min=model_config.beta_min,
+                beta_max=model_config.beta_max,
             )
         elif model_config.noise_scheduler.lower() == "cosine":
             noise_scheduler = CosineNoiseScheduler(n_steps=model_config.n_steps)
         else:
             raise ValueError(f"Invalid diffusion_config.noise_scheduler={model_config.noise_scheduler}")
-        
+
         DiffusionPredictor(
-            denoiser=net, 
-            wind_encoder=wind_vae.encoder, mass_encoder=mass_vae.encoder, 
-            thermal_encoder=thermal_vae.encoder, hydro_encoder=hydro_vae.encoder, 
-            precip_encoder=precip_vae.encoder, precip_decoder=precip_vae.decoder, 
+            denoiser=net,
+            wind_encoder=wind_vae.encoder, mass_encoder=mass_vae.encoder,
+            thermal_encoder=thermal_vae.encoder, hydro_encoder=hydro_vae.encoder,
+            precip_encoder=precip_vae.encoder, precip_decoder=precip_vae.decoder,
             noise_scheduler=noise_scheduler,
             eta=model_config.eta,
             ensemble_size=model_config.ensemble_size,
             dataset=test_dataset,
-            target_path=model_config.target_path,
+            target_path=model_config.target_path.as_posix(),
             local_rank=local_rank,
         ).predict()
 
@@ -216,9 +246,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--model", 
+        "--model",
         type=str, choices=[
-            "cnn", "unet", "vit", 
+            "cnn", "unet", "vit",
             "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", "vae-target",
             "diffusion"
         ],

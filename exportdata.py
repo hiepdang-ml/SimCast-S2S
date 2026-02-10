@@ -34,7 +34,7 @@ def main(dataset: Literal["cesm2", "era5"], fresh: bool) -> None:
                 writer(var_container=var_container)
                 print(f"Saved all .pt files {dataset}.train.{var_name}")
                 del var_container   # release memory
-            
+
         else:
             assert len(train_metadata.sim_ids) == 1
             sim_id: str = train_metadata.sim_ids[0]
@@ -46,7 +46,7 @@ def main(dataset: Literal["cesm2", "era5"], fresh: bool) -> None:
                 )
                 for sim_id, year in train_metadata.combinations:
                     var_container.set(
-                        sim_id=sim_id, year=year, 
+                        sim_id=sim_id, year=year,
                         value=reader.get_tensor(var_name=var_name, year=year),
                     )
                     print(f"Loaded to var_container: {dataset}.train.{sim_id}.{var_name}.{year}")
@@ -59,9 +59,10 @@ def main(dataset: Literal["cesm2", "era5"], fresh: bool) -> None:
                 writer(var_container=var_container)
                 print(f"Saved all .pt files {dataset}.train.{var_name}")
                 del var_container   # release memory
-        
+
     # val & test dataset
     for tp in ["val", "test"]:
+        tp: Literal["val", "test"]
         metadata: MetaData = MetaData(dataset_name=dataset, tp=tp)
         detrender: Detrender = Detrender(metadata=metadata)
         climatology_remover: ClimatologyRemover = ClimatologyRemover(metadata=metadata)
@@ -84,7 +85,7 @@ def main(dataset: Literal["cesm2", "era5"], fresh: bool) -> None:
                     writer(var_container)
                     print(f"Saved all .pt files {dataset}.{tp}.{var_name}")
                     del var_container   # release memory
-                
+
             else:
                 for var_name in metadata.var_names:
                     var_container: VariableContainer = VariableContainer(var_name=var_name, metadata=metadata)
@@ -94,7 +95,7 @@ def main(dataset: Literal["cesm2", "era5"], fresh: bool) -> None:
                             resolution=metadata.resolution, device="cpu"
                         )
                         var_container.set(
-                            sim_id=sim_id, year=year, 
+                            sim_id=sim_id, year=year,
                             value=reader.get_tensor(var_name=var_name, year=year),
                         )
                         print(f"Loaded to var_container: {dataset}.{tp}.{sim_id}.{var_name}.{year}")
@@ -112,7 +113,7 @@ def main(dataset: Literal["cesm2", "era5"], fresh: bool) -> None:
 if __name__ == "__main__":
 
     parser: argparse.ArgumentParser = argparse.ArgumentParser()
-    group: argparse._MutuallyExclusiveGroup = parser.add_mutually_exclusive_group(required=True) 
+    group: argparse._MutuallyExclusiveGroup = parser.add_mutually_exclusive_group(required=True)
     parser.add_argument("--dataset", type=str, choices=["cesm2", "era5"], required=True)
     group.add_argument(
         "--fresh",
@@ -127,10 +128,8 @@ if __name__ == "__main__":
         help="Resume from last write (resume counter)",
     )
     args: argparse.Namespace = parser.parse_args()
-    
+
     if args.fresh:
         main(dataset=args.dataset, fresh=True)
     elif args.resume:
         main(dataset=args.dataset, fresh=False)
-
-

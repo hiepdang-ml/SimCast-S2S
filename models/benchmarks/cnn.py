@@ -6,11 +6,11 @@ from ..common import NamedModel
 class CNN(NamedModel, nn.Module):
 
     def __init__(
-        self, 
-        n_input_days: int, 
-        n_output_days: int, 
-        in_features: int, 
-        out_features: int, 
+        self,
+        n_input_days: int,
+        n_output_days: int,
+        in_features: int,
+        out_features: int,
         embedding_dim: int,
         n_hidden_layers: int,
     ) -> None:
@@ -23,20 +23,20 @@ class CNN(NamedModel, nn.Module):
         self.n_hidden_layers: int = n_hidden_layers
 
         layers: list[nn.Module] = [
-            nn.Conv2d(in_channels=n_input_days * in_features, out_channels=embedding_dim, kernel_size=3, padding=1), 
+            nn.Conv2d(in_channels=n_input_days * in_features, out_channels=embedding_dim, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.Dropout(p=0.25),
         ]
         for _ in range(n_hidden_layers):
             layers += [
-                nn.Conv2d(in_channels=embedding_dim, out_channels=embedding_dim, kernel_size=3, padding=1), 
+                nn.Conv2d(in_channels=embedding_dim, out_channels=embedding_dim, kernel_size=3, padding=1),
                 nn.ReLU(),
                 nn.Dropout(p=0.25),
             ]
         # Equivalent to MLPs
         for _ in range(3):
             layers += [
-                nn.Conv2d(in_channels=embedding_dim, out_channels=embedding_dim, kernel_size=1), 
+                nn.Conv2d(in_channels=embedding_dim, out_channels=embedding_dim, kernel_size=1),
                 nn.ReLU(),
             ]
         layers += [nn.Conv2d(in_channels=embedding_dim, out_channels=n_output_days * out_features, kernel_size=1)]
@@ -56,5 +56,3 @@ class CNN(NamedModel, nn.Module):
         output_tensor = output_tensor.permute(0, 1, 3, 4, 2)
         assert output_tensor.shape == (batch_size, self.n_output_days, 192, 288, self.out_features)
         return output_tensor
-    
-

@@ -250,7 +250,7 @@ def main(var_name: str):
         f"https://osdf-director.osg-htc.org/ncar/gdex/d651056/CESM2-LE/atm/proc/tseries/day_1/{var_name}/b.e21.BHISTcmip6.f09_g17.LE2-1301.001.cam.h1.{var_name}.19900101-19991231.nc",
         f"https://osdf-director.osg-htc.org/ncar/gdex/d651056/CESM2-LE/atm/proc/tseries/day_1/{var_name}/b.e21.BHISTcmip6.f09_g17.LE2-1301.001.cam.h1.{var_name}.20000101-20091231.nc",
         f"https://osdf-director.osg-htc.org/ncar/gdex/d651056/CESM2-LE/atm/proc/tseries/day_1/{var_name}/b.e21.BHISTcmip6.f09_g17.LE2-1301.001.cam.h1.{var_name}.20100101-20141231.nc",
-        
+
         f"https://osdf-director.osg-htc.org/ncar/gdex/d651056/CESM2-LE/atm/proc/tseries/day_1/{var_name}/b.e21.BHISTsmbb.f09_g17.LE2-1011.001.cam.h1.{var_name}.18500101-18591231.nc",
         f"https://osdf-director.osg-htc.org/ncar/gdex/d651056/CESM2-LE/atm/proc/tseries/day_1/{var_name}/b.e21.BHISTsmbb.f09_g17.LE2-1011.001.cam.h1.{var_name}.18600101-18691231.nc",
         f"https://osdf-director.osg-htc.org/ncar/gdex/d651056/CESM2-LE/atm/proc/tseries/day_1/{var_name}/b.e21.BHISTsmbb.f09_g17.LE2-1011.001.cam.h1.{var_name}.18700101-18791231.nc",
@@ -493,7 +493,7 @@ def main(var_name: str):
 
     target: pathlib.Path = pathlib.Path(f"/scratch/zgp2ps/cesm2/data/{var_name}")
     target.mkdir(parents=True, exist_ok=True)
-    
+
     for url in urls:
         print(f"downloading {url} ... ")
         filename: str = pathlib.Path(url).name
@@ -517,19 +517,8 @@ def main(var_name: str):
 
 
 if __name__ == "__main__":
-    
     import itertools
     from common.configs import MetaData
-
     var_names: list[str] = list(itertools.chain(*MetaData.VAR_LOOKUP_TABLE['cesm2'].values()))
-    # var_names = [
-    #     "U200", "V200", "U500", "V500", "OMEGA500", 
-    #     "U850", "V850",
-    #     "Z200", "Z500", "Z850", "PSL",
-    #     "TS", "T200", "T500", "T850", "FLUT", 
-    #     "TMQ", "Q200", "Q500", "Q850", 
-    #     "PRECT",
-    # ]
     for var_name in var_names:
         main(var_name=var_name)
-

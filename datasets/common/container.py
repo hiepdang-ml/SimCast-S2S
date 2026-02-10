@@ -21,12 +21,12 @@ class VariableContainer:
         for sim_id, year in self.metadata.combinations:
             self.set(sim_id=sim_id, year=year, value=None)
 
-    def get(self, sim_id: str, year: int | None) -> torch.Tensor | dict[int, torch.Tensor] | None:
+    def get(self, sim_id: str, year: int | None) -> torch.Tensor | dict[int, torch.Tensor | None] | None:
         if year is None:
             return self.__container[sim_id]
         return self.__container[sim_id][year]
 
-    def set(self, sim_id: str, year: int | None, value: torch.Tensor | dict[int, torch.Tensor] | None) -> None:
+    def set(self, sim_id: str, year: int | None, value: torch.Tensor | dict[int, torch.Tensor | None] | None) -> None:
         if year is None:
             assert isinstance(value, dict)
             self.__container[sim_id] = value
@@ -41,7 +41,7 @@ class VariableContainer:
             for sim_id, year in self.metadata.combinations
         )
 
-    def to(self, device: torch.device) -> VariableContainer:
+    def to(self, device: torch.device | str) -> VariableContainer:
         assert self.is_completed, "VariableContainer must be completed before moving to new device"
         for sim_id, year in self.metadata.combinations:
             value = self.get(sim_id=sim_id, year=year)
@@ -60,8 +60,7 @@ class VariableContainer:
 
         output: VariableContainer = VariableContainer(var_name=self.var_name, metadata=self.metadata)
         for sim_id, year in self.metadata.combinations:
-            output.set(sim_id=sim_id, year=year, value=func(self.get(sim_id=sim_id, year=year)))
-        
+            _input: torch.Tensor = self.get(sim_id=sim_id, year=year)
+            output.set(sim_id=sim_id, year=year, value=func(_input))
+
         return output
-
-

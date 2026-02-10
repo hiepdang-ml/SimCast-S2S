@@ -28,7 +28,7 @@ class PatchEmbedding(nn.Module):
 
 
 class PositionalEmbedding(nn.Module):
-    
+
     def __init__(self, n_patches: int, embedding_dim: int) -> None:
         super().__init__()
         self.n_patches: int = n_patches
@@ -85,11 +85,11 @@ class Decoder(nn.Module):
 
         assert self.patch_size & (self.patch_size - 1) == 0, "patch_size must be a power of 2"
         n_layers: int = self.patch_size.bit_length() - 1
-        
+
         self.hidden_dim: int = 2048
         layers: list[nn.Module] = [
             nn.ConvTranspose2d(
-                in_channels=embedding_dim * n_input_days, out_channels=self.hidden_dim, 
+                in_channels=embedding_dim * n_input_days, out_channels=self.hidden_dim,
                 kernel_size=3, stride=2, padding=1, output_padding=1,
             ),
             nn.ReLU(),
@@ -98,7 +98,7 @@ class Decoder(nn.Module):
         for _ in range(n_layers - 1):
             layers.extend([
                 nn.ConvTranspose2d(
-                    in_channels=self.hidden_dim, out_channels=self.hidden_dim, 
+                    in_channels=self.hidden_dim, out_channels=self.hidden_dim,
                     kernel_size=3, stride=2, padding=1, output_padding=1,
                 ),
                 nn.ReLU(),
@@ -124,13 +124,13 @@ class Decoder(nn.Module):
         assert sequence_length == self.sequence_length
         assert embedding_dim == self.embedding_dim
         output: torch.Tensor = input.reshape(batch_size, self.n_input_days, self.n_hpatches, self.n_wpatches, embedding_dim)
-        
+
         output = output.permute(0, 4, 1, 2, 3).flatten(start_dim=1, end_dim=2)
         assert output.shape == (batch_size, embedding_dim * self.n_input_days, self.n_hpatches, self.n_wpatches)
         output = self.upscale(output)
         assert output.shape == (batch_size, self.hidden_dim, 192, 288)
         output = output.permute(0, 2, 3, 1)
-        
+
         assert output.shape == (batch_size, 192, 288, self.hidden_dim)
         output = self.mlp(output).reshape(batch_size, 192, 288, self.out_features, self.n_output_days)
         output = output.permute(0, 4, 1, 2, 3)
@@ -140,7 +140,7 @@ class Decoder(nn.Module):
 class ViT(NamedModel, nn.Module):
 
     def __init__(
-        self, 
+        self,
         n_input_days: int, n_output_days: int,
         in_features: int, out_features: int, embedding_dim: int,
         patch_size: int, n_heads: int, n_transformer_layers: int,
@@ -195,5 +195,3 @@ class ViT(NamedModel, nn.Module):
         output = self.decoder(input=output)
         assert output.shape == (batch_size, self.n_output_days, 192, 288, self.out_features)
         return output
-
-

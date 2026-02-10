@@ -48,7 +48,7 @@ class DataReader:
         tensor: torch.Tensor = torch.from_numpy(self.ds.to_array().values).squeeze().to(device=self.device)
         assert tensor.shape == (365, 192, 288)
         return tensor
-    
+
 
 class LandMaskReader:
 
@@ -90,8 +90,6 @@ class CoordinatesReader:
         ds: xr.Dataset = xr.open_dataset(self.filepath, engine="netcdf4")
         lat_tensor: torch.Tensor = torch.from_numpy(ds["lat"].values).squeeze().to(device=self.device)
         lon_tensor: torch.Tensor = torch.from_numpy(ds["lon"].values).squeeze().to(device=self.device)
-        assert lat_tensor.shape == (192,) 
+        assert lat_tensor.shape == (192,)
         assert lon_tensor.shape == (288,)
         return lat_tensor, lon_tensor
-    
-

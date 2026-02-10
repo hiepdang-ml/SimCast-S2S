@@ -1,8 +1,7 @@
-from typing import Type
+from typing import Type, cast
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from ..common import NamedModel
 
 
@@ -87,10 +86,10 @@ class _DownscalingBlock(nn.Module):
         super().__init__()
         self.in_channels: int = in_channels
         self.out_channels: int = out_channels
-        
+
         self.block = nn.Sequential(
             nn.Conv2d(
-                in_channels=in_channels, out_channels=out_channels, 
+                in_channels=in_channels, out_channels=out_channels,
                 kernel_size=4, stride=2, padding=1,
             ),
             nn.GELU(),
@@ -106,10 +105,10 @@ class _UpscalingBlock(nn.Module):
         super().__init__()
         self.in_channels: int = in_channels
         self.out_channels: int = out_channels
-    
+
         self.block = nn.Sequential(
             nn.ConvTranspose2d(
-                in_channels=in_channels, out_channels=out_channels, 
+                in_channels=in_channels, out_channels=out_channels,
                 kernel_size=4, stride=2, padding=1
             ),
             nn.GELU(),
@@ -122,7 +121,7 @@ class _UpscalingBlock(nn.Module):
 class VAEEncoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
 
     def __init__(
-        self, 
+        self,
         n_days: int, n_features: int, latent_dim: int, hidden_dim: int,
         n_downscaling_blocks: int, n_convstack_layers: int,
         n_convhead_layers: int,
@@ -159,15 +158,15 @@ class VAEEncoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
                 _out_channels: int = hidden_dim
 
             setattr(
-                self, 
+                self,
                 VAEEncoder.get_downscalingblock_name(index=i),
                 _DownscalingBlock(in_channels=_in_channels, out_channels=_in_channels)
             )
             setattr(
-                self, 
+                self,
                 VAEEncoder.get_convstack_name(index=i),
                 _ConvStack(
-                    in_channels=_in_channels, out_channels=_out_channels, 
+                    in_channels=_in_channels, out_channels=_out_channels,
                     hidden_dim=_out_channels, n_layers=n_convstack_layers,
                 ),
             )
@@ -241,9 +240,9 @@ class VAEEncoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
 
 
 class VAEDecoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
-    
+
     def __init__(
-        self, 
+        self,
         n_days: int, n_features: int, latent_dim: int, hidden_dim: int,
         n_upscaling_blocks: int, n_convstack_layers: int,
         n_convhead_layers: int,
@@ -274,13 +273,13 @@ class VAEDecoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
                 _out_channels: int = hidden_dim
 
             setattr(
-                self, VAEDecoder.get_upscalingblock_name(index=i), 
+                self, VAEDecoder.get_upscalingblock_name(index=i),
                 _UpscalingBlock(in_channels=_in_channels, out_channels=_in_channels)
             )
             setattr(
                 self, VAEDecoder.get_convstack_name(index=i),
                 _ConvStack(
-                    in_channels=_in_channels, out_channels=_out_channels, 
+                    in_channels=_in_channels, out_channels=_out_channels,
                     hidden_dim=_out_channels, n_layers=n_convstack_layers,
                 )
             )
@@ -300,7 +299,7 @@ class VAEDecoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
                 _in_channels: int = hidden_dim
                 _out_channels: int = hidden_dim
                 Activation: Type[nn.Module] = nn.GELU
-                
+
             layers.extend([
                 nn.Conv2d(
                     in_channels=_in_channels, out_channels=_out_channels,
@@ -311,7 +310,7 @@ class VAEDecoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
             del _in_channels, _out_channels
 
         self.head = nn.Sequential(*layers)
-    
+
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         batch_size: int = z.shape[0]
         assert z.shape == (batch_size, self.latent_dim, z.shape[2], z.shape[3])
@@ -338,9 +337,9 @@ class VAEDecoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
 class VAE(_Freezable, NamedModel, nn.Module):
 
     def __init__(
-        self, 
+        self,
         n_days: int, n_features: int, latent_dim: int, hidden_dim: int,
-        n_scaling_blocks: int, n_convstack_layers: int, n_convhead_layers: int, 
+        n_scaling_blocks: int, n_convstack_layers: int, n_convhead_layers: int,
     ) -> None:
         super().__init__()
         self.n_days: int = n_days
@@ -364,8 +363,8 @@ class VAE(_Freezable, NamedModel, nn.Module):
         self.apply(VAE._init_weights)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        batch_size: int = x.shape[0]
-        mu: torch.Tensor; logvar: torch.Tensor
+        _batch_size: int = x.shape[0]
+        mu: torch.Tensor; logvar: torch.Tensor  # noqa
         mu, logvar = self.encoder(x)
         z: torch.Tensor = VAEEncoder.reparameterize(mu=mu, logvar=logvar)
         reconstructed_x: torch.Tensor = self.decoder(z)
@@ -376,8 +375,8 @@ class VAE(_Freezable, NamedModel, nn.Module):
     def _init_weights(module: nn.Module):
         if isinstance(module, (nn.Conv2d, nn.ConvTranspose2d)):
             with torch.no_grad():
-                nn.init.kaiming_normal_(module.weight)
-                nn.init.zeros_(module.bias)
+                nn.init.kaiming_normal_(cast(nn.Parameter, module.weight))
+                nn.init.zeros_(cast(nn.Parameter, module.bias))
 
     @property
     def out_features(self) -> int:
@@ -401,6 +400,3 @@ class VAE_Precip(VAE):
 
 class VAE_Target(VAE):
     pass
-
-
-

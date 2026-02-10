@@ -1,12 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Iterable, Any
+from typing import Iterable, Any, cast
 from functools import cached_property
 from itertools import product
 from pathlib import Path
 from tqdm import tqdm
 
 import torch
-import torch.nn as nn
 import torch.distributed as dist
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel
@@ -15,11 +14,11 @@ from torch.utils.data.distributed import DistributedSampler
 from datasets.cesm2 import CESM2, CoordinatesReader, LandMaskReader
 from datasets.common.utils import DataBatch, SampleInfo
 from common.metrics import ErrorMap, MAEMap, GeographicalRsquaredMap, GeographicalMAE, GeographicalMSE
-from common.plotting import MetricPlotter, PredictionPlotter, DenoisingPlotter
+from common.plotting import MetricPlotter, PredictionPlotter
 from common.utils import TorchDictIO
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAE_Target, VAEEncoder, VAEDecoder, UNetDenoiser, 
+    VAE, VAE_Target, VAEEncoder, VAEDecoder, UNetDenoiser,
     LinearNoiseScheduler, CosineNoiseScheduler, ReverseProcess
 )
 from .common import RequireVAEEncoders
@@ -27,20 +26,20 @@ from .common import RequireVAEEncoders
 
 class _AbstractPredictor(ABC):
 
-    def __init__(self, net: CNN | UNet | ViT | VAE, dataset: CESM2, target_path: str, local_rank: int):
-        self.net: CNN | UNet | ViT | VAE | UNetDenoiser = net
+    def __init__(self, net: CNN | UNet | ViT | VAE | UNetDenoiser, dataset: CESM2, target_path: str, local_rank: int):
+        self.base_net: CNN | UNet | ViT | VAE | UNetDenoiser = net
         self.dataset: CESM2 = dataset
-        self.target_path = Path(target_path)
+        self.target_path: Path = Path(target_path)
         self.local_rank: int = local_rank
 
-        self.device = torch.device(f"cuda:{self.local_rank}")
-        self.indices_by_context_group = dataset.indices_by_context_group
-        self.net = DistributedDataParallel(
-            module=net.to(self.device), device_ids=[self.local_rank], 
+        self.device: torch.device = torch.device(f"cuda:{self.local_rank}")
+        self.indices_by_context_group: dict[str, list[int]] = dataset.indices_by_context_group
+        self.net: DistributedDataParallel = DistributedDataParallel(
+            module=net.to(self.device), device_ids=[self.local_rank],
             output_device=self.local_rank, broadcast_buffers=False,
         )
-        self.sampler: DistributedSampler = DistributedSampler(dataset=dataset, shuffle=False)
-        self.dataloader = DataLoader(
+        self.sampler: DistributedSampler[CESM2] = DistributedSampler(dataset=dataset, shuffle=False)
+        self.dataloader: DataLoader[DataBatch] = DataLoader(
             dataset=dataset,
             batch_size=1,
             collate_fn=CESM2.collate_fn,
@@ -51,17 +50,17 @@ class _AbstractPredictor(ABC):
             sampler=self.sampler,
         )
 
-        if isinstance(net, (CNN, UNet, ViT)):
-            self.out_features: int = net.out_features
-        elif isinstance(net, VAE):
-            self.out_features: int = net.pixel_dim
-        elif isinstance(net, UNetDenoiser):
+        if isinstance(self.base_net, (CNN, UNet, ViT)):
+            self.out_features: int = self.base_net.out_features
+        elif isinstance(self.base_net, VAE):
+            self.out_features: int = self.base_net.pixel_dim
+        elif isinstance(self.base_net, UNetDenoiser):
             self.out_features: int = 1
 
-        self.tropical_lats: tuple[float, float] = (-25.,+25.)   # fixed
+        self.tropical_lats: tuple[float, float] = (-25.0, 25.0)   # fixed
         self.mse = GeographicalMSE(tropical_lats=self.tropical_lats)
         self.mae = GeographicalMAE(tropical_lats=self.tropical_lats)
-        self.model_name: str = net.name
+        self.model_name: str = self.base_net.name
         self.rsquared_map: GeographicalRsquaredMap = GeographicalRsquaredMap(
             n_features=self.out_features, tropical_lats=self.tropical_lats
         )
@@ -76,7 +75,7 @@ class _AbstractPredictor(ABC):
     @torch.no_grad()
     def predict(self) -> None:
         self.net.eval()
-        is_main_process: bool = dist.get_rank() == 0
+        _is_main_process: bool = dist.get_rank() == 0
         # Batch size should always be 1
         records: dict[str, list[torch.Tensor]] = {"predictions": [], "groundtruths": []}
         # Predict
@@ -105,8 +104,8 @@ class _AbstractPredictor(ABC):
                 tropical_mae=tropical_mae,
                 extratropical_mae=extratropical_mae,
                 rsquared_frame=rsquared_frame[..., idx],
-                global_rsquared=global_rsquared, 
-                tropical_rsquared=tropical_rsquared, 
+                global_rsquared=global_rsquared,
+                tropical_rsquared=tropical_rsquared,
                 extratropical_rsquared=extratropical_rsquared,
                 landmask=self.landmask_reader.tensor,
                 tropical_lats=self.tropical_lats,
@@ -129,7 +128,8 @@ class BaselinePredictor(_AbstractPredictor):
 
     def __init__(self, net: CNN | UNet | ViT | VAE, dataset: CESM2, target_path: str, local_rank: int):
         super().__init__(net=net, dataset=dataset, target_path=target_path, local_rank=local_rank)
-        self.in_features: int = net.in_features
+        if isinstance(self.base_net, (CNN, UNet, ViT)):
+            self.in_features: int = self.base_net.in_features
         self.n_input_days: int = dataset.metadata.n_input_days
         self.n_output_days: int = dataset.metadata.n_output_days
 
@@ -163,19 +163,19 @@ class BaselinePredictor(_AbstractPredictor):
             prediction_frame: torch.Tensor = prediction_tensor[..., idx]
             error_frame: torch.Tensor = error_tensor[..., idx]
             # MSE value
-            global_mse, tropical_mse, extratropical_mse = self.mse(prediction=prediction_frame, groundtruth=groundtruth_frame)
-            global_mse: float = global_mse.item()
-            tropical_mse: float = tropical_mse.item()
-            extratropical_mse: float = extratropical_mse.item()
+            global_mse_, tropical_mse_, extratropical_mse_ = self.mse(prediction=prediction_frame, groundtruth=groundtruth_frame)
+            global_mse: float = global_mse_.item()
+            tropical_mse: float = tropical_mse_.item()
+            extratropical_mse: float = extratropical_mse_.item()
             # RMSE value
             global_rmse: float = global_mse ** 0.5
             tropical_rmse: float = tropical_mse ** 0.5
             extratropical_rmse: float = extratropical_mse ** 0.5
             # MAE value
-            global_mae, tropical_mae, extratropical_mae = self.mae(prediction=prediction_frame, groundtruth=groundtruth_frame)
-            global_mae: float = global_mae.item()
-            tropical_mae: float = tropical_mae.item()
-            extratropical_mae: float = extratropical_mae.item()
+            global_mae_, tropical_mae_, extratropical_mae_ = self.mae(prediction=prediction_frame, groundtruth=groundtruth_frame)
+            global_mae: float = global_mae_.item()
+            tropical_mae: float = tropical_mae_.item()
+            extratropical_mae: float = extratropical_mae_.item()
             # Save results
             result_object: dict[str, Any] = {
                 "groundtruth": groundtruth_frame,
@@ -247,20 +247,20 @@ class VAEPredictor(_AbstractPredictor):
                 reconstructed_frame: torch.Tensor = reconstructed_x[..., idx]
                 error_frame: torch.Tensor = error_tensor[..., idx]
                 # MSE value
-                global_mse, tropical_mse, extratropical_mse = self.mse(prediction=reconstructed_frame, groundtruth=true_frame)
-                global_mse: float = global_mse.item()
-                tropical_mse: float = tropical_mse.item()
-                extratropical_mse: float = extratropical_mse.item()
+                global_mse_, tropical_mse_, extratropical_mse_ = self.mse(prediction=reconstructed_frame, groundtruth=true_frame)
+                global_mse: float = global_mse_.item()
+                tropical_mse: float = tropical_mse_.item()
+                extratropical_mse: float = extratropical_mse_.item()
                 # RMSE value
                 global_rmse: float = global_mse ** 0.5
                 tropical_rmse: float = tropical_mse ** 0.5
                 extratropical_rmse: float = extratropical_mse ** 0.5
                 # MAE value
-                global_mae, tropical_mae, extratropical_mae = self.mae(prediction=reconstructed_frame, groundtruth=true_frame)
-                global_mae: float = global_mae.item()
-                tropical_mae: float = tropical_mae.item()
-                extratropical_mae: float = extratropical_mae.item()
-                
+                global_mae_, tropical_mae_, extratropical_mae_ = self.mae(prediction=reconstructed_frame, groundtruth=true_frame)
+                global_mae: float = global_mae_.item()
+                tropical_mae: float = tropical_mae_.item()
+                extratropical_mae: float = extratropical_mae_.item()
+
                 # Save results
                 output_name: str = self.output_names[day * len(self.dataset.metadata.input_vars) + idx]
                 result_object: dict[str, Any] = {
@@ -312,9 +312,9 @@ class VAEPredictor(_AbstractPredictor):
 class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
 
     def __init__(
-        self, 
+        self,
         denoiser: UNetDenoiser,
-        wind_encoder: VAEEncoder, 
+        wind_encoder: VAEEncoder,
         mass_encoder: VAEEncoder,
         thermal_encoder: VAEEncoder,
         hydro_encoder: VAEEncoder,
@@ -354,7 +354,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         self.precip_decoder.freeze()
         assert self.precip_decoder.is_frozen
 
-        self.noise_scheduler: LinearNoiseScheduler = noise_scheduler
+        self.noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler = noise_scheduler
         self.n_denoising_steps: int = noise_scheduler.n_steps
         self.eta: float = eta
         self.ensemble_size: int = ensemble_size
@@ -372,7 +372,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         condition_mu, condition_logvar, target_latent = self.vae_encode(condition=condition, target=groundtruth)
         L: int = groundtruth.shape[1]
         groundtruth: torch.Tensor = groundtruth.mean(dim=1, keepdim=False).squeeze(dim=0)
-        
+
         member_predictions: list[torch.Tensor] = []
         for member_idx in range(self.ensemble_size):
             # Generate gaussian
@@ -408,30 +408,30 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
             prediction: torch.Tensor = prediction.mean(dim=0, keepdim=False)
             member_predictions.append(prediction)
             error_map: torch.Tensor = self.error_map(prediction=prediction, groundtruth=groundtruth)
-            
+
             for idx, output_name in enumerate(self.output_names):
                 # Select by output variable
                 groundtruth_frame: torch.Tensor = groundtruth[..., idx]
                 prediction_frame: torch.Tensor = prediction[..., idx]
                 error_frame: torch.Tensor = error_map[..., idx]
                 # MSE value
-                global_mse, tropical_mse, extratropical_mse = self.mse(
+                global_mse_, tropical_mse_, extratropical_mse_ = self.mse(
                     prediction=prediction_frame, groundtruth=groundtruth_frame
                 )
-                global_mse: float = global_mse.item()
-                tropical_mse: float = tropical_mse.item()
-                extratropical_mse: float = extratropical_mse.item()
+                global_mse: float = global_mse_.item()
+                tropical_mse: float = tropical_mse_.item()
+                extratropical_mse: float = extratropical_mse_.item()
                 # RMSE value
                 global_rmse: float = global_mse ** 0.5
                 tropical_rmse: float = tropical_mse ** 0.5
                 extratropical_rmse: float = extratropical_mse ** 0.5
                 # MAE value
-                global_mae, tropical_mae, extratropical_mae = self.mae(
+                global_mae_, tropical_mae_, extratropical_mae_ = self.mae(
                     prediction=prediction_frame, groundtruth=groundtruth_frame
                 )
-                global_mae: float = global_mae.item()
-                tropical_mae: float = tropical_mae.item()
-                extratropical_mae: float = extratropical_mae.item()
+                global_mae: float = global_mae_.item()
+                tropical_mae: float = tropical_mae_.item()
+                extratropical_mae: float = extratropical_mae_.item()
 
                 # Save member results
                 prefix: str = self._make_filename_prefix(sampleinfo=sampleinfo, output_name=output_name)
@@ -501,26 +501,26 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
             error_q050_frame: torch.Tensor = ensemble_error_q050[..., idx]
 
             # MSE value
-            global_mse, tropical_mse, extratropical_mse = self.mse(
+            global_mse_, tropical_mse_, extratropical_mse_ = self.mse(
                 prediction=ensemble_q050_frame, groundtruth=groundtruth_frame
             )
-            global_mse: float = global_mse.item()
-            tropical_mse: float = tropical_mse.item()
-            extratropical_mse: float = extratropical_mse.item()
+            global_mse: float = global_mse_.item()
+            tropical_mse: float = tropical_mse_.item()
+            extratropical_mse: float = extratropical_mse_.item()
             # RMSE value
             global_rmse: float = global_mse ** 0.5
             tropical_rmse: float = tropical_mse ** 0.5
             extratropical_rmse: float = extratropical_mse ** 0.5
             # MAE value
-            global_mae, tropical_mae, extratropical_mae = self.mae(
+            global_mae_, tropical_mae_, extratropical_mae_ = self.mae(
                 prediction=ensemble_q050_frame, groundtruth=groundtruth_frame
             )
-            global_mae: float = global_mae.item()
-            tropical_mae: float = tropical_mae.item()
-            extratropical_mae: float = extratropical_mae.item()
+            global_mae: float = global_mae_.item()
+            tropical_mae: float = tropical_mae_.item()
+            extratropical_mae: float = extratropical_mae_.item()
 
             prefix: str = self._make_filename_prefix(sampleinfo=sampleinfo, output_name=output_name)
-            suffix: str = f"ens_aggregate.pt"
+            suffix: str = "ens_aggregate.pt"
             result_object: dict[str, Any] = {
                 "groundtruth": groundtruth_frame,
                 "ensemble_mean": ensemble_mean_frame,
@@ -602,12 +602,18 @@ class Visualizer:
         )
         print(title)
         print("------")
+
+        assert isinstance(result_object["tropical_lats"], tuple) and len(result_object["tropical_lats"]) == 2
+        tropical_lats: tuple[float, float] = result_object["tropical_lats"]
+        groundtruth_frame = cast(torch.Tensor, result_object["groundtruth"])
+        prediction_frame = cast(torch.Tensor, result_object["prediction"])
+        error_frame = cast(torch.Tensor, result_object["error_map"])
         self.prediction_plotter.plot(
-            groundtruth_frame=result_object["groundtruth"],
-            prediction_frame=result_object["prediction"],
-            error_frame=result_object["error_map"],
+            groundtruth_frame=groundtruth_frame,
+            prediction_frame=prediction_frame,
+            error_frame=error_frame,
             uncertainty_frame=None,
-            tropical_lats=result_object["tropical_lats"],
+            tropical_lats=tropical_lats,
             landmask=self.landmask_reader.tensor,
             coordinates=self.coordinates_reader.tensors,
             title=title,
@@ -629,13 +635,24 @@ class Visualizer:
         )
         print(title)
         print("------")
+        tropical_lats_obj = result_object["tropical_lats"]
+        if isinstance(tropical_lats_obj, tuple) and len(tropical_lats_obj) == 2:
+            tropical_lats: tuple[float, float] = (
+                float(tropical_lats_obj[0]),
+                float(tropical_lats_obj[1]),
+            )
+        else:
+            raise TypeError(f"Invalid tropical_lats value: {tropical_lats_obj}")
+        groundtruth_frame = cast(torch.Tensor, result_object["groundtruth"])
+        prediction_frame = cast(torch.Tensor, result_object["reconstruction"])
+        error_frame = cast(torch.Tensor, result_object["error_map"])
         self.prediction_plotter.plot(
-            groundtruth_frame=result_object["groundtruth"],
-            prediction_frame=result_object["reconstruction"],
-            error_frame=result_object["error_map"],
+            groundtruth_frame=groundtruth_frame,
+            prediction_frame=prediction_frame,
+            error_frame=error_frame,
             uncertainty_frame=None,
             landmask=self.landmask_reader.tensor,
-            tropical_lats=result_object["tropical_lats"],
+            tropical_lats=tropical_lats,
             coordinates=self.coordinates_reader.tensors,
             title=title,
             filename=filename.replace(".pt", ".png"),
@@ -656,7 +673,7 @@ class Visualizer:
             groundtruth_frame: torch.Tensor = result_object["groundtruth"]
             error_frame: torch.Tensor = result_object["error_q050_frame"]
             uncertainty_frame: torch.Tensor = result_object["ensemble_var"]
-        
+
         # Make title
         title: str = (
             f"{result_object['model_name']}: {result_object['output_name']} - {result_object['sim_id']} ({ensemble_label})\n"
@@ -669,23 +686,23 @@ class Visualizer:
         print(title)
         print("------")
         # Plot single frame
+        tropical_lats_obj = result_object["tropical_lats"]
+        if isinstance(tropical_lats_obj, tuple) and len(tropical_lats_obj) == 2:
+            tropical_lats: tuple[float, float] = (
+                float(tropical_lats_obj[0]),
+                float(tropical_lats_obj[1]),
+            )
+        else:
+            raise TypeError(f"Invalid tropical_lats value: {tropical_lats_obj}")
         self.prediction_plotter.plot(
             prediction_frame=prediction_frame,
             groundtruth_frame=groundtruth_frame,
             error_frame=error_frame,
             uncertainty_frame=uncertainty_frame,
-            tropical_lats=result_object["tropical_lats"],
+            tropical_lats=tropical_lats,
             landmask=self.landmask_reader.tensor,
             coordinates=self.coordinates_reader.tensors,
             title=title,
             filename=filename.replace(".pt", ".png"),
             vlim=0.04,
         )
-
-
-
-
-
-
-
-

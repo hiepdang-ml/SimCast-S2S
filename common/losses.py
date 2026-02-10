@@ -14,8 +14,8 @@ class VAELoss(nn.Module):
         assert 0. <= lambda_ <= 1.
 
     def forward(
-        self, 
-        x_hat: torch.Tensor, true_x: torch.Tensor, 
+        self,
+        x_hat: torch.Tensor, true_x: torch.Tensor,
         mu: torch.Tensor, logvar: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         assert x_hat.shape == true_x.shape
@@ -42,4 +42,3 @@ class DiffusionLoss(nn.Module):
         velocity_mae: torch.Tensor = F.l1_loss(input=velocity_hat, target=velocity_true, reduction="mean")
         velocity_loss: torch.Tensor = F.mse_loss(input=velocity_hat, target=velocity_true, reduction="mean")
         return velocity_loss, velocity_mae
-    

@@ -10,14 +10,14 @@ from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip,
-    VAEEncoder, VAEDecoder, UNetDenoiser, 
+    VAEEncoder, VAEDecoder, UNetDenoiser,
     LinearNoiseScheduler, CosineNoiseScheduler, ForwardProcess, ReverseProcess,
 )
 
 
 # def main(
 #     model: Literal[
-#         "cnn", "unet", "vit", 
+#         "cnn", "unet", "vit",
 #         "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip",
 #         "diffusion",
 #     ],
@@ -40,7 +40,7 @@ from models.diffusion import (
 #         vae_config: VAE_Precip = VAE_Precip()
 #     elif model.lower() == "diffusion":
 #         vae_config: VAE_Precip = DiffusionConfig()
-    
+
 from common.utils import TorchDictIO
 from workers.predictors import Visualizer
 
@@ -48,10 +48,9 @@ torchio = TorchDictIO(
     dirpath="/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors_eta100_median/",
 )
 v = Visualizer(
-    "/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors_eta100_median/", 
+    "/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors_eta100_median/",
     "/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/plots_eta100_median/"
 )
 for f in sorted(v.source_dir.glob("*")):
     print(f)
     v.plot_diffusion_prediction(f.name)
-

@@ -1,10 +1,9 @@
 import os
-import sys
 import pathlib
 import time
 import warnings
-from typing import List, Optional, Dict, TextIO, Any, Tuple, NamedTuple
-from collections import defaultdict, OrderedDict
+from typing import Optional, TextIO, Any, NamedTuple
+from collections import defaultdict
 import datetime as dt
 import copy
 import inspect
@@ -33,7 +32,7 @@ class Accumulator:
         for metric, value in kwargs.items():
             # Each keyword argument represents a metric name and its value to be added
             self.__records[metric] += value
-    
+
     def reset(self) -> None:
         """
         Reset the accumulator by clearing all recorded metrics.
@@ -63,14 +62,14 @@ class EarlyStopping:
         - considering the direction of the metric being monitored.
         - bestscore (float): The best score seen so far.
     """
-    
+
     def __init__(self, patience: int, tolerance: float = 0.) -> None:
         """
         Initializes the EarlyStopping instance.
-        
+
         Parameters:
             - patience (int): Number of epochs with no improvement after which training will be stopped.
-            - tolerance (float): The minimum change in the monitored metric to qualify as an improvement. 
+            - tolerance (float): The minimum change in the monitored metric to qualify as an improvement.
             Defaults to 0.
         """
         self.patience: int = patience
@@ -150,7 +149,7 @@ class Timer:
             else:
                 batch: int = 1
         self.__batch_starts[epoch][batch] = time.perf_counter()
-    
+
     def end_batch(self, epoch: int, batch: Optional[int] = None) -> None:
         """
         End timing a batch.
@@ -163,9 +162,9 @@ class Timer:
             if self.__batch_starts[epoch]:
                 batch: int = max(self.__batch_starts[epoch].keys())
             else:
-                raise RuntimeError(f"no batch has started")
+                raise RuntimeError("no batch has started")
         self.__batch_ends[epoch][batch] = time.perf_counter()
-    
+
     def time_epoch(self, epoch: int) -> float:
         """
         Get the duration of an epoch.
@@ -181,7 +180,7 @@ class Timer:
             return result
         else:
             raise RuntimeError(f"epoch {epoch} ends before starts")
-    
+
     def time_batch(self, epoch: int, batch: int) -> float:
         """
         Get the duration of a batch.
@@ -198,22 +197,22 @@ class Timer:
             return result
         else:
             raise RuntimeError(f"batch {batch} in epoch {epoch} ends before starts")
-        
+
 
 class Logger:
 
     """
     A class used to log the training process.
 
-    This class provides methods to log messages to a file and the console. 
+    This class provides methods to log messages to a file and the console.
     """
     def __init__(self, logfile: str = f".logs/{dt.datetime.now().strftime('%Y%m%d%H%M%S')}") -> None:
-    
+
         """
         Initialize the logger.
 
         Parameters:
-            - logfile (str, optional): The path to the logfile. 
+            - logfile (str, optional): The path to the logfile.
             Defaults to a file in the .logs directory with the current timestamp.
         """
         self.logfile: pathlib.Path = pathlib.Path(logfile)
@@ -221,12 +220,12 @@ class Logger:
         self._file: TextIO = open(self.logfile, mode='w')
 
     def log(
-        self, 
-        epoch: int, 
-        n_epochs: int, 
-        batch: Optional[int] = None, 
-        n_batches: Optional[int] = None, 
-        took: Optional[float] = None, 
+        self,
+        epoch: int,
+        n_epochs: int,
+        batch: Optional[int] = None,
+        n_batches: Optional[int] = None,
+        took: Optional[float] = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -326,22 +325,22 @@ class CheckpointLoader:
         print(self.model_kwargs)
 
     def load(
-        self, 
-        scope: dict[str, Any], 
-        ignored_modules: list[str] = [], 
+        self,
+        scope: dict[str, Any],
+        ignored_modules: list[str] = [],
         **overrided_params: dict[str, Any]
     ) -> nn.Module:
         """
         Load the model from the checkpoint.
 
         Parameters:
-            - scope (dict[str, Any]): The namespace to look up the model object. 
+            - scope (dict[str, Any]): The namespace to look up the model object.
                 It's typically the dictionary output of `globals()` or `locals()`
             - ignored_modules (list[str]): names of modules that are excluded from loading.
                 Default is []
-            - **overrided_params (dict[str, Any]): overrid loaded model parameters (for later retrain). 
+            - **overrided_params (dict[str, Any]): overrid loaded model parameters (for later retrain).
                 Default is {}, which means keeping the original model parameters unchanged
-        
+
         Returns:
             - nn.Module: The model loaded from the checkpoint.
         """
@@ -350,7 +349,7 @@ class CheckpointLoader:
             raise ImportError(
                 f'{self.model_classname} is not found in the current namespace, you might need to import it first.'
             )
-        
+
         # Instantiate model
         if overrided_params:
             print({'Original': self.model_kwargs, 'Changed params': overrided_params})
@@ -368,15 +367,15 @@ class CheckpointLoader:
         model_incompatible_keys: NamedTuple = model.load_state_dict(model_states, strict=False)   # inplace update
         if model_incompatible_keys.missing_keys:  # list[str]
             warnings.warn(
-                f'Missing keys from the loaded model checkpoint: {model_incompatible_keys.missing_keys}', 
+                f'Missing keys from the loaded model checkpoint: {model_incompatible_keys.missing_keys}',
                 category=UserWarning
             )
         if model_incompatible_keys.unexpected_keys: # list[str]
             warnings.warn(
-                f'Unexpected keys found in the loaded model checkpoint: {model_incompatible_keys.unexpected_keys}', 
+                f'Unexpected keys found in the loaded model checkpoint: {model_incompatible_keys.unexpected_keys}',
                 category=UserWarning
             )
-        
+
         return model
 
 
@@ -412,4 +411,3 @@ class TorchDictIO:
 
         """
         return torch.load(f=self.dirpath.joinpath(filename), weights_only=True, map_location="cpu")
-

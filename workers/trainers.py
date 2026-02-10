@@ -16,9 +16,10 @@ from common.utils import Accumulator, EarlyStopping, Timer, Logger, CheckpointSa
 from common.losses import VAELoss, DiffusionLoss
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAE_Target, VAEEncoder, UNetDenoiser, LinearNoiseScheduler, 
+    VAE, VAE_Target, VAEEncoder, UNetDenoiser, LinearNoiseScheduler,
     ForwardProcess, ReverseProcess,
 )
+from models.diffusion.diffusion import CosineNoiseScheduler
 from .common import RequireVAEEncoders
 
 import torch.nn.functional as F
@@ -26,7 +27,7 @@ import torch.nn.functional as F
 
 class _AbstractTrainer(ABC):
 
-    def __init__(self, 
+    def __init__(self,
         net: CNN | UNet | ViT | VAE | UNetDenoiser,
         lr: float,
         train_dataset: CESM2, val_dataset: CESM2,
@@ -44,7 +45,7 @@ class _AbstractTrainer(ABC):
         self.local_rank: int = local_rank
         self.device = torch.device(f"cuda:{local_rank}")
         self.net = DistributedDataParallel(
-            module=net.to(self.device), device_ids=[self.local_rank], 
+            module=net.to(self.device), device_ids=[self.local_rank],
             output_device=self.local_rank, broadcast_buffers=False,
         )
         self.train_sampler: DistributedSampler = DistributedSampler(dataset=train_dataset, shuffle=True, drop_last=False)
@@ -116,8 +117,11 @@ class _AbstractTrainer(ABC):
             timer.end_epoch(epoch=epoch)
             # Log
             if is_main_process:
-                logger.log(epoch=epoch, n_epochs=n_epochs, took=timer.time_epoch(epoch), **val_metrics)
-            
+                logger.log(
+                    epoch=epoch, n_epochs=n_epochs, batch=None, n_batches=None, took=timer.time_epoch(epoch),
+                    **val_metrics
+                )
+
             # Check early-stopping
             early_stopping(value=val_metrics["watched_metric"])
             if early_stopping:
@@ -132,7 +136,7 @@ class _AbstractTrainer(ABC):
         Diffusion models output: velocity_loss, velocity_mae
         """
         pass
-    
+
     @abstractmethod
     def _train_step(self, batch: DataBatch) -> None:
         pass
@@ -153,7 +157,7 @@ class BaselineTrainer(_AbstractTrainer):
         local_rank: int,
     ) -> None:
         super().__init__(
-            net=net, lr=lr, train_dataset=train_dataset, val_dataset=val_dataset, 
+            net=net, lr=lr, train_dataset=train_dataset, val_dataset=val_dataset,
             train_batch_size=train_batch_size, val_batch_size=val_batch_size,
             local_rank=local_rank,
         )
@@ -224,7 +228,7 @@ class VAETrainer(_AbstractTrainer):
         local_rank: int,
     ) -> None:
         super().__init__(
-            net=net, lr=lr, train_dataset=train_dataset, val_dataset=val_dataset, 
+            net=net, lr=lr, train_dataset=train_dataset, val_dataset=val_dataset,
             train_batch_size=train_batch_size, val_batch_size=val_batch_size,
             local_rank=local_rank,
         )
@@ -257,9 +261,9 @@ class VAETrainer(_AbstractTrainer):
         dist.all_reduce(tensor=mu, op=dist.ReduceOp.AVG)
         dist.all_reduce(tensor=sigma, op=dist.ReduceOp.AVG)
         return {
-            "reconstruction_loss": reconstruction_loss.item(), 
-            "kl_divergence": kl_divergence.item(), 
-            "negative_elbo": negative_elbo.item(), 
+            "reconstruction_loss": reconstruction_loss.item(),
+            "kl_divergence": kl_divergence.item(),
+            "negative_elbo": negative_elbo.item(),
             "reconstruction_mae": reconstruction_mae.item(),
             "mu": mu.item(),
             "sigma": sigma.item(),
@@ -297,7 +301,7 @@ class VAETrainer(_AbstractTrainer):
             x: torch.Tensor = target_tensor.to(self.device, non_blocking=True)
         else:
             x: torch.Tensor = input_tensor.to(self.device, non_blocking=True)
-        
+
         reconstruction_loss_sum: torch.Tensor = torch.zeros_like(x).sum()
         kl_divergence_sum: torch.Tensor = torch.zeros_like(x).sum()
         negative_elbo_sum: torch.Tensor = torch.zeros_like(x).sum()
@@ -322,10 +326,10 @@ class VAETrainer(_AbstractTrainer):
 
         n_days: int = x.shape[1]
         return (
-            reconstruction_loss / n_days,
-            kl_divergence / n_days,
-            negative_elbo / n_days,
-            reconstruction_mae / n_days,
+            reconstruction_loss_sum / n_days,
+            kl_divergence_sum / n_days,
+            negative_elbo_sum / n_days,
+            reconstruction_mae_sum / n_days,
             mu_sum / n_days,
             sigma_sum / n_days,
         )
@@ -337,15 +341,15 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         self,
         denoiser: UNetDenoiser,
         wind_encoder: VAEEncoder, mass_encoder: VAEEncoder,
-        thermal_encoder: VAEEncoder, hydro_encoder: VAEEncoder, 
+        thermal_encoder: VAEEncoder, hydro_encoder: VAEEncoder,
         precip_encoder: VAEEncoder,
-        noise_scheduler: LinearNoiseScheduler, lr: float, 
+        noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler, lr: float,
         train_dataset: CESM2, val_dataset: CESM2,
         train_batch_size: int, val_batch_size: int,
         local_rank: int,
     ) -> None:
         super().__init__(
-            net=denoiser, lr=lr, train_dataset=train_dataset, val_dataset=val_dataset, 
+            net=denoiser, lr=lr, train_dataset=train_dataset, val_dataset=val_dataset,
             train_batch_size=train_batch_size, val_batch_size=val_batch_size,
             local_rank=local_rank,
         )
@@ -394,8 +398,8 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         dist.all_reduce(tensor=velocity_loss, op=dist.ReduceOp.AVG)
         dist.all_reduce(tensor=velocity_mae, op=dist.ReduceOp.AVG)
         return {
-            "velocity_loss": velocity_loss.item(), 
-            "velocity_mae": velocity_mae.item(), 
+            "velocity_loss": velocity_loss.item(),
+            "velocity_mae": velocity_mae.item(),
             "watched_metric": velocity_mae.item(),
         }
 
@@ -445,7 +449,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         )
         # Predict gaussian using UNetDenoiser
         predicted_velocity: torch.Tensor = self.net(
-            target=noisy_target, 
+            target=noisy_target,
             condition_mu=condition_mu, condition_logvar=condition_logvar,
             integer_step=integer_step, condition_days=condition_days,
         )
@@ -454,4 +458,3 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
             velocity_hat=predicted_velocity, velocity_true=true_velocity
         )
         return velocity_loss, velocity_mae
-

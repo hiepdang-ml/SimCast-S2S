@@ -13,7 +13,7 @@ class _GeographicalMetricOrMap(ABC):
     def tropical_mask(self) -> torch.Tensor:
         # TODO: make configurable path
         ds: xr.Dataset = xr.open_dataset(
-            f"/scratch/zgp2ps/cesm2/landmask/b.e21.BHISTcmip6.f09_g17.LE2-1001.001.clm2.h3.C14_SOILC_vr.18500101-18590101.nc"
+            "/scratch/zgp2ps/cesm2/landmask/b.e21.BHISTcmip6.f09_g17.LE2-1001.001.clm2.h3.C14_SOILC_vr.18500101-18590101.nc"
         )
         mask: xr.DataArray = (self.tropical_lats[0] <= ds["lat"]) & (ds["lat"] <= self.tropical_lats[1])
         mask: torch.Tensor = torch.from_numpy(mask.values)
@@ -26,7 +26,7 @@ class _GeographicalMetricOrMap(ABC):
 
 
 class GeographicalMAE(_GeographicalMetricOrMap):
-    
+
     # implement
     def __call__(self, prediction: torch.Tensor, groundtruth: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         assert prediction.shape == groundtruth.shape
@@ -39,9 +39,9 @@ class GeographicalMAE(_GeographicalMetricOrMap):
 
 
 class GeographicalMSE(_GeographicalMetricOrMap):
-    
+
     # implement
-    def __call__(self, prediction: torch.Tensor, groundtruth: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def __call__(self, prediction: torch.Tensor, groundtruth: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         assert prediction.shape == groundtruth.shape
         assert prediction.shape[0] == self.tropical_mask.shape[0]
         mse_map: torch.Tensor = torch.nn.functional.mse_loss(input=prediction, target=groundtruth, reduction="none")
@@ -49,7 +49,7 @@ class GeographicalMSE(_GeographicalMetricOrMap):
         tropical_mse: torch.Tensor = torch.mean(mse_map[self.tropical_mask])
         extratropical_mse: torch.Tensor = torch.mean(mse_map[~self.tropical_mask])
         return global_mse, tropical_mse, extratropical_mse
-    
+
 
 class _BaseMap(ABC):
 
@@ -84,8 +84,8 @@ class GeographicalRsquaredMap(_SequenceLevelMap, _GeographicalMetricOrMap):
         _SequenceLevelMap.__init__(self, n_features)
 
     #implement
-    def __call__(self, predictions: list[torch.Tensor], groundtruths: list[torch.Tensor]) -> torch.Tensor:
-        
+    def __call__(self, predictions: list[torch.Tensor], groundtruths: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+
         n_samples: int = len(predictions)
         assert len(predictions) == len(groundtruths) == n_samples
         assert all(tensor.shape == (192, 288, self.n_features) for tensor in predictions)
@@ -115,13 +115,13 @@ class MAEMap(_SequenceLevelMap, _GeographicalMetricOrMap):
     def __init__(self, n_features: int, tropical_lats: tuple[float, float]):
         _GeographicalMetricOrMap.__init__(self, tropical_lats)
         _SequenceLevelMap.__init__(self, n_features)
-        
+
     #implement
-    def __call__(self, predictions: list[torch.Tensor], groundtruths: list[torch.Tensor]) -> torch.Tensor:
+    def __call__(self, predictions: list[torch.Tensor], groundtruths: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
         n_samples: int = len(predictions)
         assert len(predictions) == len(groundtruths) == n_samples
-        batch_size: int = groundtruths[0].shape[0]
+        _batch_size: int = groundtruths[0].shape[0]
         assert all(tensor.shape == (192, 288, self.n_features) for tensor in predictions)
         assert all(tensor.shape == (192, 288, self.n_features) for tensor in groundtruths)
         prediction_tensor: torch.Tensor = torch.stack(predictions, dim=0).cpu()     # to avoid out of VRAM
@@ -137,5 +137,3 @@ class MAEMap(_SequenceLevelMap, _GeographicalMetricOrMap):
         print(f"MAE (Extratropic): {extratropical_mae}")
         assert mae_map.shape == (192, 288, self.n_features)
         return mae_map, global_mae, tropical_mae, extratropical_mae
-
-

@@ -24,10 +24,10 @@ class _LinearRegressor:
         X: torch.Tensor = self.__get_X(metadata=train_metadata)
         assert X.shape == (train_metadata.n_years, 2)
         for sim_id in train_metadata.sim_ids:
-            y: torch.Tensor = torch.cat(
-                [mean_container.get(sim_id=sim_id, year=year) for year in train_metadata.years], 
-                dim=0
-            )
+            tensors: list[torch.Tensor] = [
+                mean_container.get(sim_id=sim_id, year=year) for year in train_metadata.years
+            ]
+            y: torch.Tensor = torch.cat(tensors, dim=0)
             assert y.shape == (train_metadata.n_years, self.H, self.W)
             y = y.reshape(train_metadata.n_years, self.H * self.W)
             W: torch.Tensor = torch.linalg.lstsq(X, y).solution
@@ -50,7 +50,7 @@ class _LinearRegressor:
         return torch.stack([
             torch.ones(metadata.n_years, dtype=torch.float, device="cpu"),
                 torch.tensor(metadata.years, dtype=torch.float, device="cpu")
-            ], 
+            ],
             dim=1
         )
 
@@ -84,7 +84,7 @@ class Detrender:
         """
         Inplace operation to save memory
         """
-        input_container = input_container.to("cpu")
+        input_container = input_container.to(device="cpu")
         mean_container: VariableContainer = input_container.yearly_agg(reduce_func="mean")
         lr: _LinearRegressor = _LinearRegressor(
             var_name=input_container.var_name, resolution=self.metadata.resolution
@@ -130,7 +130,7 @@ class _ClimatologicalMean:
         half_window: int = window_size // 2
         n_years: int = train_metadata.n_years
         input_container = input_container.to("cpu")
-        
+
         for sim_id in train_metadata.sim_ids:
             # retrieve input data (ensure ascending year)
             year_tensors: dict[str, torch.Tensor] = input_container.get(sim_id=sim_id, year=None)
@@ -221,5 +221,3 @@ class ClimatologyRemover:
             assert standardized_anomaly_tensor.shape == (self.metadata.n_years, 365, self.H, self.W)
             for i, year in enumerate(self.metadata.years):
                 input_container.set(sim_id=sim_id, year=year, value=standardized_anomaly_tensor[i])
-
-

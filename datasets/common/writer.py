@@ -34,7 +34,7 @@ class DataWriter:
 
         self.metadata_path: pathlib.Path = self.metadata.write_directory.joinpath("metadata")
         self.metadata_path.mkdir(parents=True, exist_ok=True)
-        
+
         self.counter_path: pathlib.Path = self.metadata.write_directory.joinpath("counter")
         self.counter_path.mkdir(parents=True, exist_ok=True)
         self._GLOBAL_COUNTER: int = self.__get_counter()
@@ -50,7 +50,7 @@ class DataWriter:
 
         for var_name in self.metadata.output_vars:
             self.output_path.joinpath(var_name).mkdir(exist_ok=True)
-        
+
         self.__save_metadata()
         self.__datestrings: list[str] = [
             # choose 2025 since not a leap year
@@ -72,7 +72,7 @@ class DataWriter:
             with open(filepath, mode="r") as file:
                 counter: int = int(json.load(fp=file)["counter"])
             return counter
-    
+
     def __save_counter(self) -> None:
         filepath: pathlib.Path = self.counter_path.joinpath("counter.json")
         with open(filepath, mode="w") as file:
@@ -80,9 +80,9 @@ class DataWriter:
 
     def __construct_file_name(
         self,
-        sim_id: str, var_name: str, year: int, 
+        sim_id: str, var_name: str, year: int,
         input_or_output: Literal["input", "output"],
-        sample_index: int, 
+        sample_index: int,
         yearday_indices: list[int]
     ) -> str:
         sample_id: str = f"{sample_index:06d}"
@@ -91,7 +91,7 @@ class DataWriter:
         return f"{prefix}{suffix}.pt"
 
     def __write_one_sample(
-        self, 
+        self,
         var_container: VariableContainer,
         sim_id: str, year: int,
         yearday_index: int, sample_index: int,
@@ -116,9 +116,9 @@ class DataWriter:
             assert input_tensor.shape == (self.metadata.n_input_days, 192, 288)
             # Input: Write to .pt
             filename: str = self.__construct_file_name(
-                sim_id=sim_id, var_name=var_container.var_name, year=year, 
+                sim_id=sim_id, var_name=var_container.var_name, year=year,
                 input_or_output="input",
-                sample_index=sample_index, 
+                sample_index=sample_index,
                 yearday_indices=input_yearday_indices.cpu().tolist(),
             )
             torch.save(
@@ -165,6 +165,3 @@ class DataWriter:
 
     def __del__(self) -> None:
         self.__save_counter()
-
-
-

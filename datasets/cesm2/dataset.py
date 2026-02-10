@@ -46,7 +46,7 @@ class CESM2(Dataset):
         for context_group, var_names in MetaData.VAR_LOOKUP_TABLE[type(self).__name__.lower()].items():
             result[context_group] = [i for i, name in enumerate(self.metadata.input_vars) if name in var_names]
         return result
-    
+
     @staticmethod
     def _get_sample_info(input_filename: str, output_filename) -> SampleInfo:
         input_parts: list[str] = input_filename.removesuffix(".pt").split("__")
@@ -77,7 +77,7 @@ class CESM2(Dataset):
             assert input_yearday_indices.shape == (self.metadata.n_input_days,)
             assert input_var_tensor.shape == (self.metadata.n_input_days, 192, 288)
             input_var_tensors.append(input_var_tensor)
-        
+
         output_var_tensors: list[torch.Tensor] = []
         for var_name in self.metadata.output_vars:
             # Note: output_yearday_indices remains the same regardless of var_name
@@ -88,7 +88,7 @@ class CESM2(Dataset):
             assert output_yearday_indices.shape == (self.metadata.n_output_days,)
             assert output_var_tensor.shape == (self.metadata.n_output_days, 192, 288)
             output_var_tensors.append(output_var_tensor)
-    
+
         sampleinfo: SampleInfo = CESM2._get_sample_info(
             input_filename=input_path.name, output_filename=output_path.name
         )
@@ -118,10 +118,10 @@ class CESM2(Dataset):
                 key=lambda f: f.name[:6],
             )
         return results
-    
+
     def __check_data_integrity(
-        self, 
-        input_files: dict[str, list[pathlib.Path]], 
+        self,
+        input_files: dict[str, list[pathlib.Path]],
         output_files: dict[str, list[pathlib.Path]],
     ) -> None:
         # Check missing files
@@ -150,13 +150,14 @@ class CESM2(Dataset):
     ) -> DataBatch:
         # get iterables of objects of the same kind
         sampleinfos, input_indices, output_indices, input_tensors, output_tensors = zip(*batch)
-        return (
+        databatch: DataBatch = (
             list(sampleinfos),
             torch.stack(input_indices, dim=0),
             torch.stack(output_indices, dim=0),
             torch.stack(input_tensors, dim=0),
             torch.stack(output_tensors, dim=0),
         )
+        return databatch
 
 
 if __name__ == "__main__":

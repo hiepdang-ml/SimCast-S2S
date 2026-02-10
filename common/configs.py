@@ -13,7 +13,7 @@ class BaseConfig(ABC):
         self.train_batch_size: int = self._config["train_batch_size"]
         self.val_batch_size: int = self._config["val_batch_size"]
         self.n_epochs: int = self._config["n_epochs"]
-        self.patience: float = self._config["patience"]
+        self.patience: int = self._config["patience"]
         self.tolerance: float = float(self._config["tolerance"])
         self.save_frequency: int = self._config["save_frequency"]
         self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self._config["from_checkpoint"]) else None
@@ -23,7 +23,7 @@ class BaseConfig(ABC):
     @abstractmethod
     def _load(self) -> None:
         pass
-    
+
     @abstractmethod
     def to_dict(self) -> dict[str, Any]:
         pass
@@ -109,9 +109,9 @@ class MetaData(BaseConfig):
             "n_step_days": self.n_step_days,
             "climatological_window_size": self.climatological_window_size,
         }
-    
+
     def with_var_subset(
-        self, 
+        self,
         context_group: Literal["wind", "mass", "thermal", "hydro", "precip"],
     ) -> "MetaData":
         input_subset: list[str] = self.var_table[context_group]
@@ -127,7 +127,7 @@ class CNNConfig(BaseConfig):
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
             self._config: dict[str, Any] = yaml.safe_load(file)["cnn"]
-        
+
         super().__init__()
         self._load()
 
@@ -160,7 +160,7 @@ class UnetConfig(BaseConfig):
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
             self._config: dict[str, Any] = yaml.safe_load(file)["unet"]
-        
+
         super().__init__()
         self._load()
 
@@ -191,7 +191,7 @@ class ViTConfig(BaseConfig):
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
             self._config: dict[str, Any] = yaml.safe_load(file)["vit"]
-        
+
         super().__init__()
         self._load()
 
@@ -233,10 +233,10 @@ class VAEConfig(BaseConfig):
 
         with open("./config.yaml", mode="r") as file:
             if self.context_group is None:
-                self._config: dict[str, Any] = yaml.safe_load(file)[f"vae-target"]
+                self._config: dict[str, Any] = yaml.safe_load(file)["vae-target"]
             else:
                 self._config: dict[str, Any] = yaml.safe_load(file)[f"vae-{context_group}"]
-        
+
         super().__init__()
         self._load()
 
@@ -268,14 +268,14 @@ class VAEConfig(BaseConfig):
             "saved_checkpoint_directory": self.saved_checkpoint_directory,
             "target_path": self.target_path,
         }
-    
+
 
 class DiffusionConfig(BaseConfig):
 
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
             self._config: dict[str, Any] = yaml.safe_load(file)["diffusion"]
-        
+
         super().__init__()
         self._load()
 

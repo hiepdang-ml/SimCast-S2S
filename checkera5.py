@@ -3,8 +3,8 @@ from zipfile import ZipFile
 import xarray as xr
 
 
-def extract_and_checktime(year: int, months: list[int]) -> None
-    
+def extract_and_checktime(year: int, months: list[int]) -> None:
+
     if len(months) == 3:
         lookup_name: str = f"{year}q{max(months) // 3}"
     elif len(months) == 1:
@@ -26,6 +26,3 @@ def extract_and_checktime(year: int, months: list[int]) -> None
         year: set[int] = set(a.valid_time.dt.year)
         max_year: int = a.valid_time.dt.year.max().item()
         min_year: int = a.valid_time.dt.year.min().item()
-
-
-        
