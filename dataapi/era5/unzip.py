@@ -26,7 +26,7 @@ class Era5SafeUnzip:
         self.zippath: Path
         if usecase1:
             self.months = {m}
-            self.zippath = self.DATA_DIR.joinpath(f"{year}m{m}.zip")
+            self.zippath = self.DATA_DIR.joinpath(f"{year}m{m:02d}.zip")
         else:
             assert isinstance(q, int)
             self.months = {1: {1,2,3}, 2: {4,5,6}, 3: {7,8,9}, 4: {10,11,12}}[q]
