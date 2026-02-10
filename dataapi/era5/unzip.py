@@ -62,17 +62,30 @@ class Era5SafeUnzip:
 
 if __name__ == "__main__":
 
+    from typing import Iterable
+    from itertools import product
     import argparse
     parser: argparse.ArgumentParser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=str, required=True)
-    parser.add_argument("-y", type=int, required=True)
-    parser.add_argument("-q", type=int, required=False, default=None)
-    parser.add_argument("-m", type=int, required=False, default=None)
+    parser.add_argument("--fromyear", type=int, required=True)
+    parser.add_argument("--toyear", type=int, required=True)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("-q", action="store_true", default=False)
+    group.add_argument("-m", action="store_true", default=False)
     args: argparse.Namespace = parser.parse_args()
 
+    iterations: Iterable[tuple[int, int]]
+    if args.q:
+        iterations = product(range(args.fromyear, args.toyear + 1), range(1, 5))
+    if args.m:
+        iterations = product(range(args.fromyear, args.toyear + 1), range(1, 13))
+
     Era5SafeUnzip.set_data_dir(args.data_dir)
-    checker: Era5SafeUnzip = Era5SafeUnzip(year=args.y, m=args.m, q=args.q)
-    ncfiles: list[Path] = checker.extractall()
-    checker.checkall(ncfiles)
+    for year, qm in iterations:
+        worker: Era5SafeUnzip = Era5SafeUnzip(
+            year=year, m=qm if args.m else None, q=qm if args.q else None,
+        )
+        ncfiles: list[Path] = worker.extractall()
+        worker.checkall(ncfiles)
 
 # Example: python dataapi/era5/unzip.py --data-dir "./devdata" -y 2025 -q 4
