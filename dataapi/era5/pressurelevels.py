@@ -6,12 +6,12 @@ def main(year: int, months: list[int]) -> None:
     request = {
         "product_type": "reanalysis",
         "variable": [
-            # "mass",
-            # "u_component_of_wind",
-            # "v_component_of_wind",
-            # "vertical_velocity",
-            "specific_humidity",
-            "temperature",
+            "mass",
+            "u_component_of_wind",
+            "v_component_of_wind",
+            "vertical_velocity",
+            # "specific_humidity",
+            # "temperature",
         ],
         "year": str(year),
         "month": [str(m) for m in months],
@@ -33,5 +33,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     main(args.year, args.months)
 
-# Example: 
+# Example:
 # python era5api/pressurelevels.py --year=2025 --months=1,2,3
