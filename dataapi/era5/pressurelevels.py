@@ -6,7 +6,7 @@ def main(year: int, months: list[int]) -> None:
     request = {
         "product_type": "reanalysis",
         "variable": [
-            "mass",
+            "geopotential",
             "u_component_of_wind",
             "v_component_of_wind",
             "vertical_velocity",
