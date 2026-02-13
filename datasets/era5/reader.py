@@ -41,7 +41,9 @@ class Merger:
             var_name: xr.concat(records[var_name], dim="valid_time")
             for var_name in records.keys()
         }
+        del records     # release memory
         ds: xr.Dataset = xr.Dataset(concat_records)
+        del concat_records     # release memory
         assert set(required_dims) == set(ds.dims), f"required_dims: {set(required_dims)}, ds.dims: {set(ds.dims)}"
         return ds.transpose(*required_dims)
 
