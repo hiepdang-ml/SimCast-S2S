@@ -1,11 +1,11 @@
 import argparse
 from typing import Literal
 
-from datasets.common.container import VariableContainer
-from datasets.common.preprocessing import Detrender, ClimatologyRemover
-from datasets.cesm2.reader import DataReader as CESM2_DataReader
-from datasets.era5.reader import DataReader as ERA5_DataReader
-from datasets.common.writer import DataWriter
+from datapipeline.container import VariableContainer
+from datapipeline.preprocessing import Detrender, ClimatologyRemover
+from datapipeline.readers import CESM2DataReader as CESM2_DataReader
+from datapipeline.readers import DataReader as ERA5_DataReader
+from datapipeline.writer import DataWriter
 from common.configs import MetaData
 
 
