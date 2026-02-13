@@ -6,15 +6,15 @@ from functools import cached_property
 
 import torch
 from torch.utils.data import Dataset
-from datasets.common.utils import SampleInfo, DataBatch
+from .utils import SampleInfo, DataBatch
 from common.configs import MetaData
 
 
-class CESM2(Dataset):
+class _GenericDataset(Dataset):
 
     def __init__(self, metadata: MetaData):
         super().__init__()
-        assert metadata.dataset_name == "cesm2"
+        assert metadata.dataset_name in {"cesm2", "era5"}
         self.metadata: MetaData = metadata
         meta_dict: dict[str, Any] = self.metadata.to_dict()
         # validate consistent write/read metadata
@@ -51,15 +51,16 @@ class CESM2(Dataset):
     def _get_sample_info(input_filename: str, output_filename) -> SampleInfo:
         input_parts: list[str] = input_filename.removesuffix(".pt").split("__")
         output_parts: list[str] = output_filename.removesuffix(".pt").split("__")
+
         assert input_parts[0][:6] == output_parts[0][:6]  # sample_id
         assert input_parts[0].split(".")[1] == output_parts[0].split(".")[1] # tp ("train", "val", "test")
         assert input_parts[0].split(".")[-1] == "input" and output_parts[0].split(".")[-1] == "output"
 
-        year: str = input_parts[1][-4:]
+        sim_id, var_name, year = input_parts[1].split("_")
         input_days: list[str] = input_parts[2].split("_")
         output_days: list[str] = output_parts[2].split("_")
         return SampleInfo(
-            sim_id=input_parts[1][:8],
+            sim_id=sim_id,
             in_startdate=f"{year}/{input_days[0][:2]}/{input_days[0][-2:]}",
             in_enddate=f"{year}/{input_days[-1][:2]}/{input_days[-1][-2:]}",
             out_startdate=f"{year}/{output_days[0][:2]}/{output_days[0][-2:]}",
@@ -75,7 +76,7 @@ class CESM2(Dataset):
                 f=input_path, weights_only=True, map_location="cpu"
             )
             assert input_yearday_indices.shape == (self.metadata.n_input_days,)
-            assert input_var_tensor.shape == (self.metadata.n_input_days, 192, 288)
+            assert input_var_tensor.shape == (self.metadata.n_input_days, *self.metadata.resolution)
             input_var_tensors.append(input_var_tensor)
 
         output_var_tensors: list[torch.Tensor] = []
@@ -89,7 +90,7 @@ class CESM2(Dataset):
             assert output_var_tensor.shape == (self.metadata.n_output_days, 192, 288)
             output_var_tensors.append(output_var_tensor)
 
-        sampleinfo: SampleInfo = CESM2._get_sample_info(
+        sampleinfo: SampleInfo = self._get_sample_info(
             input_filename=input_path.name, output_filename=output_path.name
         )
         input_tensor: torch.Tensor = torch.stack(tensors=input_var_tensors, dim=-1)
@@ -158,6 +159,18 @@ class CESM2(Dataset):
             torch.stack(output_tensors, dim=0),
         )
         return databatch
+
+
+class CESM2(_GenericDataset):
+    def __init__(self, metadata: MetaData):
+        super().__init__(metadata)
+        assert self.metadata.dataset_name == "cesm2"
+
+
+class ERA5(_GenericDataset):
+    def __init__(self, metadata: MetaData):
+        super().__init__(metadata)
+        assert self.metadata.dataset_name == "era5"
 
 
 if __name__ == "__main__":

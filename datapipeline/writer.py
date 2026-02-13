@@ -6,7 +6,7 @@ import datetime as dt
 from typing import Literal, Any
 
 import torch
-from datasets.common.container import VariableContainer
+from .container import VariableContainer
 from common.configs import MetaData
 
 
@@ -86,6 +86,7 @@ class DataWriter:
         yearday_indices: list[int]
     ) -> str:
         sample_id: str = f"{sample_index:06d}"
+        var_name = var_name.replace("_", "") # var_name should not contain "_" to avoid downstream parsing error
         prefix: str = f"{sample_id}.{self.metadata.tp}.{input_or_output}__{sim_id}_{var_name}_{year}__"
         suffix: str = f"{'_'.join([self.__datestrings[i] for i in yearday_indices])}"
         return f"{prefix}{suffix}.pt"
