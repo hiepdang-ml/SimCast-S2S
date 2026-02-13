@@ -68,12 +68,12 @@ class Merger:
         ds = self.__dropfeb29(ds)
         # Resize
         newlat: NDArray[np.float64] = np.linspace(
-            ds.latitude.min().item(), ds.latitude.max(), target_resolution[0]
+            ds.latitude.min().item(), ds.latitude.max().item(), target_resolution[0]
         )
         newlon: NDArray[np.float64] = np.linspace(
-            ds.longitude.min().item(), ds.longitude.max(), target_resolution[1]
+            ds.longitude.min().item(), ds.longitude.max().item(), target_resolution[1]
         )
-        ds.interp(latitude=newlat, longitude=newlon, method="linear")
+        ds = ds.interp(latitude=newlat, longitude=newlon, method="linear")
         # Transpose and sort
         ds = ds.transpose("valid_time", "latitude", "longitude")
         ds = ds.sortby(variables=["valid_time"], ascending=True)
