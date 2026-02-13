@@ -49,7 +49,7 @@ class DataReader:
         return tensor
 
 
-class LandMaskReader:
+class LandmaskReader:
 
     """
     Read from .nc to tensor
