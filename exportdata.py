@@ -4,7 +4,7 @@ from typing import Literal
 from datapipeline.container import VariableContainer
 from datapipeline.preprocessing import Detrender, ClimatologyRemover
 from datapipeline.readers.cesm2 import DataReader as CESM2_DataReader
-from datapipeline.readers.cesm2 import DataReader as ERA5_DataReader
+from datapipeline.readers.era5 import DataReader as ERA5_DataReader
 from datapipeline.writer import DataWriter
 from common.configs import MetaData
 
