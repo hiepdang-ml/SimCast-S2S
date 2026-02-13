@@ -5,7 +5,7 @@ cesm2:
   input_vars: [
     "U200", "V200", "U500", "V500", "OMEGA500", "U850", "V850",
     "Z200", "Z500", "Z850", "PSL",
-    "TS", "T200", "T500", "T850", "FLUT", 
+    "TS", "T200", "T500", "T850", "FLUT",
     "TMQ", "Q200", "Q500", "Q850",
     "PRECT",
   ] # order matters
@@ -58,18 +58,18 @@ cesm2:
   n_step_days: 14
   climatological_window_size: 15
 
-  train_write_directory: "/scratch/zgp2ps/cesm2/tensors/train"
-  val_write_directory: "/scratch/zgp2ps/cesm2/tensors/val"
-  test_write_directory: "/scratch/zgp2ps/cesm2/tensors/test"
-  detrender_state_directory: "/scratch/zgp2ps/cesm2/tensors/detrender"
-  climatology_state_directory: "/scratch/zgp2ps/cesm2/tensors/climatology"
+  train_write_directory: "/scratch/zgp2ps/cesm2/tensors/train/"
+  val_write_directory: "/scratch/zgp2ps/cesm2/tensors/val/"
+  test_write_directory: "/scratch/zgp2ps/cesm2/tensors/test/"
+  detrender_state_directory: "/scratch/zgp2ps/cesm2/tensors/detrender/"
+  climatology_state_directory: "/scratch/zgp2ps/cesm2/tensors/climatology/"
 
 
 era5:
 
   # TODO: work in progress
-  zip_root: "/scratch/zgp2ps/era5/raw"
-  array_root: "/scratch/zgp2ps/era5/arrays"
+  raw_root: "/scratch/zgp2ps/era5/raw/"
+  array_root: "/scratch/zgp2ps/era5/arrays/"
 
   # fixed configs
   input_vars: [
@@ -89,7 +89,7 @@ era5:
   val_start_year: 2011
   val_end_year: 2020
   test_start_year: 2021
-  test_end_year: 2024
+  test_end_year: 2025
 
   n_input_days: 28
   n_lead_days: 14
@@ -97,14 +97,14 @@ era5:
   n_step_days: 14
   climatological_window_size: 15
 
-  train_write_directory: "/scratch/zgp2ps/era5/tensors/train"
-  train_metadata_directory: "/scratch/zgp2ps/era5/tensors/train/metadata"
-  val_write_directory: "/scratch/zgp2ps/era5/tensors/val"
-  val_metadata_directory: "/scratch/zgp2ps/era5/tensors/val/metadata"
-  test_write_directory: "/scratch/zgp2ps/era5/tensors/test"
-  test_metadata_directory: "/scratch/zgp2ps/era5/tensors/test/metadata"
-  detrender_state_directory: "/scratch/zgp2ps/era5/tensors/detrender"
-  climatology_state_directory: "/scratch/zgp2ps/era5/tensors/climatology"
+  train_write_directory: "/scratch/zgp2ps/era5/tensors/train/"
+  train_metadata_directory: "/scratch/zgp2ps/era5/tensors/train/metadata/"
+  val_write_directory: "/scratch/zgp2ps/era5/tensors/val/"
+  val_metadata_directory: "/scratch/zgp2ps/era5/tensors/val/metadata/"
+  test_write_directory: "/scratch/zgp2ps/era5/tensors/test/"
+  test_metadata_directory: "/scratch/zgp2ps/era5/tensors/test/metadata/"
+  detrender_state_directory: "/scratch/zgp2ps/era5/tensors/detrender/"
+  climatology_state_directory: "/scratch/zgp2ps/era5/tensors/climatology/"
 
 
 cnn:
@@ -117,7 +117,7 @@ cnn:
   learning_rate: 1e-6
   train_batch_size: 4
   val_batch_size: 1
-  
+
   n_epochs: 1000
   patience: 10
   tolerance: 0.
@@ -141,7 +141,7 @@ unet:
   patience: 10
   tolerance: 0.
   save_frequency: 1
-  
+
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/unet256/unet2.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/unet256/"
   target_path: "/scratch/zgp2ps/s2s_results/unet256/tensors/"
@@ -276,7 +276,7 @@ vae-precip:
   save_frequency: 1
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times/vaeprecip6.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times/"
   target_path: "/scratch/zgp2ps/s2s_results/vae_precip_4times/tensors/"
 
 
@@ -325,5 +325,4 @@ diffusion:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v23_cosine/diffusion24.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v23_cosine/"
-  # target_path: "/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors/"  # eta 000, median
-  target_path: "/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors_eta100_median/"
+  target_path: "/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors/"

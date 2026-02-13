@@ -20,9 +20,7 @@ def main(dataset: Literal["cesm2", "era5"], fresh: bool) -> None:
             for var_name in train_metadata.var_names:
                 var_container: VariableContainer = VariableContainer(var_name=var_name, metadata=train_metadata)
                 for sim_id, year in train_metadata.combinations:
-                    reader: CESM2_DataReader = CESM2_DataReader(
-                        var_name=var_name, sim_id=sim_id, year=year, device="cpu",
-                    )
+                    reader: CESM2_DataReader = CESM2_DataReader(var_name=var_name, sim_id=sim_id, year=year)
                     var_container.set(sim_id=sim_id, year=year, value=reader.tensor)
                     print(f"Loaded to var_container: {dataset}.train.{sim_id}.{var_name}.{year}")
 
@@ -41,9 +39,7 @@ def main(dataset: Literal["cesm2", "era5"], fresh: bool) -> None:
             assert sim_id == "reanalysis"   # only one "simulation"
             for var_name in train_metadata.var_names:
                 var_container: VariableContainer = VariableContainer(var_name=var_name, metadata=train_metadata)
-                reader: ERA5_DataReader = ERA5_DataReader(
-                    resolution=train_metadata.resolution, device="cpu",
-                )
+                reader: ERA5_DataReader = ERA5_DataReader(target_resolution=train_metadata.resolution)
                 for sim_id, year in train_metadata.combinations:
                     var_container.set(
                         sim_id=sim_id, year=year,
@@ -71,9 +67,7 @@ def main(dataset: Literal["cesm2", "era5"], fresh: bool) -> None:
                 for var_name in metadata.var_names:
                     var_container: VariableContainer = VariableContainer(var_name=var_name, metadata=metadata)
                     for sim_id, year in metadata.combinations:
-                        reader: CESM2_DataReader = CESM2_DataReader(
-                            var_name=var_name, sim_id=sim_id, year=year, device="cpu",
-                        )
+                        reader: CESM2_DataReader = CESM2_DataReader(var_name=var_name, sim_id=sim_id, year=year)
                         var_container.set(sim_id=sim_id, year=year, value=reader.tensor)
                         print(f"Loaded to var_container: {dataset}.{tp}.{sim_id}.{var_name}.{year}")
 
@@ -91,9 +85,7 @@ def main(dataset: Literal["cesm2", "era5"], fresh: bool) -> None:
                     var_container: VariableContainer = VariableContainer(var_name=var_name, metadata=metadata)
                     for sim_id, year in metadata.combinations:
                         assert sim_id == "reanalysis"   # only one "simulation"
-                        reader: ERA5_DataReader = ERA5_DataReader(
-                            resolution=metadata.resolution, device="cpu"
-                        )
+                        reader: ERA5_DataReader = ERA5_DataReader(target_resolution=metadata.resolution)
                         var_container.set(
                             sim_id=sim_id, year=year,
                             value=reader.get_tensor(var_name=var_name, year=year),

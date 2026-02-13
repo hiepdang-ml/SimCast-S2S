@@ -69,8 +69,8 @@ class _AbstractPredictor(ABC):
         self.torchio: TorchDictIO = TorchDictIO(dirpath=target_path)
         self.prediction_plotter: PredictionPlotter = PredictionPlotter(dirpath=target_path)
         self.metric_plotter: MetricPlotter = MetricPlotter(dirpath=target_path)
-        self.landmask_reader: LandMaskReader = LandMaskReader(device="cpu")
-        self.coordinates_reader: CoordinatesReader = CoordinatesReader(device="cpu")
+        self.landmask_reader: LandMaskReader = LandMaskReader()
+        self.coordinates_reader: CoordinatesReader = CoordinatesReader()
 
     @torch.no_grad()
     def predict(self) -> None:
@@ -586,8 +586,8 @@ class Visualizer:
         self.target_dir = Path(target_dir)
         self.torchio = TorchDictIO(dirpath=source_dir)
         self.prediction_plotter = PredictionPlotter(dirpath=target_dir)
-        self.landmask_reader: LandMaskReader = LandMaskReader(device="cpu")
-        self.coordinates_reader: CoordinatesReader = CoordinatesReader(device="cpu")
+        self.landmask_reader: LandMaskReader = LandMaskReader()
+        self.coordinates_reader: CoordinatesReader = CoordinatesReader()
 
     def plot_baseline_prediction(self, filename: str) -> None:
         result_object: dict[str, torch.Tensor | float | str] = self.torchio.load(filename=filename)

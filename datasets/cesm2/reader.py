@@ -13,11 +13,10 @@ class DataReader:
     Read from .nc to tensor
     """
 
-    def __init__(self, var_name: str, sim_id: str, year: int, device: str) -> None:
+    def __init__(self, var_name: str, sim_id: str, year: int) -> None:
         self.var_name: str = var_name
         self.sim_id: str = sim_id
         self.year: int = year
-        self.device: torch.device = torch.device(device)
         with open("./config.yaml", mode="r") as file:
             self.root_directory: pathlib.Path = pathlib.Path(yaml.safe_load(file)["cesm2"]["root"])
 
@@ -45,7 +44,7 @@ class DataReader:
 
     @property   # Only access once -> No cache
     def tensor(self) -> torch.Tensor:
-        tensor: torch.Tensor = torch.from_numpy(self.ds.to_array().values).squeeze().to(device=self.device)
+        tensor: torch.Tensor = torch.from_numpy(self.ds.to_array().values).squeeze()
         assert tensor.shape == (365, 192, 288)
         return tensor
 
@@ -56,8 +55,7 @@ class LandMaskReader:
     Read from .nc to tensor
     """
 
-    def __init__(self, device: str) -> None:
-        self.device: torch.device = torch.device(device)
+    def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
             pathstring: str = yaml.safe_load(file)["cesm2"]["root"]
             self.mask_directory: pathlib.Path = pathlib.Path(pathstring).parent.joinpath("landmask")
@@ -66,7 +64,7 @@ class LandMaskReader:
     @cached_property
     def tensor(self) -> torch.Tensor:
         xrarray: xr.DataArray = xr.open_dataset(self.filepath, engine="netcdf4")["landmask"]
-        tensor: torch.Tensor = torch.from_numpy(xrarray.values).squeeze().to(device=self.device)
+        tensor: torch.Tensor = torch.from_numpy(xrarray.values).squeeze()
         tensor = torch.nan_to_num(tensor, nan=0.0)
         assert tensor.shape == (192, 288)
         return tensor
@@ -78,8 +76,7 @@ class CoordinatesReader:
     Read from .nc to tensor
     """
 
-    def __init__(self, device: str) -> None:
-        self.device: torch.device = torch.device(device)
+    def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
             pathstring: str = yaml.safe_load(file)["cesm2"]["root"]
             self.mask_directory: pathlib.Path = pathlib.Path(pathstring).parent.joinpath("landmask")
@@ -88,8 +85,8 @@ class CoordinatesReader:
     @cached_property
     def tensors(self) -> tuple[torch.Tensor, torch.Tensor]:
         ds: xr.Dataset = xr.open_dataset(self.filepath, engine="netcdf4")
-        lat_tensor: torch.Tensor = torch.from_numpy(ds["lat"].values).squeeze().to(device=self.device)
-        lon_tensor: torch.Tensor = torch.from_numpy(ds["lon"].values).squeeze().to(device=self.device)
+        lat_tensor: torch.Tensor = torch.from_numpy(ds["lat"].values).squeeze()
+        lon_tensor: torch.Tensor = torch.from_numpy(ds["lon"].values).squeeze()
         assert lat_tensor.shape == (192,)
         assert lon_tensor.shape == (288,)
         return lat_tensor, lon_tensor
