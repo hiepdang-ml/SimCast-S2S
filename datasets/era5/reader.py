@@ -33,7 +33,7 @@ class Merger:
         for filedir in filedirs:
             for ncfile in sorted(filedir.glob("*.nc"), key=lambda x: x.name):
                 print(f"Loading: {ncfile}")
-                da: xr.DataArray = xr.load_dataarray(ncfile)
+                da: xr.DataArray = xr.load_dataarray(ncfile, engine="netcdf4")
                 varname: str = cast(str, da.name)
                 records[varname].append(da)
 
