@@ -34,8 +34,9 @@ class Merger:
             for ncfile in sorted(filedir.glob("*.nc"), key=lambda x: x.name):
                 print(f"Loading: {ncfile}")
                 da: xr.DataArray = xr.load_dataarray(ncfile, engine="netcdf4")
-                varname: str = cast(str, da.name)
-                records[varname].append(da)
+                var_name: str = cast(str, da.name)
+                var_name = var_name.replace("_", "") # remove all "_" to ease later parsing
+                records[var_name].append(da)
 
         concat_records: dict[str, xr.DataArray] = {
             var_name: xr.concat(records[var_name], dim="valid_time")
@@ -53,7 +54,7 @@ class Merger:
         for var_name in ds.data_vars.keys():
             da: xr.DataArray = ds[var_name]
             for level in da.pressure_level.values:
-                new_name: str = f"{var_name}_{int(level)}"
+                new_name: str = f"{var_name}{int(level)}"
                 flattened_vars[new_name] = da.sel(pressure_level=level, drop=True)
 
         return xr.Dataset(flattened_vars)
@@ -109,11 +110,14 @@ class DataReader:
     def get_tensor(self, var_name: str, year: int) -> torch.Tensor:
         filepath: Path = self.array_root.joinpath(f"{var_name}/{var_name}_{year}.nc")
         if not filepath.exists():
+            # NOTE: miss one variable => miss all variables
             self.__merge(year)
 
         assert filepath.exists()
         # Force to load full data to RAM (not just memory references)
         da: xr.DataArray = xr.open_dataarray(filepath, engine="netcdf4").load()
+        # Convert to ERA5's definition
+        da = self.__convert_to_cesm2_definition(var_name=var_name, da=da)
         # Validate
         self.__validate_complete_data(da=da, var_name=var_name, year=year)
         tensor: torch.Tensor = torch.from_numpy(da.values.astype("float32"))
@@ -136,6 +140,16 @@ class DataReader:
         assert len(months) == 12, f"Found months: {months}"
         days = set(d.item() for d in time.dt.floor("D").values.astype("datetime64[D]"))
         assert len(days) == 365, f"Found {len(days)} unique days"
+
+    @staticmethod
+    def __convert_to_cesm2_definition(var_name: str, da: xr.DataArray) -> xr.DataArray:
+        if var_name == "avgtnlwrf":
+            da = -da    # ECMWF convention assigns possitive downward
+        if var_name == "tp":
+            da = da / 3600  # precisely, da = da * 24 / 86400
+        if var_name in {"z200", "z500", "z850"}:
+            da = da / 9.80665   # geopotential -> geopotential height
+        return da
 
 
 class LandmaskReader:
