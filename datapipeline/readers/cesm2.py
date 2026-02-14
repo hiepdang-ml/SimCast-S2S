@@ -44,7 +44,7 @@ class DataReader:
 
     @property   # Only access once -> No cache
     def tensor(self) -> torch.Tensor:
-        tensor: torch.Tensor = torch.from_numpy(self.ds.to_array().values).squeeze()
+        tensor: torch.Tensor = torch.from_numpy(self.ds.to_array().values.astype("float32")).squeeze()
         assert tensor.shape == (365, 192, 288)
         return tensor
 

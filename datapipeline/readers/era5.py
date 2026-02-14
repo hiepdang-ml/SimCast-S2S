@@ -116,7 +116,7 @@ class DataReader:
         da: xr.DataArray = xr.open_dataarray(filepath, engine="netcdf4").load()
         # Validate
         self.__validate_complete_data(da=da, var_name=var_name, year=year)
-        tensor: torch.Tensor = torch.from_numpy(da.values)
+        tensor: torch.Tensor = torch.from_numpy(da.values.astype("float32"))
         return tensor
 
     def __merge(self, year: int) -> None:
