@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import yaml
 
-import pathlib
+from pathlib import Path
 from itertools import product
 from typing import Literal, Any
 
@@ -16,9 +16,9 @@ class BaseConfig(ABC):
         self.patience: int = self._config["patience"]
         self.tolerance: float = float(self._config["tolerance"])
         self.save_frequency: int = self._config["save_frequency"]
-        self.from_checkpoint: pathlib.Path | None = pathlib.Path(value) if (value := self._config["from_checkpoint"]) else None
-        self.saved_checkpoint_directory: pathlib.Path = pathlib.Path(self._config["saved_checkpoint_directory"])
-        self.target_path: pathlib.Path = pathlib.Path(self._config["target_path"])
+        self.from_checkpoint: Path | None = Path(value) if (value := self._config["from_checkpoint"]) else None
+        self.saved_checkpoint_directory: Path = Path(self._config["saved_checkpoint_directory"])
+        self.target_path: Path = Path(self._config["target_path"])
 
     @abstractmethod
     def _load(self) -> None:
@@ -39,9 +39,10 @@ class MetaData(BaseConfig):
             "precip": ["PRECT"], # precip
         },
         "era5": {
-            "wind": ["u_200", "v_200", "u_500", "v_500", "w_500", "u_850", "v_850"],
-            "mass": ["z_200", "z_500", "z_850"],
-            "thermal": ["avg_tnlwrf", "t2m", "msl"],
+            "wind": ["u200", "v200", "u500", "v500", "w500", "u850", "v850"],
+            "mass": ["z200", "z500", "z850", "avgtnlwrf"],
+            "thermal": ["skt", "t200", "t500", "t850", "avgtnlwrf"],
+            "hytdro": ["tcwv", "q200", "q500", "q850"],
             "precip": ["tp"],
         }
     }
@@ -65,6 +66,11 @@ class MetaData(BaseConfig):
         self.n_years: int = len(self.years)
 
     def _load(self) -> None:
+
+        self.raw_root: Path = Path(self._config["raw_root"])
+        if self.dataset_name == "era5":
+            self.array_root: Path = Path(self._config["array_root"])
+
         self.input_vars: list[str] = self._config["input_vars"]
         self.output_vars: list[str] = self._config["output_vars"]
         self.resolution: tuple[int, int] = tuple(self._config["resolution"])
@@ -73,15 +79,15 @@ class MetaData(BaseConfig):
         if self.tp == "train":
             self.start_year: int = self._config["train_start_year"]
             self.end_year: int = self._config["train_end_year"]
-            self.write_directory: pathlib.Path = pathlib.Path(self._config["train_write_directory"])
+            self.write_directory: Path = Path(self._config["train_write_directory"])
         elif self.tp == "val":
             self.start_year: int = self._config["val_start_year"]
             self.end_year: int = self._config["val_end_year"]
-            self.write_directory: pathlib.Path = pathlib.Path(self._config["val_write_directory"])
+            self.write_directory: Path = Path(self._config["val_write_directory"])
         elif self.tp == "test":
             self.start_year: int = self._config["test_start_year"]
             self.end_year: int = self._config["test_end_year"]
-            self.write_directory: pathlib.Path = pathlib.Path(self._config["test_write_directory"])
+            self.write_directory: Path = Path(self._config["test_write_directory"])
         else:
             raise ValueError(f"Invalid tp for MetaData, expected one of ['train', 'val', 'test'], get: '{self.tp}'")
 
@@ -91,13 +97,14 @@ class MetaData(BaseConfig):
         self.n_step_days: int = self._config["n_step_days"]
         self.climatological_window_size: int = self._config["climatological_window_size"]
 
-        self.detrender_state_directory: pathlib.Path = pathlib.Path(self._config["detrender_state_directory"])
-        self.climatology_state_directory: pathlib.Path = pathlib.Path(self._config["climatology_state_directory"])
+        self.detrender_state_directory: Path = Path(self._config["detrender_state_directory"])
+        self.climatology_state_directory: Path = Path(self._config["climatology_state_directory"])
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "dataset_name": self.dataset_name,
             "tp": self.tp,
+            "raw_root": self.raw_root,
             "input_vars": self.input_vars,
             "output_vars": self.output_vars,
             "resolution": self.resolution,
@@ -109,6 +116,9 @@ class MetaData(BaseConfig):
             "n_step_days": self.n_step_days,
             "climatological_window_size": self.climatological_window_size,
         }
+        if self.dataset_name == "era5":
+            d.update({"array_root": self.array_root})
+        return d
 
     def with_var_subset(
         self,
@@ -305,11 +315,11 @@ class DiffusionConfig(BaseConfig):
         self.ensemble_size: int = int(self._config["ensemble_size"])
 
         self.learning_rate: float = float(self._config["learning_rate"])
-        self.vae_wind_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_wind_checkpoint"])
-        self.vae_mass_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_mass_checkpoint"])
-        self.vae_thermal_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_thermal_checkpoint"])
-        self.vae_hydro_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_hydro_checkpoint"])
-        self.vae_precip_checkpoint: pathlib.Path = pathlib.Path(self._config["vae_precip_checkpoint"])
+        self.vae_wind_checkpoint: Path = Path(self._config["vae_wind_checkpoint"])
+        self.vae_mass_checkpoint: Path = Path(self._config["vae_mass_checkpoint"])
+        self.vae_thermal_checkpoint: Path = Path(self._config["vae_thermal_checkpoint"])
+        self.vae_hydro_checkpoint: Path = Path(self._config["vae_hydro_checkpoint"])
+        self.vae_precip_checkpoint: Path = Path(self._config["vae_precip_checkpoint"])
 
     def to_dict(self) -> dict[str, Any]:
         return {
