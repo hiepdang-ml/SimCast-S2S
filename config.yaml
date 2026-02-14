@@ -72,12 +72,17 @@ era5:
   array_root: "/scratch/zgp2ps/era5/arrays/"
 
   # fixed configs
+  #
+    # "U200", "V200", "U500", "V500", "OMEGA500", "U850", "V850",
+    # "Z200", "Z500", "Z850", "PSL",
+    # "TS", "T200", "T500", "T850", "FLUT",
+    # "TMQ", "Q200", "Q500", "Q850",
+    # "PRECT",
   input_vars: [
-    "u_200", "v_200",
-    "u_500", "v_500", "w_500",
-    "u_850", "v_850",
-    "z_200", "z_500", "z_850",
-    "avg_tnlwrf", "t2m", "msl",
+    "u_200", "v_200", "u_500", "v_500", "w_500", "u_850", "v_850",
+    "z_200", "z_500", "z_850", "msl",
+    "skt", "t_200", "t_500", "t_850", "avg_tnlwrf",
+    "tcwv", "q_200", "q_500", "q_850",
     "tp",
   ] # order matters
   output_vars: ["tp"]
