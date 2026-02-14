@@ -11,8 +11,11 @@ from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data.distributed import DistributedSampler
 
-from datasets.cesm2 import CESM2, CoordinatesReader, LandMaskReader
-from datasets.common.utils import DataBatch, SampleInfo
+from datapipeline.dataset import CESM2
+from datapipeline.readers import CESM2_LandmaskReader, CESM2_CoordinatesReader
+from datapipeline.dataset import ERA5
+from datapipeline.readers import ERA5_LandmaskReader, ERA5_CoordinatesReader
+from datapipeline.utils import DataBatch, SampleInfo
 from common.metrics import ErrorMap, MAEMap, GeographicalRsquaredMap, GeographicalMAE, GeographicalMSE
 from common.plotting import MetricPlotter, PredictionPlotter
 from common.utils import TorchDictIO

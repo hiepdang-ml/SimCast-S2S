@@ -41,14 +41,6 @@ class VariableContainer:
             for sim_id, year in self.metadata.combinations
         )
 
-    def to(self, device: torch.device | str) -> VariableContainer:
-        assert self.is_completed, "VariableContainer must be completed before moving to new device"
-        for sim_id, year in self.metadata.combinations:
-            value = self.get(sim_id=sim_id, year=year)
-            if isinstance(value, torch.Tensor):
-                self.set(sim_id=sim_id, year=year, value=value.to(device=device))
-        return self
-
     def yearly_agg(self, reduce_func: Literal["sum", "mean", "std"]) -> VariableContainer:
         assert self.is_completed
 

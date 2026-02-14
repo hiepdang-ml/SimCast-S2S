@@ -10,8 +10,8 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data.distributed import DistributedSampler
 
 from tqdm import tqdm
-from datasets.common.utils import DataBatch
-from datasets.cesm2 import CESM2
+from datapipeline.common.utils import DataBatch
+from datapipeline.cesm2 import CESM2
 from common.utils import Accumulator, EarlyStopping, Timer, Logger, CheckpointSaver
 from common.losses import VAELoss, DiffusionLoss
 from models.benchmarks import CNN, UNet, ViT

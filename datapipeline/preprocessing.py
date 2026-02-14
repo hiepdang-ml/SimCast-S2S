@@ -20,14 +20,17 @@ class _LinearRegressor:
         assert self.var_name == mean_container.var_name
         assert (not bool(self.lr_weight)), "Linear regression is already fit"
         self.train_metadata: MetaData = train_metadata
-        mean_container = mean_container.to("cpu")
         X: torch.Tensor = self.__get_X(metadata=train_metadata)
+        # DEBUG
+        print(f"X: {X.dtype}")
         assert X.shape == (train_metadata.n_years, 2)
         for sim_id in train_metadata.sim_ids:
             tensors: list[torch.Tensor] = [
                 mean_container.get(sim_id=sim_id, year=year) for year in train_metadata.years
             ]
             y: torch.Tensor = torch.cat(tensors, dim=0)
+            # DEBUG
+            print(f"y: {y.dtype}")
             assert y.shape == (train_metadata.n_years, self.H, self.W)
             y = y.reshape(train_metadata.n_years, self.H * self.W)
             W: torch.Tensor = torch.linalg.lstsq(X, y).solution
@@ -84,7 +87,6 @@ class Detrender:
         """
         Inplace operation to save memory
         """
-        input_container = input_container.to(device="cpu")
         mean_container: VariableContainer = input_container.yearly_agg(reduce_func="mean")
         lr: _LinearRegressor = _LinearRegressor(
             var_name=input_container.var_name, resolution=self.metadata.resolution
@@ -129,7 +131,6 @@ class _ClimatologicalMean:
         window_size: int = train_metadata.climatological_window_size
         half_window: int = window_size // 2
         n_years: int = train_metadata.n_years
-        input_container = input_container.to("cpu")
 
         for sim_id in train_metadata.sim_ids:
             # retrieve input data (ensure ascending year)
@@ -197,7 +198,6 @@ class ClimatologyRemover:
         cm: _ClimatologicalMean = _ClimatologicalMean(
             var_name=input_container.var_name, resolution=self.metadata.resolution
         )
-        input_container = input_container.to("cpu")
         if self.metadata.tp == "train":
             # fit new cm (during training)
             assert train_metadata is None
