@@ -176,7 +176,7 @@ class LandmaskReader:
 
     @cached_property
     def tensor(self) -> torch.Tensor:
-        da: xr.DataArray = xr.load_dataarray(self.filepath, engine="netcdf4")
+        da: xr.DataArray = xr.load_dataarray(self.filepath, engine="netcdf4").isel(valid_time=0)
         value: torch.Tensor = torch.from_numpy(da.values).nan_to_num(0.0)
         landmask: torch.Tensor = (value != 0.).float()
         assert landmask.shape == (721, 1440), f"getting landmask.shape={landmask.shape}"
