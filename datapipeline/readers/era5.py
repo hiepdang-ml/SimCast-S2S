@@ -168,10 +168,6 @@ class LandmaskReader:
             self.filepath: Path = next(self.mask_directory.glob("*.nc"))
 
     def __resize(self, input2d: torch.Tensor) -> torch.Tensor:
-        """
-        Era5-land data (which is used to extract landmask) have higher resolution than Era5-climate,
-        this method approximates the Era5-climate's landmask from Era5-land.
-        """
         assert input2d.ndim == 2  # (H, W)
         input2d = torch.nn.functional.interpolate(
             input=input2d[None, None, :, :], size=self.resolution, mode="nearest"

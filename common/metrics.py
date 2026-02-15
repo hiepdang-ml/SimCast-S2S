@@ -1,6 +1,8 @@
 from functools import cached_property
 from abc import ABC, abstractmethod
 from pathlib import Path
+from numpy.typing import NDArray
+import numpy as np
 import xarray as xr
 import torch
 
@@ -14,10 +16,23 @@ class _GeographicalMetricOrMap(ABC):
     @cached_property
     def tropical_mask(self) -> torch.Tensor:
         ds: xr.Dataset = xr.open_dataset(self.landmask_path)
-        mask: xr.DataArray = (self.tropical_lats[0] <= ds["lat"]) & (ds["lat"] <= self.tropical_lats[1])
-        mask: torch.Tensor = torch.from_numpy(mask.values)
-        assert mask.shape == (192,)
-        return mask
+        mask: xr.DataArray
+        if {"latitude", "longitude"}.intersection(ds.coords):   # CESM2
+            # Resize
+            newlat: NDArray[np.float64] = np.linspace(
+                ds.latitude.min().item(), ds.latitude.max().item(), 192
+            )
+            newlon: NDArray[np.float64] = np.linspace(
+                ds.longitude.min().item(), ds.longitude.max().item(), 288
+            )
+            ds = ds.interp(latitude=newlat, longitude=newlon, method="linear")
+            mask = (self.tropical_lats[0] <= ds["latitude"]) & (ds["latitude"] <= self.tropical_lats[1])
+        else:   # CESM2
+            mask = (self.tropical_lats[0] <= ds["lat"]) & (ds["lat"] <= self.tropical_lats[1])
+
+        mask_tensor: torch.Tensor = torch.from_numpy(mask.values)
+        assert mask_tensor.shape == (192,)
+        return mask_tensor
 
     @abstractmethod
     def __call__(self, prediction: torch.Tensor, groundtruth: torch.Tensor) -> torch.Tensor:
