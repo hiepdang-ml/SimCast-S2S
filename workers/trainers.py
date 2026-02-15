@@ -16,8 +16,7 @@ from common.utils import Accumulator, EarlyStopping, Timer, Logger, CheckpointSa
 from common.losses import VAELoss, DiffusionLoss
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAE_Target, VAEEncoder, UNetDenoiser, LinearNoiseScheduler,
-    ForwardProcess, ReverseProcess,
+    VAE, VAEEncoder, UNetDenoiser, LinearNoiseScheduler, ForwardProcess,
 )
 from models.diffusion.diffusion import CosineNoiseScheduler
 from .common import RequireVAEEncoders
@@ -274,10 +273,7 @@ class VAETrainer(_AbstractTrainer):
     def _train_step(self, batch: DataBatch) -> None:
         sampleinfos, input_yearday_indices, output_yearday_indices, input_tensor, target_tensor = batch
         batch_size, n_days, H, W, n_features = input_tensor.shape
-        if isinstance(self.net.module, VAE_Target):
-            x: torch.Tensor = target_tensor.to(self.device, non_blocking=True)
-        else:
-            x: torch.Tensor = input_tensor.to(self.device, non_blocking=True)
+        x: torch.Tensor = input_tensor.to(self.device, non_blocking=True)
 
         for day in range(x.shape[1]):
             # Forward pass
@@ -297,10 +293,7 @@ class VAETrainer(_AbstractTrainer):
     ]:
         sampleinfos, input_yearday_indices, output_yearday_indices, input_tensor, target_tensor = batch
         batch_size, n_days, H, W, n_features = input_tensor.shape
-        if isinstance(self.net.module, VAE_Target):
-            x: torch.Tensor = target_tensor.to(self.device, non_blocking=True)
-        else:
-            x: torch.Tensor = input_tensor.to(self.device, non_blocking=True)
+        x: torch.Tensor = input_tensor.to(self.device, non_blocking=True)
 
         reconstruction_loss_sum: torch.Tensor = torch.zeros_like(x).sum()
         kl_divergence_sum: torch.Tensor = torch.zeros_like(x).sum()
