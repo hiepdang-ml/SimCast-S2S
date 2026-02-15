@@ -179,7 +179,7 @@ class LandmaskReader:
         da: xr.DataArray = xr.load_dataarray(self.filepath, engine="netcdf4")
         value: torch.Tensor = torch.from_numpy(da.values).nan_to_num(0.0)
         landmask: torch.Tensor = (value != 0.).float()
-        assert landmask.shape == (721, 1440)
+        assert landmask.shape == (721, 1440), f"getting landmask.shape={landmask.shape}"
         landmask = self.__resize(landmask)
         assert landmask.shape == (self.H, self.W)
         return landmask
