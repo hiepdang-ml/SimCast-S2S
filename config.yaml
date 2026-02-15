@@ -1,6 +1,7 @@
 cesm2:
 
   raw_root: "/scratch/zgp2ps/cesm2/data/"
+  landmask_root: "/scratch/zgp2ps/cesm2/landmask/"
   # fixed configs
   input_vars: [
     "U200", "V200", "U500", "V500", "OMEGA500", "U850", "V850",
@@ -67,10 +68,9 @@ cesm2:
 
 era5:
 
-  # TODO: work in progress
   raw_root: "/scratch/zgp2ps/era5/raw/"
   array_root: "/scratch/zgp2ps/era5/arrays/"
-
+  landmask_root: "/scratch/zgp2ps/era5/raw/landmask/"
   # fixed configs
   input_vars: [
     "u200", "v200", "u500", "v500", "w500", "u850", "v850",
@@ -82,7 +82,7 @@ era5:
   output_vars: ["tp"]
   resolution: [192, 288]
   sim_ids: ["reanalysis"]
-
+  # modifiable configs:
   train_start_year: 1940
   train_end_year: 2010
   val_start_year: 2011

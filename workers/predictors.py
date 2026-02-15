@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Iterable, Any, cast
+from typing import Iterable, Literal, Any, cast
 from functools import cached_property
 from itertools import product
 from pathlib import Path
@@ -19,6 +19,7 @@ from datapipeline.utils import DataBatch, SampleInfo
 from common.metrics import ErrorMap, MAEMap, GeographicalRsquaredMap, GeographicalMAE, GeographicalMSE
 from common.plotting import MetricPlotter, PredictionPlotter
 from common.utils import TorchDictIO
+from common.configs import MetaData
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAE_Target, VAEEncoder, VAEDecoder, UNetDenoiser,
@@ -29,9 +30,15 @@ from .common import RequireVAEEncoders
 
 class _AbstractPredictor(ABC):
 
-    def __init__(self, net: CNN | UNet | ViT | VAE | UNetDenoiser, dataset: CESM2, target_path: str, local_rank: int):
+    def __init__(
+        self, net: CNN | UNet | ViT | VAE | UNetDenoiser,
+        dataset: CESM2 | ERA5,
+        landmask_path: str,
+        target_path: str, local_rank: int,
+    ):
         self.base_net: CNN | UNet | ViT | VAE | UNetDenoiser = net
-        self.dataset: CESM2 = dataset
+        self.dataset: CESM2 | ERA5 = dataset
+        self.landmask_path: Path = Path(landmask_path)
         self.target_path: Path = Path(target_path)
         self.local_rank: int = local_rank
 
@@ -45,7 +52,7 @@ class _AbstractPredictor(ABC):
         self.dataloader: DataLoader[DataBatch] = DataLoader(
             dataset=dataset,
             batch_size=1,
-            collate_fn=CESM2.collate_fn,
+            collate_fn=self.dataset.collate_fn,
             prefetch_factor=2,
             num_workers=4,
             pin_memory=True,
@@ -61,19 +68,25 @@ class _AbstractPredictor(ABC):
             self.out_features: int = 1
 
         self.tropical_lats: tuple[float, float] = (-25.0, 25.0)   # fixed
-        self.mse = GeographicalMSE(tropical_lats=self.tropical_lats)
-        self.mae = GeographicalMAE(tropical_lats=self.tropical_lats)
+        self.mse = GeographicalMSE(landmask_path=landmask_path, tropical_lats=self.tropical_lats)
+        self.mae = GeographicalMAE(landmask_path=landmask_path, tropical_lats=self.tropical_lats)
         self.model_name: str = self.base_net.name
         self.rsquared_map: GeographicalRsquaredMap = GeographicalRsquaredMap(
-            n_features=self.out_features, tropical_lats=self.tropical_lats
+            n_features=self.out_features, landmask_path=landmask_path, tropical_lats=self.tropical_lats,
         )
-        self.mae_map: MAEMap = MAEMap(n_features=self.out_features, tropical_lats=self.tropical_lats)
+        self.mae_map: MAEMap = MAEMap(
+            n_features=self.out_features, landmask_path=landmask_path, tropical_lats=self.tropical_lats,
+        )
         self.error_map: ErrorMap = ErrorMap(n_features=self.out_features)
         self.torchio: TorchDictIO = TorchDictIO(dirpath=target_path)
         self.prediction_plotter: PredictionPlotter = PredictionPlotter(dirpath=target_path)
         self.metric_plotter: MetricPlotter = MetricPlotter(dirpath=target_path)
-        self.landmask_reader: LandMaskReader = LandMaskReader()
-        self.coordinates_reader: CoordinatesReader = CoordinatesReader()
+        if isinstance(dataset, CESM2):
+            self.landmask_reader = CESM2_LandmaskReader()
+            self.coordinates_reader = CESM2_CoordinatesReader()
+        else:
+            self.landmask_reader = ERA5_LandmaskReader(resolution=self.metadata.resolution)
+            self.coordinates_reader = ERA5_CoordinatesReader(resolution=self.metadata.resolution)
 
     @torch.no_grad()
     def predict(self) -> None:
@@ -129,8 +142,18 @@ class _AbstractPredictor(ABC):
 
 class BaselinePredictor(_AbstractPredictor):
 
-    def __init__(self, net: CNN | UNet | ViT | VAE, dataset: CESM2, target_path: str, local_rank: int):
-        super().__init__(net=net, dataset=dataset, target_path=target_path, local_rank=local_rank)
+    def __init__(
+        self,
+        net: CNN | UNet | ViT | VAE,
+        dataset: CESM2 | ERA5,
+        landmask_path: str, target_path: str,
+        local_rank: int
+    ):
+        super().__init__(
+            net=net, dataset=dataset,
+            landmask_path=landmask_path, target_path=target_path,
+            local_rank=local_rank,
+        )
         if isinstance(self.base_net, (CNN, UNet, ViT)):
             self.in_features: int = self.base_net.in_features
         self.n_input_days: int = dataset.metadata.n_input_days
@@ -325,12 +348,17 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         precip_decoder: VAEDecoder,
         noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler,
         eta: float,
-        dataset: CESM2,
+        dataset: CESM2 | ERA5,
+        landmask_path: str,
         target_path: str,
         local_rank: int,
         ensemble_size: int,
     ) -> None:
-        super().__init__(net=denoiser, dataset=dataset, target_path=target_path, local_rank=local_rank)
+        super().__init__(
+            net=denoiser, dataset=dataset,
+            landmask_path=landmask_path, target_path=target_path,
+            local_rank=local_rank,
+        )
         self.denoiser: UNetDenoiser = denoiser
 
         # Freeze wind_encoder
@@ -584,13 +612,18 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
 
 class Visualizer:
 
-    def __init__(self, source_dir: str, target_dir: str):
+    def __init__(self, metadata: MetaData, source_dir: str, target_dir: str):
+        self.metadata = metadata
         self.source_dir = Path(source_dir)
         self.target_dir = Path(target_dir)
         self.torchio = TorchDictIO(dirpath=source_dir)
         self.prediction_plotter = PredictionPlotter(dirpath=target_dir)
-        self.landmask_reader: LandMaskReader = LandMaskReader()
-        self.coordinates_reader: CoordinatesReader = CoordinatesReader()
+        if self.metadata.dataset_name == "cesm2":
+            self.landmask_reader = CESM2_LandmaskReader()
+            self.coordinates_reader = CESM2_CoordinatesReader()
+        else:
+            self.landmask_reader = ERA5_LandmaskReader(resolution=self.metadata.resolution)
+            self.coordinates_reader = ERA5_CoordinatesReader(resolution=self.metadata.resolution)
 
     def plot_baseline_prediction(self, filename: str) -> None:
         result_object: dict[str, torch.Tensor | float | str] = self.torchio.load(filename=filename)

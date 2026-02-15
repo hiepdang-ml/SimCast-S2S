@@ -71,6 +71,9 @@ class MetaData(BaseConfig):
         if self.dataset_name == "era5":
             self.array_root: Path = Path(self._config["array_root"])
 
+        self.landmask_root: Path = Path(self._config["landmask_root"])
+        self.landmask_path: Path = next(self.landmask_root.glob("*.nc"))
+
         self.input_vars: list[str] = self._config["input_vars"]
         self.output_vars: list[str] = self._config["output_vars"]
         self.resolution: tuple[int, int] = tuple(self._config["resolution"])
@@ -105,6 +108,8 @@ class MetaData(BaseConfig):
             "dataset_name": self.dataset_name,
             "tp": self.tp,
             "raw_root": self.raw_root.as_posix(),
+            "landmask_root": self.landmask_root.as_posix(),
+            "landmask_path": self.landmask_path.as_posix(),
             "input_vars": self.input_vars,
             "output_vars": self.output_vars,
             "resolution": self.resolution,

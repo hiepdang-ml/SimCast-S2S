@@ -1,20 +1,19 @@
 from functools import cached_property
 from abc import ABC, abstractmethod
+from pathlib import Path
 import xarray as xr
 import torch
 
 
 class _GeographicalMetricOrMap(ABC):
 
-    def __init__(self, tropical_lats: tuple[float, float]):
+    def __init__(self, landmask_path: str, tropical_lats: tuple[float, float]):
+        self.landmask_path: Path = Path(landmask_path)
         self.tropical_lats: tuple[float, float] = tropical_lats
 
     @cached_property
     def tropical_mask(self) -> torch.Tensor:
-        # TODO: make configurable path
-        ds: xr.Dataset = xr.open_dataset(
-            "/scratch/zgp2ps/cesm2/landmask/b.e21.BHISTcmip6.f09_g17.LE2-1001.001.clm2.h3.C14_SOILC_vr.18500101-18590101.nc"
-        )
+        ds: xr.Dataset = xr.open_dataset(self.landmask_path)
         mask: xr.DataArray = (self.tropical_lats[0] <= ds["lat"]) & (ds["lat"] <= self.tropical_lats[1])
         mask: torch.Tensor = torch.from_numpy(mask.values)
         assert mask.shape == (192,)
@@ -79,8 +78,8 @@ class ErrorMap(_SampleLevelMap):
 
 class GeographicalRsquaredMap(_SequenceLevelMap, _GeographicalMetricOrMap):
 
-    def __init__(self, n_features: int, tropical_lats: tuple[float, float]):
-        _GeographicalMetricOrMap.__init__(self, tropical_lats)
+    def __init__(self, n_features: int, landmask_path: str, tropical_lats: tuple[float, float]):
+        _GeographicalMetricOrMap.__init__(self, landmask_path, tropical_lats)
         _SequenceLevelMap.__init__(self, n_features)
 
     #implement
@@ -112,8 +111,8 @@ class GeographicalRsquaredMap(_SequenceLevelMap, _GeographicalMetricOrMap):
 
 class MAEMap(_SequenceLevelMap, _GeographicalMetricOrMap):
 
-    def __init__(self, n_features: int, tropical_lats: tuple[float, float]):
-        _GeographicalMetricOrMap.__init__(self, tropical_lats)
+    def __init__(self, n_features: int, landmask_path: str, tropical_lats: tuple[float, float]):
+        _GeographicalMetricOrMap.__init__(self, landmask_path, tropical_lats)
         _SequenceLevelMap.__init__(self, n_features)
 
     #implement

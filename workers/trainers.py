@@ -10,8 +10,8 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data.distributed import DistributedSampler
 
 from tqdm import tqdm
-from datapipeline.common.utils import DataBatch
-from datapipeline.cesm2 import CESM2
+from datapipeline.utils import DataBatch
+from datapipeline.dataset import CESM2, ERA5
 from common.utils import Accumulator, EarlyStopping, Timer, Logger, CheckpointSaver
 from common.losses import VAELoss, DiffusionLoss
 from models.benchmarks import CNN, UNet, ViT
@@ -30,15 +30,15 @@ class _AbstractTrainer(ABC):
     def __init__(self,
         net: CNN | UNet | ViT | VAE | UNetDenoiser,
         lr: float,
-        train_dataset: CESM2, val_dataset: CESM2,
+        train_dataset: CESM2 | ERA5, val_dataset: CESM2 | ERA5,
         train_batch_size: int, val_batch_size: int,
         local_rank: int,
     ):
         self.net: CNN | UNet | ViT | VAE | UNetDenoiser = net
         self.model_name: str = net.name
         self.lr: float = lr
-        self.train_dataset: CESM2 = train_dataset
-        self.val_dataset: CESM2 = val_dataset
+        self.train_dataset: CESM2 | ERA5 = train_dataset
+        self.val_dataset: CESM2 | ERA5 = val_dataset
         self.train_batch_size: int = train_batch_size
         self.val_batch_size: int = val_batch_size
 
@@ -152,7 +152,7 @@ class BaselineTrainer(_AbstractTrainer):
         self,
         net: CNN | UNet | ViT,
         lr: float,
-        train_dataset: CESM2, val_dataset: CESM2,
+        train_dataset: CESM2 | ERA5, val_dataset: CESM2 | ERA5,
         train_batch_size: int, val_batch_size: int,
         local_rank: int,
     ) -> None:
@@ -223,7 +223,7 @@ class VAETrainer(_AbstractTrainer):
     def __init__(
         self,
         net: VAE, lambda_: float, lr: float,
-        train_dataset: CESM2, val_dataset: CESM2,
+        train_dataset: CESM2 | ERA5, val_dataset: CESM2 | ERA5,
         train_batch_size: int, val_batch_size: int,
         local_rank: int,
     ) -> None:
@@ -344,7 +344,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         thermal_encoder: VAEEncoder, hydro_encoder: VAEEncoder,
         precip_encoder: VAEEncoder,
         noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler, lr: float,
-        train_dataset: CESM2, val_dataset: CESM2,
+        train_dataset: CESM2 | ERA5, val_dataset: CESM2 | ERA5,
         train_batch_size: int, val_batch_size: int,
         local_rank: int,
     ) -> None:

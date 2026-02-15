@@ -397,6 +397,3 @@ class VAE_Hydro(VAE):
 
 class VAE_Precip(VAE):
     pass
-
-class VAE_Target(VAE):
-    pass
