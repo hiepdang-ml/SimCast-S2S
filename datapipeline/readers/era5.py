@@ -144,10 +144,13 @@ class DataReader:
     @staticmethod
     def __convert_to_cesm2_definition(var_name: str, da: xr.DataArray) -> xr.DataArray:
         if var_name == "avgtnlwrf":
+            print(f"convert {var_name}")
             da = -da    # ECMWF convention assigns possitive downward
         if var_name == "tp":
+            print(f"convert {var_name}")
             da = da / 3600  # precisely, da = da * 24 / 86400
         if var_name in {"z200", "z500", "z850"}:
+            print(f"convert {var_name}")
             da = da / 9.80665   # geopotential -> geopotential height
         return da
 
