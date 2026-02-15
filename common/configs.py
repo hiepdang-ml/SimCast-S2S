@@ -42,7 +42,7 @@ class MetaData(BaseConfig):
             "wind": ["u200", "v200", "u500", "v500", "w500", "u850", "v850"],
             "mass": ["z200", "z500", "z850", "avgtnlwrf"],
             "thermal": ["skt", "t200", "t500", "t850", "avgtnlwrf"],
-            "hytdro": ["tcwv", "q200", "q500", "q850"],
+            "hydro": ["tcwv", "q200", "q500", "q850"],
             "precip": ["tp"],
         }
     }
