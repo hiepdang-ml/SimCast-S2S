@@ -40,3 +40,20 @@ def main(
     for f in sorted(visualizer.source_dir.glob("*")):
         print(f)
         visualizer.plot_diffusion_prediction(f.name)
+
+
+if __name__ == "__main__":
+    from argparse import ArgumentParser, Namespace
+    parser = ArgumentParser()
+    parser.add_argument(
+        "--model",
+        type=str, choices=[
+            "cnn", "unet", "vit",
+            "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", "vae-target",
+            "diffusion"
+        ],
+        required=True,
+    )
+    parser.add_argument("--dataset", type=str, choices=["cesm2", "era5"], required=True)
+    args: Namespace = parser.parse_args()
+    main(model=args.model, dataset=args.dataset)
