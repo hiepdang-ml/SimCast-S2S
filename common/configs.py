@@ -117,7 +117,7 @@ class MetaData(BaseConfig):
             "climatological_window_size": self.climatological_window_size,
         }
         if self.dataset_name == "era5":
-            d.update({"array_root": self.array_root})
+            d.update({"array_root": self.array_root.as_posix()})
         return d
 
     def with_var_subset(
@@ -160,9 +160,9 @@ class CNNConfig(BaseConfig):
             "patience": self.patience,
             "tolerance": self.tolerance,
             "save_frequency": self.save_frequency,
-            "from_checkpoint": self.from_checkpoint,
-            "saved_checkpoint_directory": self.saved_checkpoint_directory,
-            "target_path": self.target_path,
+            "from_checkpoint": self.from_checkpoint.as_posix() if self.from_checkpoint else None,
+            "saved_checkpoint_directory": self.saved_checkpoint_directory.as_posix(),
+            "target_path": self.target_path.as_posix(),
         }
 
 class UnetConfig(BaseConfig):
@@ -191,9 +191,9 @@ class UnetConfig(BaseConfig):
             "patience": self.patience,
             "tolerance": self.tolerance,
             "save_frequency": self.save_frequency,
-            "from_checkpoint": self.from_checkpoint,
-            "saved_checkpoint_directory": self.saved_checkpoint_directory,
-            "target_path": self.target_path,
+            "from_checkpoint": self.from_checkpoint.as_posix() if self.from_checkpoint else None,
+            "saved_checkpoint_directory": self.saved_checkpoint_directory.as_posix(),
+            "target_path": self.target_path.as_posix(),
         }
 
 class ViTConfig(BaseConfig):
@@ -230,9 +230,9 @@ class ViTConfig(BaseConfig):
             "patience": self.patience,
             "tolerance": self.tolerance,
             "save_frequency": self.save_frequency,
-            "from_checkpoint": self.from_checkpoint,
-            "saved_checkpoint_directory": self.saved_checkpoint_directory,
-            "target_path": self.target_path,
+            "from_checkpoint": self.from_checkpoint.as_posix() if self.from_checkpoint else None,
+            "saved_checkpoint_directory": self.saved_checkpoint_directory.as_posix(),
+            "target_path": self.target_path.as_posix(),
         }
 
 
@@ -274,9 +274,9 @@ class VAEConfig(BaseConfig):
             "patience": self.patience,
             "tolerance": self.tolerance,
             "save_frequency": self.save_frequency,
-            "from_checkpoint": self.from_checkpoint,
-            "saved_checkpoint_directory": self.saved_checkpoint_directory,
-            "target_path": self.target_path,
+            "from_checkpoint": self.from_checkpoint.as_posix() if self.from_checkpoint else None,
+            "saved_checkpoint_directory": self.saved_checkpoint_directory.as_posix(),
+            "target_path": self.target_path.as_posix(),
         }
 
 
@@ -353,12 +353,12 @@ class DiffusionConfig(BaseConfig):
             "patience": self.patience,
             "tolerance": self.tolerance,
             "save_frequency": self.save_frequency,
-            "vae_wind_checkpoint": self.vae_wind_checkpoint,
-            "vae_mass_checkpoint": self.vae_mass_checkpoint,
-            "vae_thermal_checkpoint": self.vae_thermal_checkpoint,
-            "vae_hydro_checkpoint": self.vae_hydro_checkpoint,
-            "vae_precip_checkpoint": self.vae_precip_checkpoint,
-            "from_checkpoint": self.from_checkpoint,
-            "saved_checkpoint_directory": self.saved_checkpoint_directory,
-            "target_path": self.target_path,
+            "vae_wind_checkpoint": self.vae_wind_checkpoint.as_posix(),
+            "vae_mass_checkpoint": self.vae_mass_checkpoint.as_posix(),
+            "vae_thermal_checkpoint": self.vae_thermal_checkpoint.as_posix(),
+            "vae_hydro_checkpoint": self.vae_hydro_checkpoint.as_posix(),
+            "vae_precip_checkpoint": self.vae_precip_checkpoint.as_posix(),
+            "from_checkpoint": self.from_checkpoint.as_posix() if self.from_checkpoint else None,
+            "saved_checkpoint_directory": self.saved_checkpoint_directory.as_posix(),
+            "target_path": self.target_path.as_posix(),
         }
