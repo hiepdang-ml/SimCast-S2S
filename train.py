@@ -3,7 +3,7 @@ from typing import Literal
 import torch
 import torch.distributed as dist
 
-from datasets import CESM2
+from datapipeline.dataset import CESM2, ERA5
 from common.utils import CheckpointLoader
 from workers import BaselineTrainer, VAETrainer, DiffusionTrainer
 from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DiffusionConfig
@@ -31,9 +31,9 @@ def main(
     if dataset == "cesm2":
         train_dataset: CESM2 = CESM2(metadata=train_metadata)
         val_dataset: CESM2 = CESM2(metadata=val_metadata)
-    # TODO
     else:
-        ...
+        train_dataset: ERA5 = ERA5(metadata=train_metadata)
+        val_dataset: ERA5 = ERA5(metadata=val_metadata)
 
     # Model
     if model.lower() == "cnn":
@@ -160,12 +160,12 @@ def main(
             val_metadata = val_metadata.with_var_subset(context_group=vae_config.context_group)
             train_dataset: CESM2 = CESM2(metadata=train_metadata)
             val_dataset: CESM2 = CESM2(metadata=val_metadata)
-        # TODO
         else:
             print(f"Training {model} on {dataset}")
             train_metadata = train_metadata.with_var_subset(context_group=vae_config.context_group)
             val_metadata = val_metadata.with_var_subset(context_group=vae_config.context_group)
-            ...
+            train_dataset: ERA5 = ERA5(metadata=train_metadata)
+            val_dataset: ERA5 = ERA5(metadata=val_metadata)
 
         if (checkpoint_path := vae_config.from_checkpoint) is not None:
             print(f"Training VAE_Wind from {checkpoint_path}")
@@ -213,12 +213,12 @@ def main(
             val_metadata = val_metadata.with_var_subset(context_group=vae_config.context_group)
             train_dataset: CESM2 = CESM2(metadata=train_metadata)
             val_dataset: CESM2 = CESM2(metadata=val_metadata)
-        # TODO
         else:
             print(f"Training {model} on {dataset}")
             train_metadata = train_metadata.with_var_subset(context_group=vae_config.context_group)
             val_metadata = val_metadata.with_var_subset(context_group=vae_config.context_group)
-            ...
+            train_dataset: ERA5 = ERA5(metadata=train_metadata)
+            val_dataset: ERA5 = ERA5(metadata=val_metadata)
 
         if (checkpoint_path := vae_config.from_checkpoint) is not None:
             print(f"Training VAE_Mass from {checkpoint_path}")
@@ -267,12 +267,12 @@ def main(
             val_metadata = val_metadata.with_var_subset(context_group=vae_config.context_group)
             train_dataset: CESM2 = CESM2(metadata=train_metadata)
             val_dataset: CESM2 = CESM2(metadata=val_metadata)
-        # TODO
         else:
             print(f"Training {model} on {dataset}")
             train_metadata = train_metadata.with_var_subset(context_group=vae_config.context_group)
             val_metadata = val_metadata.with_var_subset(context_group=vae_config.context_group)
-            ...
+            train_dataset: ERA5 = ERA5(metadata=train_metadata)
+            val_dataset: ERA5 = ERA5(metadata=val_metadata)
 
         if (checkpoint_path := vae_config.from_checkpoint) is not None:
             print(f"Training VAE_Thermal from {checkpoint_path}")
@@ -321,12 +321,12 @@ def main(
             val_metadata = val_metadata.with_var_subset(context_group=vae_config.context_group)
             train_dataset: CESM2 = CESM2(metadata=train_metadata)
             val_dataset: CESM2 = CESM2(metadata=val_metadata)
-        # TODO
         else:
             print(f"Training {model} on {dataset}")
             train_metadata = train_metadata.with_var_subset(context_group=vae_config.context_group)
             val_metadata = val_metadata.with_var_subset(context_group=vae_config.context_group)
-            ...
+            train_dataset: ERA5 = ERA5(metadata=train_metadata)
+            val_dataset: ERA5 = ERA5(metadata=val_metadata)
 
         if (checkpoint_path := vae_config.from_checkpoint) is not None:
             print(f"Training VAE_Hydro from {checkpoint_path}")
@@ -375,12 +375,12 @@ def main(
             val_metadata = val_metadata.with_var_subset(context_group=vae_config.context_group)
             train_dataset: CESM2 = CESM2(metadata=train_metadata)
             val_dataset: CESM2 = CESM2(metadata=val_metadata)
-        # TODO
         else:
             print(f"Training {model} on {dataset}")
             train_metadata = train_metadata.with_var_subset(context_group=vae_config.context_group)
             val_metadata = val_metadata.with_var_subset(context_group=vae_config.context_group)
-            ...
+            train_dataset: ERA5 = ERA5(metadata=train_metadata)
+            val_dataset: ERA5 = ERA5(metadata=val_metadata)
 
         if (checkpoint_path := vae_config.from_checkpoint) is not None:
             print(f"Training VAE_Precip from {checkpoint_path}")

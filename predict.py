@@ -3,15 +3,14 @@ from typing import Literal
 import torch
 import torch.distributed as dist
 
-from datasets.cesm2 import CESM2
+from datapipeline.dataset import CESM2, ERA5, metadata
 from common.utils import CheckpointLoader
 from workers import BaselinePredictor, VAEPredictor, DiffusionPredictor
 from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DiffusionConfig
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, VAE_Target,
-    VAEEncoder, VAEDecoder, UNetDenoiser,
-    LinearNoiseScheduler, CosineNoiseScheduler, ForwardProcess, ReverseProcess,
+    VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, UNetDenoiser,
+    LinearNoiseScheduler, CosineNoiseScheduler,
 )
 
 
@@ -19,7 +18,7 @@ def main(
     model: Literal[
         "cnn", "unet", "vit",
         "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip",
-         "diffusion",
+        "diffusion",
     ],
     dataset: Literal["cesm2", "era5"],
     local_rank: int,
@@ -30,42 +29,50 @@ def main(
     if dataset == "cesm2":
         test_dataset: CESM2 = CESM2(metadata=test_metadata)
     else:
-        # TODO
-        ...
+        test_dataset: ERA5 = ERA5(metadata=test_metadata)
 
     # Model
     if model.lower() == "cnn":
         model_config: CNNConfig = CNNConfig()
         assert model_config.from_checkpoint is not None
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint.as_posix())
         net: CNN = checkpoint_loader.load(scope=globals())
         assert isinstance(net, CNN)
         assert net.n_input_days == test_metadata.n_input_days
         BaselinePredictor(
             net=net, dataset=test_dataset,
-            target_path=model_config.target_path.as_posix(),
+            landmask_path=test_metadata.landmask_path.as_posix(),
+            target_path=model_config.target_path.joinpath(f"{dataset}/tensors/").as_posix(),
             local_rank=local_rank,
         ).predict()
 
     elif model.lower() == "unet":
         model_config: UnetConfig = UnetConfig()
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        assert model_config.from_checkpoint is not None
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint.as_posix())
         net: UNet = checkpoint_loader.load(scope=globals())
         assert isinstance(net, UNet)
         assert net.n_input_days == test_metadata.n_input_days
         BaselinePredictor(
             net=net, dataset=test_dataset,
-            target_path=model_config.target_path.as_posix(),
+            landmask_path=test_metadata.landmask_path.as_posix(),
+            target_path=model_config.target_path.joinpath(f"{dataset}/tensors/").as_posix(),
             local_rank=local_rank,
         ).predict()
 
     elif model.lower() == "vit":
         model_config: ViTConfig = ViTConfig()
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        assert model_config.from_checkpoint is not None
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint.as_posix())
         net: ViT = checkpoint_loader.load(scope=globals())
         assert isinstance(net, ViT)
         assert net.n_input_days == test_metadata.n_input_days
-        BaselinePredictor(net=net, dataset=test_dataset, target_path=model_config.target_path.as_posix(), local_rank=local_rank).predict()
+        BaselinePredictor(
+            net=net, dataset=test_dataset,
+            landmask_path=test_metadata.landmask_path.as_posix(),
+            target_path=model_config.target_path.joinpath(f"{dataset}/tensors/").as_posix(),
+            local_rank=local_rank,
+        ).predict()
 
     elif model.lower() == "vae-wind":
         test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -74,14 +81,16 @@ def main(
             test_dataset: CESM2 = CESM2(metadata=test_metadata)
 
         model_config: VAEConfig = VAEConfig(context_group="wind")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        assert model_config.from_checkpoint is not None
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint.as_posix())
         net: VAE_Wind = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Wind)
         assert net.pixel_dim == len(test_metadata.input_vars)
         VAEPredictor(
             net=net, dataset=test_dataset,
-            target_path=model_config.target_path.as_posix(),
-            local_rank=local_rank
+            landmask_path=test_metadata.landmask_path.as_posix(),
+            target_path=model_config.target_path.joinpath(f"{dataset}/tensors/").as_posix(),
+            local_rank=local_rank,
         ).predict()
 
     elif model.lower() == "vae-mass":
@@ -91,14 +100,16 @@ def main(
             test_dataset: CESM2 = CESM2(metadata=test_metadata)
 
         model_config: VAEConfig = VAEConfig(context_group="mass")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        assert model_config.from_checkpoint is not None
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint.as_posix())
         net: VAE_Mass = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Mass)
         assert net.pixel_dim == len(test_metadata.input_vars)
         VAEPredictor(
             net=net, dataset=test_dataset,
-            target_path=model_config.target_path.as_posix(),
-            local_rank=local_rank
+            landmask_path=test_metadata.landmask_path.as_posix(),
+            target_path=model_config.target_path.joinpath(f"{dataset}/tensors/").as_posix(),
+            local_rank=local_rank,
         ).predict()
 
     elif model.lower() == "vae-thermal":
@@ -108,14 +119,16 @@ def main(
             test_dataset: CESM2 = CESM2(metadata=test_metadata)
 
         model_config: VAEConfig = VAEConfig(context_group="thermal")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        assert model_config.from_checkpoint is not None
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint.as_posix())
         net: VAE_Thermal = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Thermal)
         assert net.pixel_dim == len(test_metadata.input_vars)
         VAEPredictor(
             net=net, dataset=test_dataset,
-            target_path=model_config.target_path.as_posix(),
-            local_rank=local_rank
+            landmask_path=test_metadata.landmask_path.as_posix(),
+            target_path=model_config.target_path.joinpath(f"{dataset}/tensors/").as_posix(),
+            local_rank=local_rank,
         ).predict()
 
     elif model.lower() == "vae-hydro":
@@ -125,14 +138,16 @@ def main(
             test_dataset: CESM2 = CESM2(metadata=test_metadata)
 
         model_config: VAEConfig = VAEConfig(context_group="hydro")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        assert model_config.from_checkpoint is not None
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint.as_posix())
         net: VAE_Hydro = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Hydro)
         assert net.pixel_dim == len(test_metadata.input_vars)
         VAEPredictor(
             net=net, dataset=test_dataset,
-            target_path=model_config.target_path.as_posix(),
-            local_rank=local_rank
+            landmask_path=test_metadata.landmask_path.as_posix(),
+            target_path=model_config.target_path.joinpath(f"{dataset}/tensors/").as_posix(),
+            local_rank=local_rank,
         ).predict()
 
     elif model.lower() == "vae-precip":
@@ -142,60 +157,45 @@ def main(
             test_dataset: CESM2 = CESM2(metadata=test_metadata)
 
         model_config: VAEConfig = VAEConfig(context_group="precip")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        assert model_config.from_checkpoint is not None
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint.as_posix())
         net: VAE_Precip = checkpoint_loader.load(scope=globals())
         assert isinstance(net, VAE_Precip)
         assert net.pixel_dim == len(test_metadata.input_vars)
         VAEPredictor(
             net=net, dataset=test_dataset,
-            target_path=model_config.target_path.as_posix(),
-            local_rank=local_rank
-        ).predict()
-
-    elif model.lower() == "vae-target":
-        test_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
-        # NOTE: subset the input for efficiency although never used
-        test_metadata = test_metadata.with_var_subset(context_group="precip")
-        if dataset == "cesm2":
-            test_dataset: CESM2 = CESM2(metadata=test_metadata)
-
-        model_config: VAEConfig = VAEConfig(context_group=None)
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
-        net: VAE_Precip = checkpoint_loader.load(scope=globals())
-        assert isinstance(net, VAE_Target)
-        assert net.pixel_dim == 1
-        VAEPredictor(
-            net=net, dataset=test_dataset,
-            target_path=model_config.target_path.as_posix(),
-            local_rank=local_rank
+            landmask_path=test_metadata.landmask_path.as_posix(),
+            target_path=model_config.target_path.joinpath(f"{dataset}/tensors/").as_posix(),
+            local_rank=local_rank,
         ).predict()
 
     elif model.lower() == "diffusion":
         model_config: DiffusionConfig = DiffusionConfig()
         # Denoiser
+        assert model_config.from_checkpoint is not None
         print(f"Loading denoiser from {model_config.from_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.from_checkpoint))
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint.as_posix())
         net: UNetDenoiser = checkpoint_loader.load(scope=globals())
         assert isinstance(net, UNetDenoiser)
         # Wind encoder
         print(f"Loading wind_encoder from {model_config.vae_wind_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.vae_wind_checkpoint))
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.vae_wind_checkpoint.as_posix())
         wind_vae: VAE = checkpoint_loader.load(scope=globals())
         # Mass encoder
         print(f"Loading mass_encoder from {model_config.vae_mass_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.vae_mass_checkpoint))
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.vae_mass_checkpoint.as_posix())
         mass_vae: VAE = checkpoint_loader.load(scope=globals())
         # Thermal encoder
         print(f"Loading thermal_encoder from {model_config.vae_thermal_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.vae_thermal_checkpoint))
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.vae_thermal_checkpoint.as_posix())
         thermal_vae: VAE = checkpoint_loader.load(scope=globals())
         # Hydro encoder
         print(f"Loading hydro_encoder from {model_config.vae_hydro_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.vae_hydro_checkpoint))
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.vae_hydro_checkpoint.as_posix())
         hydro_vae: VAE = checkpoint_loader.load(scope=globals())
         # Precip encoder
         print(f"Loading precip_encoder from {model_config.vae_precip_checkpoint}")
-        checkpoint_loader = CheckpointLoader(checkpoint_path=str(model_config.vae_precip_checkpoint))
+        checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.vae_precip_checkpoint.as_posix())
         precip_vae: VAE = checkpoint_loader.load(scope=globals())
         # Noise scheduler
         if model_config.noise_scheduler.lower() == "linear":
@@ -218,7 +218,8 @@ def main(
             eta=model_config.eta,
             ensemble_size=model_config.ensemble_size,
             dataset=test_dataset,
-            target_path=model_config.target_path.as_posix(),
+            landmask_path=test_metadata.landmask_path.as_posix(),
+            target_path=model_config.target_path.joinpath(f"{dataset}/tensors/").as_posix(),
             local_rank=local_rank,
         ).predict()
 
