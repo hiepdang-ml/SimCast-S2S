@@ -85,8 +85,8 @@ class _AbstractPredictor(ABC):
             self.landmask_reader = CESM2_LandmaskReader()
             self.coordinates_reader = CESM2_CoordinatesReader()
         else:
-            self.landmask_reader = ERA5_LandmaskReader(resolution=self.metadata.resolution)
-            self.coordinates_reader = ERA5_CoordinatesReader(resolution=self.metadata.resolution)
+            self.landmask_reader = ERA5_LandmaskReader(resolution=self.dataset.metadata.resolution)
+            self.coordinates_reader = ERA5_CoordinatesReader(resolution=self.dataset.metadata.resolution)
 
     @torch.no_grad()
     def predict(self) -> None:
