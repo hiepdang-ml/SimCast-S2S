@@ -1,5 +1,5 @@
 import datetime as dt
-import pathlib
+from pathlib import Path
 from functools import cached_property
 
 import yaml
@@ -18,11 +18,11 @@ class DataReader:
         self.sim_id: str = sim_id
         self.year: int = year
         with open("./config.yaml", mode="r") as file:
-            self.root_directory: pathlib.Path = pathlib.Path(yaml.safe_load(file)["cesm2"]["root"])
+            self.root_directory: Path = Path(yaml.safe_load(file)["cesm2"]["root"])
 
     @cached_property
-    def filepath(self) -> pathlib.Path:
-        for filepath in pathlib.Path(self.root_directory, self.var_name).glob(f"*{self.sim_id}*.nc"):
+    def filepath(self) -> Path:
+        for filepath in Path(self.root_directory, self.var_name).glob(f"*{self.sim_id}*.nc"):
             start_year, end_year = (int(part[:4]) for part in filepath.name.split(".")[-2].split("-")[:6])
             if start_year <= self.year <= end_year:
                 return filepath
@@ -58,8 +58,8 @@ class LandmaskReader:
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
             pathstring: str = yaml.safe_load(file)["cesm2"]["root"]
-            self.mask_directory: pathlib.Path = pathlib.Path(pathstring).parent.joinpath("landmask")
-            self.filepath: pathlib.Path = next(self.mask_directory.glob("*.nc"))
+            self.mask_directory: Path = Path(yaml.safe_load(file)["cems2"]["landmask_root"])
+            self.filepath: Path = next(self.mask_directory.glob("*.nc"))
 
     @cached_property
     def tensor(self) -> torch.Tensor:
@@ -78,9 +78,8 @@ class CoordinatesReader:
 
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
-            pathstring: str = yaml.safe_load(file)["cesm2"]["root"]
-            self.mask_directory: pathlib.Path = pathlib.Path(pathstring).parent.joinpath("landmask")
-            self.filepath: pathlib.Path = next(self.mask_directory.glob("*.nc"))
+            self.mask_directory: Path = Path(yaml.safe_load(file)["cesm2"]["landmask_root"])
+            self.filepath: Path = next(self.mask_directory.glob("*.nc"))
 
     @cached_property
     def tensors(self) -> tuple[torch.Tensor, torch.Tensor]:

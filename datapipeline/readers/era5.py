@@ -164,8 +164,7 @@ class LandmaskReader:
         self.resolution: tuple[int, int]= resolution
         self.H, self.W = self.resolution
         with open("./config.yaml", mode="r") as file:
-            pathstring: str = yaml.safe_load(file)["era5"]["raw_root"]
-            self.mask_directory: Path = Path(pathstring).parent.joinpath("landmask")
+            self.mask_directory: Path = Path(yaml.safe_load(file)["era5"]["landmask_root"])
             self.filepath: Path = next(self.mask_directory.glob("*.nc"))
 
     def __resize(self, input2d: torch.Tensor) -> torch.Tensor:
