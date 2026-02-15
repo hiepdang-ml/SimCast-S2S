@@ -104,7 +104,7 @@ class MetaData(BaseConfig):
         d: dict[str, Any] = {
             "dataset_name": self.dataset_name,
             "tp": self.tp,
-            "raw_root": self.raw_root,
+            "raw_root": self.raw_root.as_posix(),
             "input_vars": self.input_vars,
             "output_vars": self.output_vars,
             "resolution": self.resolution,
