@@ -22,7 +22,7 @@ from common.utils import TorchDictIO
 from common.configs import MetaData
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAE_Target, VAEEncoder, VAEDecoder, UNetDenoiser,
+    VAE, VAEEncoder, VAEDecoder, UNetDenoiser,
     LinearNoiseScheduler, CosineNoiseScheduler, ReverseProcess
 )
 from .common import RequireVAEEncoders
@@ -246,10 +246,7 @@ class VAEPredictor(_AbstractPredictor):
     #implement
     def _predict_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor]:
         sampleinfos, input_indices, output_indices, input_tensor, target_tensor = batch
-        if isinstance(self.net.module, VAE_Target):
-            x: torch.Tensor = target_tensor.to(self.device, non_blocking=True)
-        else:
-            x: torch.Tensor = input_tensor.to(self.device, non_blocking=True)
+        x: torch.Tensor = input_tensor.to(self.device, non_blocking=True)
 
         sampleinfo: SampleInfo = sampleinfos[0] # because batch_size=1
         batch_size, n_days, H, W, n_features = x.shape

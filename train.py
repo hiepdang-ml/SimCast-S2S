@@ -9,7 +9,7 @@ from workers import BaselineTrainer, VAETrainer, DiffusionTrainer
 from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DiffusionConfig
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, VAE_Target,
+    VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip,
     VAEEncoder, VAEDecoder, UNetDenoiser,
     LinearNoiseScheduler, CosineNoiseScheduler, ForwardProcess, ReverseProcess,
 )
