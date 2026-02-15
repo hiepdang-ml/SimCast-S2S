@@ -3,7 +3,7 @@ from typing import Literal
 import torch
 import torch.distributed as dist
 
-from datapipeline.dataset import CESM2, ERA5, metadata
+from datapipeline.dataset import CESM2, ERA5, MetaData
 from common.utils import CheckpointLoader
 from workers import BaselinePredictor, VAEPredictor, DiffusionPredictor
 from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DiffusionConfig
