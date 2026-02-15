@@ -114,7 +114,8 @@ class DataReader:
             self.__merge(year)
 
         assert filepath.exists()
-        # Force to load full data to RAM (not just memory references)
+        # Load merged files from disk
+        # NOTE: Force to load full data to RAM (not just memory references)
         da: xr.DataArray = xr.open_dataarray(filepath, engine="netcdf4").load()
         # Convert to ERA5's definition
         da = self.__convert_to_cesm2_definition(var_name=var_name, da=da)
@@ -144,16 +145,16 @@ class DataReader:
     @staticmethod
     def __convert_to_cesm2_definition(var_name: str, da: xr.DataArray) -> xr.DataArray:
         if var_name == "avgtnlwrf":
-            print(f"Convert {var_name}")
-            da = -da    # ECMWF convention assigns possitive downward
-        elif var_name == "tp":
-            print(f"Convert {var_name}")
-            da = da / 3600  # precisely, da = da * 24 / 86400
-        elif var_name in {"z200", "z500", "z850"}:
-            print(f"Convert {var_name}")
-            da = da / 9.80665   # geopotential -> geopotential height
-        else:
-            print(f"No conversion for {var_name}")
+            print(f"Convert {var_name} (flip sign)")
+            return -da    # ECMWF convention assigns possitive downward
+        if var_name == "tp":
+            print(f"Convert {var_name} (divided by 3600)")
+            return da / 3600  # precisely, da = da * 24 / 86400
+        if var_name in {"z200", "z500", "z850"}:
+            print(f"Convert {var_name} (divided by 9.80665)")
+            return da / 9.80665   # geopotential -> geopotential height
+
+        print(f"No conversion {var_name}")
         return da
 
 
