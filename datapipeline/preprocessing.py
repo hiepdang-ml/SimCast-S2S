@@ -21,16 +21,12 @@ class _LinearRegressor:
         assert (not bool(self.lr_weight)), "Linear regression is already fit"
         self.train_metadata: MetaData = train_metadata
         X: torch.Tensor = self.__get_X(metadata=train_metadata)
-        # DEBUG
-        print(f"X: {X.dtype}")
         assert X.shape == (train_metadata.n_years, 2)
         for sim_id in train_metadata.sim_ids:
             tensors: list[torch.Tensor] = [
                 mean_container.get(sim_id=sim_id, year=year) for year in train_metadata.years
             ]
             y: torch.Tensor = torch.cat(tensors, dim=0)
-            # DEBUG
-            print(f"y: {y.dtype}")
             assert y.shape == (train_metadata.n_years, self.H, self.W)
             y = y.reshape(train_metadata.n_years, self.H * self.W)
             W: torch.Tensor = torch.linalg.lstsq(X, y).solution

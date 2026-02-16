@@ -189,11 +189,15 @@ class CoordinatesReader:
     def __init__(self, resolution: tuple[int, int]) -> None:
         self.resolution: tuple[int, int] = resolution
         self.H, self.W = self.resolution
+        with open("./config.yaml", mode="r") as file:
+            self.mask_directory: Path = Path(yaml.safe_load(file)["era5"]["landmask_root"])
+            self.filepath: Path = next(self.mask_directory.glob("*.nc"))
 
     @cached_property
     def tensors(self) -> tuple[torch.Tensor, torch.Tensor]:
-        lat_tensor: torch.Tensor = torch.arange(start=-90., end=90.01, step=180 / (self.H - 1))
-        lon_tensor: torch.Tensor = torch.arange(start=0., end=360., step=360 / self.W)
-        assert lat_tensor.shape == (self.H,)
-        assert lon_tensor.shape == (self.W,)
+        ds: xr.Dataset = xr.open_dataset(self.filepath, engine="netcdf4")
+        lat_tensor: torch.Tensor = torch.from_numpy(ds["latitude"].values).squeeze()
+        lon_tensor: torch.Tensor = torch.from_numpy(ds["longitude"].values).squeeze()
+        assert lat_tensor.shape == (192,)
+        assert lon_tensor.shape == (288,)
         return lat_tensor, lon_tensor

@@ -857,7 +857,6 @@ class _DiffusionProcess:
         # alpha ranges from k=0,...,K
         assert torch.all(step.long() >= 0)
         assert torch.all(step.long() <= self.noise_scheduler.n_steps)
-        # print(f"self.alpha_bar_schedule: {self.alpha_bar_schedule}")
         alpha_bar: torch.Tensor = self.alpha_bar_schedule.to(step.device)[step.long()]
         assert alpha_bar.shape == (step_N, 1)
         alpha_bar = alpha_bar[:, :, None, None, None]
