@@ -7,7 +7,6 @@ from functools import cached_property
 
 import numpy as np
 import xarray as xr
-from zipfile import ZipFile
 import torch
 
 

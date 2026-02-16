@@ -324,4 +324,4 @@ diffusion:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v23_cosine/diffusion24.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/diffusion_v23_cosine/"
-  target_path: "/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/tensors/"
+  target_path: "/scratch/zgp2ps/s2s_results/diffusion_v23_cosine/"

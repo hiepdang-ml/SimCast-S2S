@@ -10,18 +10,15 @@ class _BasePlotter:
         self.dirpath.mkdir(parents=True, exist_ok=True)
 
     def plot_layer(
-        self, 
-        ax, data: torch.Tensor, 
-        coords: tuple[torch.Tensor, torch.Tensor], 
+        self,
+        ax, data: torch.Tensor,
+        coords: tuple[torch.Tensor, torch.Tensor],
         tropical_lats: tuple[float, float],
-        title: str,
-        cmap: str,
-        vmin: float, vmax: float, 
+        title: str, cmap: str, vmin: float, vmax: float,
     ) -> None:
         im = ax.pcolormesh(
             coords[1], coords[0], data,
-            cmap=cmap,
-            vmin=vmin, vmax=vmax,
+            cmap=cmap, vmin=vmin, vmax=vmax,
             shading='nearest',
         )
         ax.set_title(title, fontsize=12)
@@ -33,15 +30,12 @@ class _BasePlotter:
 
     def add_landmask(self, axs, landmask: torch.Tensor, coords: tuple[torch.Tensor, torch.Tensor]) -> None:
         for ax in axs:
-            ax.contour(
-                coords[1], coords[0], landmask,
-                levels=[0.5], colors='black', linewidths=1,
-            )
+            ax.contour(coords[1], coords[0], landmask, levels=[0.5], colors='black', linewidths=1)
             self._clean_axes(ax)
 
     @staticmethod
     def _clean_axes(ax):
-        ax.set_xticks([]); ax.set_yticks([]); ax.set_xlabel(''); ax.set_ylabel('')
+        ax.set_xticks([]); ax.set_yticks([]); ax.set_xlabel(''); ax.set_ylabel('') # noqa: E702
 
 
 class PredictionPlotter(_BasePlotter):
@@ -83,7 +77,7 @@ class PredictionPlotter(_BasePlotter):
         subplot_height: float = subplot_width * aspect_ratio
         nrows: int = len(plot_items)
         fig, axs = plt.subplots(nrows, 1, figsize=(subplot_width, int((nrows + 0.6) * subplot_height)))
-        if nrows == 1: 
+        if nrows == 1:
             axs = [axs]
 
         if vlim is None:
@@ -125,12 +119,12 @@ class MetricPlotter(_BasePlotter):
     def plot(
         self,
         mae_frame: torch.Tensor,
-        global_mae: torch.Tensor, 
-        tropical_mae: torch.Tensor, 
+        global_mae: torch.Tensor,
+        tropical_mae: torch.Tensor,
         extratropical_mae: torch.Tensor,
         rsquared_frame: torch.Tensor,
-        global_rsquared: torch.Tensor, 
-        tropical_rsquared: torch.Tensor, 
+        global_rsquared: torch.Tensor,
+        tropical_rsquared: torch.Tensor,
         extratropical_rsquared: torch.Tensor,
         landmask: torch.Tensor,
         tropical_lats: tuple[float, float],
@@ -138,8 +132,8 @@ class MetricPlotter(_BasePlotter):
         title: str,
         filename: str,
     ) -> None:
-        
-        assert mae_frame.shape == rsquared_frame.shape == landmask.shape == (192, 288)
+
+        assert mae_frame.shape == rsquared_frame.shape == landmask.shape
 
         mae_frame = mae_frame.cpu()
         rsquared_frame = rsquared_frame.cpu()
@@ -158,7 +152,7 @@ class MetricPlotter(_BasePlotter):
             f"Extratropic: {extratropical_mae.item():.3f}"
         )
         self.plot_layer(
-            ax=axs[0], data=mae_frame, coords=coordinates, 
+            ax=axs[0], data=mae_frame, coords=coordinates,
             tropical_lats=tropical_lats, title=sub_title, cmap="Oranges", vmin=0., vmax=0.05,
         )
         sub_title: str = (
@@ -168,7 +162,7 @@ class MetricPlotter(_BasePlotter):
             f"Extratropic: {extratropical_rsquared.item():.3f}"
         )
         self.plot_layer(
-            ax=axs[1], data=rsquared_frame, coords=coordinates, 
+            ax=axs[1], data=rsquared_frame, coords=coordinates,
             tropical_lats=tropical_lats, title=sub_title, cmap="Blues", vmin=0., vmax=0.6,
         )
         self.add_landmask(axs=axs, landmask=landmask, coords=coordinates)
@@ -200,11 +194,11 @@ class DenoisingPlotter:
         steps = list(range(1, n_steps + 1))
 
         axs[0].plot(
-            steps, list(reversed(x0_x0_mae)), 
+            steps, list(reversed(x0_x0_mae)),
             label=r"$| \hat{x}_0 - x_0 |$", color="tab:blue",
         )
         axs[0].plot(
-            steps, list(reversed(xk_x0_mae)), 
+            steps, list(reversed(xk_x0_mae)),
             label=r"$| \hat{x}_k - x_0 |$", color="tab:orange",
         )
         axs[0].set_xlabel("step")
@@ -216,8 +210,8 @@ class DenoisingPlotter:
         axs[0].invert_xaxis()
 
         axs[1].plot(
-            steps, noise, 
-            label=r"$\sqrt{1 - \bar{\alpha}_k}$", 
+            steps, noise,
+            label=r"$\sqrt{1 - \bar{\alpha}_k}$",
             color="tab:green",
         )
         axs[1].set_xlabel("step")

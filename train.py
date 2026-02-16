@@ -9,9 +9,8 @@ from workers import BaselineTrainer, VAETrainer, DiffusionTrainer
 from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DiffusionConfig
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip,
-    VAEEncoder, VAEDecoder, UNetDenoiser,
-    LinearNoiseScheduler, CosineNoiseScheduler, ForwardProcess, ReverseProcess,
+    VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, VAEEncoder, UNetDenoiser,
+    LinearNoiseScheduler, CosineNoiseScheduler
 )
 
 
@@ -535,7 +534,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model", type=str, choices=[
             "cnn", "unet", "vit",
-            "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", "vae-target", "diffusion",
+            "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", "diffusion",
         ],
         required=True,
     )

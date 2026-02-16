@@ -17,11 +17,12 @@ class _GenericDataset(Dataset):
         assert metadata.dataset_name in {"cesm2", "era5"}
         self.metadata: MetaData = metadata
         meta_dict: dict[str, Any] = self.metadata.to_dict()
+        self.H, self.W = self.metadata.resolution
         # validate consistent write/read metadata
-        with open(self.metadata.write_directory.joinpath(f"metadata/metadata.json"), mode="r") as file:
+        with open(self.metadata.write_directory.joinpath("metadata/metadata.json"), mode="r") as file:
             loaded_dict: dict[str, Any] = json.load(fp=file)
             loaded_dict["resolution"] = tuple(loaded_dict["resolution"])
-            loaded_dict.pop("sim_ids"); loaded_dict.pop("input_vars"); loaded_dict.pop("output_vars")
+            loaded_dict.pop("sim_ids"); loaded_dict.pop("input_vars"); loaded_dict.pop("output_vars") # noqa: E702
             for k in loaded_dict.keys():
                 if meta_dict[k] != loaded_dict[k]:
                     raise RuntimeError(
@@ -87,7 +88,7 @@ class _GenericDataset(Dataset):
                 f=output_path, weights_only=True, map_location="cpu"
             )
             assert output_yearday_indices.shape == (self.metadata.n_output_days,)
-            assert output_var_tensor.shape == (self.metadata.n_output_days, 192, 288)
+            assert output_var_tensor.shape == (self.metadata.n_output_days, self.H, self.W)
             output_var_tensors.append(output_var_tensor)
 
         sampleinfo: SampleInfo = self._get_sample_info(
@@ -98,8 +99,8 @@ class _GenericDataset(Dataset):
         # validate before return
         assert input_yearday_indices.shape == (self.metadata.n_input_days,)
         assert output_yearday_indices.shape == (self.metadata.n_output_days,)
-        assert input_tensor.shape == (self.metadata.n_input_days, 192, 288, len(self.metadata.input_vars))
-        assert output_tensor.shape == (self.metadata.n_output_days, 192, 288, len(self.metadata.output_vars))
+        assert input_tensor.shape == (self.metadata.n_input_days, self.H, self.W, len(self.metadata.input_vars))
+        assert output_tensor.shape == (self.metadata.n_output_days, self.H, self.W, len(self.metadata.output_vars))
         return sampleinfo, input_yearday_indices, output_yearday_indices, input_tensor, output_tensor
 
     def __len__(self) -> int:

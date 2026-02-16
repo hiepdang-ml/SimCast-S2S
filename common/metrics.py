@@ -17,7 +17,7 @@ class _GeographicalMetricOrMap(ABC):
     def tropical_mask(self) -> torch.Tensor:
         ds: xr.Dataset = xr.open_dataset(self.landmask_path)
         mask: xr.DataArray
-        if {"latitude", "longitude"}.intersection(ds.coords):   # CESM2
+        if len({"latitude", "longitude"}.intersection(ds.coords)) == 2:   # CESM2
             # Resize
             newlat: NDArray[np.float64] = np.linspace(
                 ds.latitude.min().item(), ds.latitude.max().item(), 192
@@ -87,7 +87,7 @@ class ErrorMap(_SampleLevelMap):
 
     #implement
     def __call__(self, prediction: torch.Tensor, groundtruth: torch.Tensor) -> torch.Tensor:
-        assert prediction.shape == groundtruth.shape == (192, 288, self.n_features)
+        assert prediction.shape == groundtruth.shape # (H, W, self.n_features)
         return groundtruth - prediction
 
 

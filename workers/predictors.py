@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Iterable, Literal, Any, cast
+from typing import Iterable, Any, cast
 from functools import cached_property
 from itertools import product
 from pathlib import Path
@@ -41,6 +41,7 @@ class _AbstractPredictor(ABC):
         self.landmask_path: Path = Path(landmask_path)
         self.target_path: Path = Path(target_path)
         self.local_rank: int = local_rank
+        self.H, self.W = dataset.metadata.resolution
 
         self.device: torch.device = torch.device(f"cuda:{self.local_rank}")
         self.indices_by_context_group: dict[str, list[int]] = dataset.indices_by_context_group
@@ -85,13 +86,15 @@ class _AbstractPredictor(ABC):
             self.landmask_reader = CESM2_LandmaskReader()
             self.coordinates_reader = CESM2_CoordinatesReader()
         else:
-            self.landmask_reader = ERA5_LandmaskReader(resolution=self.dataset.metadata.resolution)
-            self.coordinates_reader = ERA5_CoordinatesReader(resolution=self.dataset.metadata.resolution)
+            self.landmask_reader = ERA5_LandmaskReader(resolution=(self.H, self.W))
+            self.coordinates_reader = ERA5_CoordinatesReader(resolution=(self.H, self.W))
 
     @torch.no_grad()
     def predict(self) -> None:
         self.net.eval()
-        _is_main_process: bool = dist.get_rank() == 0
+        is_dist: bool = dist.is_initialized()
+        rank: int = dist.get_rank() if is_dist else 0
+        world_size: int = dist.get_world_size() if is_dist else 1
         # Batch size should always be 1
         records: dict[str, list[torch.Tensor]] = {"predictions": [], "groundtruths": []}
         # Predict
@@ -101,16 +104,32 @@ class _AbstractPredictor(ABC):
             records["groundtruths"].append(groundtruth_mean)
             records["predictions"].append(prediction_mean)
 
-        # Compute aggregate metrics
+        if is_dist and world_size > 1:
+            gathered: list[dict[str, list[torch.Tensor]]] | None = (
+                [None for _ in range(world_size)] if rank == 0 else None
+            )
+            dist.gather_object(obj=records, object_gather_list=gathered, dst=0)
+            if rank != 0:
+                return  # only rank 0 computes/plots
+
+            # Merge lists on rank 0
+            merged = {"predictions": [], "groundtruths": []}
+            assert gathered is not None
+            for shard in gathered:
+                merged["predictions"].extend(shard["predictions"])
+                merged["groundtruths"].extend(shard["groundtruths"])
+            records = merged
+
+        # Compute aggregate metrics (rank 0 only)
         rsquared_frame, global_rsquared, tropical_rsquared, extratropical_rsquared = self.rsquared_map(
             predictions=records["predictions"], groundtruths=records["groundtruths"],
         )
-        assert rsquared_frame.shape == (192, 288, self.out_features)
+        assert rsquared_frame.shape == (self.H, self.W, self.out_features)
 
         mae_frame, global_mae, tropical_mae, extratropical_mae = self.mae_map(
             predictions=records["predictions"], groundtruths=records["groundtruths"],
         )
-        assert mae_frame.shape == (192, 288, self.out_features)
+        assert mae_frame.shape == (self.H, self.W, self.out_features)
 
         # Plot aggregate metrics
         for idx, output_name in enumerate(self.output_names):
@@ -166,7 +185,7 @@ class BaselinePredictor(_AbstractPredictor):
         groundtruth_tensor = groundtruth_tensor.to(self.device)
         input_indices = input_indices.to(self.device)
         sampleinfo: SampleInfo = sampleinfos[0] # because batch_size=1
-        assert input_tensor.shape == (1, self.n_input_days, 192, 288, self.in_features)
+        assert input_tensor.shape == (1, self.n_input_days, self.H, self.W, self.in_features)
         assert input_indices.shape == (1, self.n_input_days)
 
         # Forward pass
@@ -180,7 +199,7 @@ class BaselinePredictor(_AbstractPredictor):
         prediction_tensor = prediction_tensor.mean(dim=1, keepdim=False).squeeze(dim=0) # along T
         groundtruth_tensor = groundtruth_tensor.mean(dim=1, keepdim=False).squeeze(dim=0) # along T
         error_tensor: torch.Tensor = self.error_map(prediction=prediction_tensor, groundtruth=groundtruth_tensor)
-        assert prediction_tensor.shape == groundtruth_tensor.shape == error_tensor.shape == (192, 288, self.out_features)
+        assert prediction_tensor.shape == groundtruth_tensor.shape == error_tensor.shape == (self.H, self.W, self.out_features)
 
         # Plotting
         for idx, output_name in enumerate(self.output_names):
@@ -431,7 +450,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
             assert target_latent_k.isclose(target_latent_0).all()
             # Decode target back to physical space
             prediction: torch.Tensor = self.precip_decoder(target_latent_0.flatten(0, 1))
-            assert prediction.shape == (L, 1, 192, 288, self.out_features)
+            assert prediction.shape == (L, 1, self.H, self.W, self.out_features)
             prediction = prediction.squeeze(dim=1)
             prediction: torch.Tensor = prediction.mean(dim=0, keepdim=False)
             member_predictions.append(prediction)
@@ -615,12 +634,13 @@ class Visualizer:
         self.target_dir = Path(target_dir)
         self.torchio = TorchDictIO(dirpath=source_dir)
         self.prediction_plotter = PredictionPlotter(dirpath=target_dir)
+        self.H, self.W = self.metadata.resolution
         if self.metadata.dataset_name == "cesm2":
             self.landmask_reader = CESM2_LandmaskReader()
             self.coordinates_reader = CESM2_CoordinatesReader()
         else:
-            self.landmask_reader = ERA5_LandmaskReader(resolution=self.metadata.resolution)
-            self.coordinates_reader = ERA5_CoordinatesReader(resolution=self.metadata.resolution)
+            self.landmask_reader = ERA5_LandmaskReader(resolution=(self.H, self.W))
+            self.coordinates_reader = ERA5_CoordinatesReader(resolution=(self.H, self.W))
 
     def plot_baseline_prediction(self, filename: str) -> None:
         result_object: dict[str, torch.Tensor | float | str] = self.torchio.load(filename=filename)

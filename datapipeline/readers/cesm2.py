@@ -18,7 +18,7 @@ class DataReader:
         self.sim_id: str = sim_id
         self.year: int = year
         with open("./config.yaml", mode="r") as file:
-            self.root_directory: Path = Path(yaml.safe_load(file)["cesm2"]["root"])
+            self.root_directory: Path = Path(yaml.safe_load(file)["cesm2"]["raw_root"])
 
     @cached_property
     def filepath(self) -> Path:
@@ -57,8 +57,7 @@ class LandmaskReader:
 
     def __init__(self) -> None:
         with open("./config.yaml", mode="r") as file:
-            pathstring: str = yaml.safe_load(file)["cesm2"]["root"]
-            self.mask_directory: Path = Path(yaml.safe_load(file)["cems2"]["landmask_root"])
+            self.mask_directory: Path = Path(yaml.safe_load(file)["cesm2"]["landmask_root"])
             self.filepath: Path = next(self.mask_directory.glob("*.nc"))
 
     @cached_property

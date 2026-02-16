@@ -1,5 +1,3 @@
-import sys
-import argparse
 import http
 from pathlib import Path
 from urllib.request import build_opener
@@ -507,7 +505,7 @@ def main(var_name: str, target_dir: str):
                 with opener.open(url) as infile, open(file_path, "wb") as outfile:
                     outfile.write(infile.read())
                 break
-            except http.client.IncompleteRead as e:
+            except http.client.IncompleteRead:
                 continue
         else:
             raise TimeoutError("Max attempts exceeded")

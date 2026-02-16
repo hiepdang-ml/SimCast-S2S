@@ -6,7 +6,7 @@ import torch.distributed as dist
 from datapipeline.dataset import CESM2, ERA5, MetaData
 from common.utils import CheckpointLoader
 from workers import BaselinePredictor, VAEPredictor, DiffusionPredictor
-from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DiffusionConfig
+from common.configs import CNNConfig, UnetConfig, ViTConfig, VAEConfig, DiffusionConfig
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
     VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, UNetDenoiser,
@@ -79,6 +79,8 @@ def main(
         test_metadata = test_metadata.with_var_subset(context_group="wind")
         if dataset == "cesm2":
             test_dataset: CESM2 = CESM2(metadata=test_metadata)
+        else:
+            test_dataset: ERA5 = ERA5(metadata=test_metadata)
 
         model_config: VAEConfig = VAEConfig(context_group="wind")
         assert model_config.from_checkpoint is not None
@@ -98,6 +100,8 @@ def main(
         test_metadata = test_metadata.with_var_subset(context_group="mass")
         if dataset == "cesm2":
             test_dataset: CESM2 = CESM2(metadata=test_metadata)
+        else:
+            test_dataset: ERA5 = ERA5(metadata=test_metadata)
 
         model_config: VAEConfig = VAEConfig(context_group="mass")
         assert model_config.from_checkpoint is not None
@@ -117,6 +121,8 @@ def main(
         test_metadata = test_metadata.with_var_subset(context_group="thermal")
         if dataset == "cesm2":
             test_dataset: CESM2 = CESM2(metadata=test_metadata)
+        else:
+            test_dataset: ERA5 = ERA5(metadata=test_metadata)
 
         model_config: VAEConfig = VAEConfig(context_group="thermal")
         assert model_config.from_checkpoint is not None
@@ -136,6 +142,8 @@ def main(
         test_metadata = test_metadata.with_var_subset(context_group="hydro")
         if dataset == "cesm2":
             test_dataset: CESM2 = CESM2(metadata=test_metadata)
+        else:
+            test_dataset: ERA5 = ERA5(metadata=test_metadata)
 
         model_config: VAEConfig = VAEConfig(context_group="hydro")
         assert model_config.from_checkpoint is not None
@@ -155,6 +163,8 @@ def main(
         test_metadata = test_metadata.with_var_subset(context_group="precip")
         if dataset == "cesm2":
             test_dataset: CESM2 = CESM2(metadata=test_metadata)
+        else:
+            test_dataset: ERA5 = ERA5(metadata=test_metadata)
 
         model_config: VAEConfig = VAEConfig(context_group="precip")
         assert model_config.from_checkpoint is not None
@@ -250,7 +260,7 @@ if __name__ == "__main__":
         "--model",
         type=str, choices=[
             "cnn", "unet", "vit",
-            "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", "vae-target",
+            "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip",
             "diffusion"
         ],
         required=True,

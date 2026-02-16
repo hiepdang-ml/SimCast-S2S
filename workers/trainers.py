@@ -1,4 +1,3 @@
-import os
 from abc import ABC, abstractmethod
 
 import torch
@@ -20,8 +19,6 @@ from models.diffusion import (
 )
 from models.diffusion.diffusion import CosineNoiseScheduler
 from .common import RequireVAEEncoders
-
-import torch.nn.functional as F
 
 
 class _AbstractTrainer(ABC):

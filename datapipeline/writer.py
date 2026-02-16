@@ -57,6 +57,7 @@ class DataWriter:
             (dt.datetime(2025, 1, 1) + dt.timedelta(days=i)).strftime("%m%d")
             for i in range(365)
         ]
+        self.H, self.W = metadata.resolution
 
     def __save_metadata(self) -> None:
         filepath: pathlib.Path = pathlib.Path(self.metadata_path.joinpath("metadata.json"))
@@ -112,9 +113,9 @@ class DataWriter:
         if var_container.var_name in self.metadata.input_vars:
             # Input: Get data
             year_tensor: torch.Tensor = var_container.get(sim_id=sim_id, year=year)
-            assert year_tensor.shape == (365, 192, 288)
+            assert year_tensor.shape == (365, self.H, self.W)
             input_tensor: torch.Tensor = year_tensor[input_yearday_indices]
-            assert input_tensor.shape == (self.metadata.n_input_days, 192, 288)
+            assert input_tensor.shape == (self.metadata.n_input_days, self.H, self.W)
             # Input: Write to .pt
             filename: str = self.__construct_file_name(
                 sim_id=sim_id, var_name=var_container.var_name, year=year,
@@ -130,9 +131,9 @@ class DataWriter:
         if var_container.var_name in self.metadata.output_vars:
             # Output: Get data
             year_tensor: torch.Tensor = var_container.get(sim_id=sim_id, year=year)
-            assert year_tensor.shape == (365, 192, 288)
+            assert year_tensor.shape == (365, self.H, self.W)
             output_tensor: torch.Tensor = year_tensor[output_yearday_indices]
-            assert output_tensor.shape == (self.metadata.n_output_days, 192, 288)
+            assert output_tensor.shape == (self.metadata.n_output_days, self.H, self.W)
             # Output: Write to .pt
             filename: str = self.__construct_file_name(
                 sim_id=sim_id, var_name=var_container.var_name, year=year,
