@@ -65,7 +65,9 @@ class Merger:
         ds: xr.Dataset = xr.merge(
             objects=[self.from_pressure_levels(year=year), self.from_single_level(year=year)],
         )
+        # Preprocess ERA5 into CESM2 format
         ds = self.__dropfeb29(ds)
+        ds = self.__fliplatitude(ds)
         # Resize
         newlat: NDArray[np.float64] = np.linspace(
             ds.latitude.min().item(), ds.latitude.max().item(), target_resolution[0]
@@ -87,9 +89,19 @@ class Merger:
 
     @staticmethod
     def __dropfeb29(ds: xr.Dataset) -> xr.Dataset:
+        """
+        ERA5 accounts for leaf years, CESM2 standardizes years into 365-day periods
+        """
         assert "valid_time" in ds.coords
         return ds.sel(valid_time=~((ds.valid_time.dt.month == 2) & (ds.valid_time.dt.day == 29)))
 
+    @staticmethod
+    def __fliplatitude(ds: xr.Dataset) -> xr.Dataset:
+        """
+        ERA5 stores latitude in descending order (90 -> -90), CESM2 stores it in ascending order
+        """
+        assert "latitude" in ds.coords
+        return ds.sortby("latitude")
 
 class DataReader:
 
@@ -198,6 +210,6 @@ class CoordinatesReader:
         ds: xr.Dataset = xr.open_dataset(self.filepath, engine="netcdf4")
         lat_tensor: torch.Tensor = torch.from_numpy(ds["latitude"].values).squeeze()
         lon_tensor: torch.Tensor = torch.from_numpy(ds["longitude"].values).squeeze()
-        assert lat_tensor.shape == (192,)
-        assert lon_tensor.shape == (288,)
+        assert lat_tensor.shape == (self.H,)
+        assert lon_tensor.shape == (self.W,)
         return lat_tensor, lon_tensor
