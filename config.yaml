@@ -110,8 +110,8 @@ cnn:
 
   in_features: 21
   out_features: 1
-  embedding_dim: 256
-  n_hidden_layers: 4
+  embedding_dim: 1024
+  n_hidden_layers: 12
 
   learning_rate: 1e-6
   train_batch_size: 4
