@@ -101,7 +101,7 @@ class _AbstractPredictor(ABC):
         # TODO: remove
         for i, batch in enumerate(self.dataloader):
             i = i + 1
-            if i < 43:
+            if i < 42:
                 continue
             prediction_mean, groundtruth_mean = self._predict_step(batch=batch)
             # Record for aggregate metrics
