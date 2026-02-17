@@ -101,7 +101,7 @@ class Merger:
         ERA5 stores latitude in descending order (90 -> -90), CESM2 stores it in ascending order
         """
         assert "latitude" in ds.coords
-        return ds.sortby("latitude")
+        return ds.sortby("latitude", ascending=True)
 
 class DataReader:
 
