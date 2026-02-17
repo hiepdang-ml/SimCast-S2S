@@ -39,7 +39,12 @@ def main(
     visualizer = Visualizer(metadata=metadata, source_dir=source_dir, target_dir=target_dir)
     for f in sorted(visualizer.source_dir.glob("*")):
         print(f)
-        visualizer.plot_diffusion_prediction(f.name)
+        if model in ["cnn", "unet", "vit"]:
+            visualizer.plot_baseline_prediction(f.name)
+        elif model.startswith("vae"):
+            visualizer.plot_vae_prediction(f.name)
+        else:
+            visualizer.plot_diffusion_prediction(f.name)
 
 
 if __name__ == "__main__":
