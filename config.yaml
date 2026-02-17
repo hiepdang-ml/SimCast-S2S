@@ -125,7 +125,7 @@ cnn:
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/cnn/cnn9.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/cnn/"
   # inference
-  target_path: "/scratch/zgp2ps/s2s_results/cnn/tensors/"
+  target_path: "/scratch/zgp2ps/s2s_results/cnn/"
 
 
 unet:
@@ -145,7 +145,7 @@ unet:
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/unet128/unet2.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/unet128/"
   # inference
-  target_path: "/scratch/zgp2ps/s2s_results/unet128/tensors/"
+  target_path: "/scratch/zgp2ps/s2s_results/unet128/"
 
 
 vit:
@@ -169,7 +169,7 @@ vit:
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vit/vit3.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vit/"
   # inference
-  target_path: "/scratch/zgp2ps/s2s_results/vit/tensors/"
+  target_path: "/scratch/zgp2ps/s2s_results/vit/"
 
 
 vae-wind:
@@ -191,7 +191,7 @@ vae-wind:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/vaewind6.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_wind_16times/"
-  target_path: "/scratch/zgp2ps/s2s_results/vae_wind_16times/tensors/"
+  target_path: "/scratch/zgp2ps/s2s_results/vae_wind_16times/"
 
 
 vae-mass:
@@ -213,7 +213,7 @@ vae-mass:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_mass_16times/vaemass11.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_mass_16times/"
-  target_path: "/scratch/zgp2ps/s2s_results/vae_mass_16times/tensors/"
+  target_path: "/scratch/zgp2ps/s2s_results/vae_mass_16times/"
 
 
 vae-thermal:
@@ -235,7 +235,7 @@ vae-thermal:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_thermal_16times/vaethermal15.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_thermal_16times/"
-  target_path: "/scratch/zgp2ps/s2s_results/vae_thermal_16times/tensors/"
+  target_path: "/scratch/zgp2ps/s2s_results/vae_thermal_16times/"
 
 
 vae-hydro:
@@ -257,7 +257,7 @@ vae-hydro:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_hydro_16times/vaehydro3.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_hydro_16times/"
-  target_path: "/scratch/zgp2ps/s2s_results/vae_hydro_16times/tensors/"
+  target_path: "/scratch/zgp2ps/s2s_results/vae_hydro_16times/"
 
 
 vae-precip:
@@ -279,7 +279,7 @@ vae-precip:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times/vaeprecip6.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vae_precip_4times/"
-  target_path: "/scratch/zgp2ps/s2s_results/vae_precip_4times/tensors/"
+  target_path: "/scratch/zgp2ps/s2s_results/vae_precip_4times/"
 
 
 diffusion:
