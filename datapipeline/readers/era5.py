@@ -205,11 +205,19 @@ class CoordinatesReader:
             self.mask_directory: Path = Path(yaml.safe_load(file)["era5"]["landmask_root"])
             self.filepath: Path = next(self.mask_directory.glob("*.nc"))
 
+    def __resize(self, input1d: torch.Tensor, HorW: Literal["H","W"]) -> torch.Tensor:
+        assert input1d.ndim == 1
+        min: float = input1d.min().item()
+        max: float = input1d.max().item()
+        return torch.linspace(start=min, end=max, steps=self.H if HorW == "H" else self.W)
+
     @cached_property
     def tensors(self) -> tuple[torch.Tensor, torch.Tensor]:
         ds: xr.Dataset = xr.open_dataset(self.filepath, engine="netcdf4")
         lat_tensor: torch.Tensor = torch.from_numpy(ds["latitude"].values).squeeze()
         lon_tensor: torch.Tensor = torch.from_numpy(ds["longitude"].values).squeeze()
+        lat_tensor = self.__resize(input1d=lat_tensor, HorW="H")
+        lon_tensor = self.__resize(input1d=lat_tensor, HorW="W")
         assert lat_tensor.shape == (self.H,)
         assert lon_tensor.shape == (self.W,)
         return lat_tensor, lon_tensor
