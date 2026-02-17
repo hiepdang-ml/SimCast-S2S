@@ -124,6 +124,7 @@ cnn:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/cnn/cnn9.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/cnn/"
+  # inference
   target_path: "/scratch/zgp2ps/s2s_results/cnn/tensors/"
 
 
@@ -131,7 +132,7 @@ unet:
 
   in_features: 21
   out_features: 1
-  embedding_dim: 256
+  embedding_dim: 128
 
   learning_rate: 1e-5
   train_batch_size: 4
@@ -141,9 +142,10 @@ unet:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/unet256/unet2.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/unet256/"
-  target_path: "/scratch/zgp2ps/s2s_results/unet256/tensors/"
+  from_checkpoint: null
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/unet128/"
+  # inference
+  target_path: "/scratch/zgp2ps/s2s_results/unet128/tensors/"
 
 
 vit:
@@ -166,6 +168,7 @@ vit:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vit/vit3.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vit/"
+  # inference
   target_path: "/scratch/zgp2ps/s2s_results/vit/tensors/"
 
 
