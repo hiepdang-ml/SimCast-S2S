@@ -123,9 +123,9 @@ cnn:
   save_frequency: 1
 
   from_checkpoint: null
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/cnn_small/"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/cnn_large/"
   # inference
-  target_path: "/scratch/zgp2ps/s2s_results/cnn_small/"
+  target_path: "/scratch/zgp2ps/s2s_results/cnn_large/"
 
 
 unet:
