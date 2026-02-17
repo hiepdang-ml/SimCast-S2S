@@ -122,10 +122,10 @@ cnn:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/cnn/cnn9.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/cnn/"
+  from_checkpoint: null
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/cnn_small/"
   # inference
-  target_path: "/scratch/zgp2ps/s2s_results/cnn/"
+  target_path: "/scratch/zgp2ps/s2s_results/cnn_small/"
 
 
 unet:
