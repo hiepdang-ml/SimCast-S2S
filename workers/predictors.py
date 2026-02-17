@@ -99,8 +99,7 @@ class _AbstractPredictor(ABC):
         records: dict[str, list[torch.Tensor]] = {"predictions": [], "groundtruths": []}
         # Predict
         # TODO: remove
-        i: int = 0
-        for batch in self.dataloader:
+        for i, batch in enumerate(self.dataloader):
             i = i + 1
             if i < 43:
                 continue
