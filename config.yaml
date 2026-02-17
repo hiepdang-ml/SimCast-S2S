@@ -142,7 +142,7 @@ unet:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: null
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/unet128/unet2.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/unet128/"
   # inference
   target_path: "/scratch/zgp2ps/s2s_results/unet128/tensors/"
