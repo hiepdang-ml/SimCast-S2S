@@ -178,20 +178,32 @@ class LandmaskReader:
             self.mask_directory: Path = Path(yaml.safe_load(file)["era5"]["landmask_root"])
             self.filepath: Path = next(self.mask_directory.glob("*.nc"))
 
-    def __resize(self, input2d: torch.Tensor) -> torch.Tensor:
-        assert input2d.ndim == 2  # (H, W)
-        input2d = torch.nn.functional.interpolate(
-            input=input2d[None, None, :, :], size=self.resolution, mode="nearest"
+    def __resize(self, da: xr.DataArray) -> xr.DataArray:
+        # Resize
+        newlat: NDArray[np.float64] = np.linspace(
+            da.latitude.min().item(), da.latitude.max().item(), self.resolution[0]
         )
-        return input2d.squeeze(0, 1)
+        newlon: NDArray[np.float64] = np.linspace(
+            da.longitude.min().item(), da.longitude.max().item(), self.resolution[1]
+        )
+        da = da.interp(latitude=newlat, longitude=newlon, method="nearest")
+        return da
+
+    @staticmethod
+    def __fliplatitude(da: xr.DataArray) -> xr.DataArray:
+        """
+        ERA5 stores latitude in descending order (90 -> -90), CESM2 stores it in ascending order
+        """
+        assert "latitude" in da.coords
+        return da.sortby("latitude", ascending=True)
 
     @cached_property
     def tensor(self) -> torch.Tensor:
         da: xr.DataArray = xr.load_dataarray(self.filepath, engine="netcdf4").isel(valid_time=0)
+        da = self.__fliplatitude(da)
+        da = self.__resize(da)
         value: torch.Tensor = torch.from_numpy(da.values).nan_to_num(0.0)
         landmask: torch.Tensor = (value != 0.).float()
-        assert landmask.shape == (721, 1440), f"getting landmask.shape={landmask.shape}"
-        landmask = self.__resize(landmask)
         assert landmask.shape == (self.H, self.W)
         return landmask
 
