@@ -410,4 +410,4 @@ class TorchDictIO:
             - filename (str): Source filename within `dirpath`.
 
         """
-        return torch.load(f=self.dirpath.joinpath(filename), weights_only=False, map_location="cpu")
+        return torch.load(f=self.dirpath.joinpath(filename), weights_only=True, map_location="cpu")

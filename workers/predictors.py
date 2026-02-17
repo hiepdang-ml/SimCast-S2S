@@ -131,23 +131,24 @@ class _AbstractPredictor(ABC):
         )
         assert mae_frame.shape == (self.H, self.W, self.out_features)
 
-        # Plot aggregate metrics
-        for idx, output_name in enumerate(self.output_names):
-            self.metric_plotter.plot(
-                mae_frame=mae_frame[..., idx],
-                global_mae=global_mae,
-                tropical_mae=tropical_mae,
-                extratropical_mae=extratropical_mae,
-                rsquared_frame=rsquared_frame[..., idx],
-                global_rsquared=global_rsquared,
-                tropical_rsquared=tropical_rsquared,
-                extratropical_rsquared=extratropical_rsquared,
-                landmask=self.landmask_reader.tensor,
-                tropical_lats=self.tropical_lats,
-                coordinates=self.coordinates_reader.tensors,
-                title=f"{output_name}: {self.dataset.metadata.start_year} - {self.dataset.metadata.end_year}",
-                filename=f"{self.model_name.upper()}_{output_name}_metrics.png",
-            )
+        # TODO: should save the tensors only and build a different command to plot
+        # # Plot aggregate metrics
+        # for idx, output_name in enumerate(self.output_names):
+        #     self.metric_plotter.plot(
+        #         mae_frame=mae_frame[..., idx],
+        #         global_mae=global_mae,
+        #         tropical_mae=tropical_mae,
+        #         extratropical_mae=extratropical_mae,
+        #         rsquared_frame=rsquared_frame[..., idx],
+        #         global_rsquared=global_rsquared,
+        #         tropical_rsquared=tropical_rsquared,
+        #         extratropical_rsquared=extratropical_rsquared,
+        #         landmask=self.landmask_reader.tensor,
+        #         tropical_lats=self.tropical_lats,
+        #         coordinates=self.coordinates_reader.tensors,
+        #         title=f"{output_name}: {self.dataset.metadata.start_year} - {self.dataset.metadata.end_year}",
+        #         filename=f"{self.model_name.upper()}_{output_name}_metrics.png",
+        #     )
 
     @abstractmethod
     def _predict_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor]:
