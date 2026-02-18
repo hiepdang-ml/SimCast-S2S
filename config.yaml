@@ -132,7 +132,7 @@ unet:
 
   in_features: 21
   out_features: 1
-  embedding_dim: 128
+  embedding_dim: 256
 
   learning_rate: 1e-5
   train_batch_size: 4
@@ -143,9 +143,9 @@ unet:
   save_frequency: 1
 
   from_checkpoint: null
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_small/"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_mid/"
   # inference
-  target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_small/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_mid/"
 
 
 vit:
