@@ -259,7 +259,7 @@ vae-hydro:
   n_convhead_layers: 4
 
   lambda: 1.
-  learning_rate: 1e-5
+  learning_rate: 1e-4
   train_batch_size: 32
   val_batch_size: 32
   n_epochs: 1000
@@ -267,9 +267,13 @@ vae-hydro:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/vaehydro3.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/"
-  target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/vae_hydro_16times/"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/vaehydro3.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/vae_hydro_16times/"
+
+  from_checkpoint: null
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_hydro_16times/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_era5/vae_hydro_16times/"
 
 
 vae-precip:
