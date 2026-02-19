@@ -245,7 +245,7 @@ vae-thermal:
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/vae_thermal_16times/"
 
-  from_checkpoint: null
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_thermal_16times/vaethermal14.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_thermal_16times/"
   target_path: "/scratch/zgp2ps/s2s_results/train_era5/vae_thermal_16times/"
 
