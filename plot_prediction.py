@@ -37,7 +37,7 @@ def main(
     source_dir: str = model_config.target_path.joinpath(f"{dataset}/tensors/").as_posix()
     target_dir: str = model_config.target_path.joinpath(f"{dataset}/plots/").as_posix()
     visualizer = Visualizer(metadata=metadata, source_dir=source_dir, target_dir=target_dir)
-    for f in sorted(visualizer.source_dir.glob("*")):
+    for f in sorted(visualizer.source_dir.glob("*.pt")):
         print(f)
         if model in ["cnn", "unet", "vit"]:
             visualizer.plot_baseline_prediction(f.name)
