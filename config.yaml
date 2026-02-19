@@ -241,9 +241,13 @@ vae-thermal:
   tolerance: 0.
   save_frequency: 1
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/vaethermal15.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/"
-  target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/vae_thermal_16times/"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/vaethermal15.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/vae_thermal_16times/"
+
+  from_checkpoint: null
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_thermal_16times/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_era5/vae_thermal_16times/"
 
 
 vae-hydro:
