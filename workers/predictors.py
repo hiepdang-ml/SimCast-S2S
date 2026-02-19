@@ -98,7 +98,6 @@ class _AbstractPredictor(ABC):
         # Batch size should always be 1
         records: dict[str, list[torch.Tensor]] = {"predictions": [], "groundtruths": []}
         # Predict
-        # DEBUG
         for batch in self.dataloader:
             prediction_mean, groundtruth_mean = self._predict_step(batch=batch)
             # Record for aggregate metrics
