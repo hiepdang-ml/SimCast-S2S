@@ -233,7 +233,7 @@ vae-thermal:
   n_convhead_layers: 4
 
   lambda: 1.
-  learning_rate: 1e-5
+  learning_rate: 1e-4
   train_batch_size: 32
   val_batch_size: 32
   n_epochs: 1000
