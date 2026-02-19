@@ -82,7 +82,7 @@ class PredictionPlotter(_BasePlotter):
 
         if vlim is None:
             q: float = 0.95
-            reference_frame: torch.Tensor = plot_items[0][1]
+            reference_frame: torch.Tensor = plot_items[1][1]
             vlim: float = reference_frame.abs().quantile(q=q).item()
         else:
             assert vlim > 0
