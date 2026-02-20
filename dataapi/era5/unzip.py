@@ -1,6 +1,5 @@
 from pathlib import Path
 from zipfile import ZipFile
-from torch import classes
 import xarray as xr
 
 
@@ -67,7 +66,7 @@ if __name__ == "__main__":
     parser.add_argument("--data-dir", type=str, required=True)
     parser.add_argument("--fromyear", type=int, required=True)
     parser.add_argument("--toyear", type=int, required=True)
-    group = parser.add_mutually_exclusive_group()
+    group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("-q", action="store_true", default=False)
     group.add_argument("-m", action="store_true", default=False)
     args: argparse.Namespace = parser.parse_args()
@@ -75,7 +74,7 @@ if __name__ == "__main__":
     iterations: Iterable[tuple[int, int]]
     if args.q:
         iterations = product(range(args.fromyear, args.toyear + 1), range(1, 5))
-    if args.m:
+    elif args.m:
         iterations = product(range(args.fromyear, args.toyear + 1), range(1, 13))
 
     Era5SafeUnzip.set_data_dir(args.data_dir)

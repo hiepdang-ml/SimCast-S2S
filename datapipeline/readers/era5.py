@@ -229,7 +229,7 @@ class CoordinatesReader:
         lat_tensor: torch.Tensor = torch.from_numpy(ds["latitude"].values).squeeze()
         lon_tensor: torch.Tensor = torch.from_numpy(ds["longitude"].values).squeeze()
         lat_tensor = self.__resize(input1d=lat_tensor, HorW="H")
-        lon_tensor = self.__resize(input1d=lat_tensor, HorW="W")
+        lon_tensor = self.__resize(input1d=lon_tensor, HorW="W")
         assert lat_tensor.shape == (self.H,)
         assert lon_tensor.shape == (self.W,)
         return lat_tensor, lon_tensor

@@ -81,6 +81,7 @@ class PredictionPlotter(_BasePlotter):
             axs = [axs]
 
         if vlim is None:
+            assert len(plot_items) > 1  # should have groundtruth frame to reference
             q: float = 0.95
             reference_frame: torch.Tensor = plot_items[1][1]
             vlim: float = reference_frame.abs().quantile(q=q).item()

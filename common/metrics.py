@@ -143,9 +143,9 @@ class MAEMap(_SequenceLevelMap, _GeographicalMetricOrMap):
         mae_map: torch.Tensor = (groundtruth_tensor - prediction_tensor).abs().mean(dim=0, keepdim=False)
         tropical_mae_map = mae_map[self.tropical_mask]
         extratropical_mae_map = mae_map[~self.tropical_mask]
-        global_mae: torch.Tensor = mae_map[mae_map > 0].mean()
-        tropical_mae: torch.Tensor = tropical_mae_map[tropical_mae_map > 0].mean()
-        extratropical_mae: torch.Tensor = extratropical_mae_map[extratropical_mae_map > 0].mean()
+        global_mae: torch.Tensor = mae_map.mean()
+        tropical_mae: torch.Tensor = tropical_mae_map.mean()
+        extratropical_mae: torch.Tensor = extratropical_mae_map.mean()
         print(f"MAE (Global): {global_mae}")
         print(f"MAE (Tropic): {tropical_mae}")
         print(f"MAE (Extratropic): {extratropical_mae}")
