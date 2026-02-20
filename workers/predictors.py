@@ -284,6 +284,7 @@ class VAEPredictor(_AbstractPredictor):
             # Plotting
             reconstructions.append(reconstructed_x)
             groundtruths.append(true_x)
+            on_date: str = sampleinfo.in_dates
             for idx in range(len(self.dataset.metadata.input_vars)):
                 # Select by output variable
                 true_frame: torch.Tensor = true_x[..., idx]
@@ -325,17 +326,10 @@ class VAEPredictor(_AbstractPredictor):
                     "model_name": self.model_name.upper(),
                     "output_name": output_name,
                     "sim_id": sampleinfo.sim_id,
-                    "in_startdate": sampleinfo.in_startdate,
-                    "in_enddate": sampleinfo.in_enddate,
-                    "out_startdate": sampleinfo.out_startdate,
-                    "out_enddate": sampleinfo.out_enddate,
+                    "on_date": on_date,
                     "tropical_lats": self.tropical_lats,
                 }
-                filename: str = (
-                    f"{self.model_name.upper()}_{output_name}_{sampleinfo.sim_id}_"
-                    f"{sampleinfo.in_startdate}{sampleinfo.in_enddate}_"
-                    f"{sampleinfo.out_startdate}{sampleinfo.out_enddate}.pt"
-                ).replace("/", "")
+                filename: str = f"{self.model_name.upper()}_{output_name}_{sampleinfo.sim_id}_{on_date}.pt".replace("/", "")
                 self.torchio.save(obj=result_object, filename=filename)
                 print({k: v for k, v in result_object.items() if isinstance(v, (str, float, int, tuple))})
 
@@ -680,10 +674,7 @@ class Visualizer:
         # Make title
         title: str = (
             f"{result_object['model_name']}: {result_object['output_name']} - {result_object['sim_id']}\n"
-            f"[In]: {result_object['in_startdate']} - {result_object['in_enddate']}\n"
-            f"[Out]: {result_object['out_startdate']} - {result_object['out_enddate']} (Mean)\n"
-            f"RMSE (Global): {result_object['global_rmse']:.4f}, MAE (Global): {result_object['global_mae']:.4f}\n"
-            f"RMSE (Tropic): {result_object['tropical_rmse']:.4f}, MAE (Tropic): {result_object['tropical_mae']:.4f}\n"
+            f"[On]: {result_object['on_date']}\n"
             f"RMSE (Extratropic): {result_object['extratropical_rmse']:.4f}, MAE (Extratropic): {result_object['extratropical_mae']:.4f}\n"
             f"mu: {float(result_object['mu']):.4f}, sigma: {float(result_object['sigma']):.4f}\n"
         )
