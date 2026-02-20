@@ -193,7 +193,7 @@ vae-wind:
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_wind_16times/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/vae_wind_16times/"
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_wind_16times/vaewind144.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_wind_16times/vaewind34.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_wind_16times/"
   target_path: "/scratch/zgp2ps/s2s_results/train_era5/vae_wind_16times/"
 
@@ -297,7 +297,7 @@ vae-precip:
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_precip_4times/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/vae_precip_4times/"
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_precip_4times/vaeprecip34.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_precip_4times/vaeprecip41.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_precip_4times/"
   target_path: "/scratch/zgp2ps/s2s_results/train_era5/vae_precip_4times/"
 
