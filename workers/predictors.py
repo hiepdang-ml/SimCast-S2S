@@ -675,6 +675,8 @@ class Visualizer:
         title: str = (
             f"{result_object['model_name']}: {result_object['output_name']} - {result_object['sim_id']}\n"
             f"[On]: {result_object['on_date']}\n"
+            f"RMSE (Global): {result_object['global_rmse']:.4f}, MAE (Global): {result_object['global_mae']:.4f}\n"
+            f"RMSE (Tropic): {result_object['tropical_rmse']:.4f}, MAE (Tropic): {result_object['tropical_mae']:.4f}\n"
             f"RMSE (Extratropic): {result_object['extratropical_rmse']:.4f}, MAE (Extratropic): {result_object['extratropical_mae']:.4f}\n"
             f"mu: {float(result_object['mu']):.4f}, sigma: {float(result_object['sigma']):.4f}\n"
         )
