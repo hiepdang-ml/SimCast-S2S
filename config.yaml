@@ -271,7 +271,7 @@ vae-hydro:
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/vae_hydro_16times/"
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_hydro_16times/vaehydro231.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_hydro_16times/vaehydro48.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_hydro_16times/"
   target_path: "/scratch/zgp2ps/s2s_results/train_era5/vae_hydro_16times/"
 
@@ -352,9 +352,9 @@ diffusion:
   vae_wind_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_wind_16times/vaewind34.pt"
   vae_mass_checkpoint:  "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_mass_16times/vaemass228.pt"
   vae_thermal_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_thermal_16times/vaethermal196.pt"
-  vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_hydro_16times/vaehydro231.pt"
+  vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_hydro_16times/vaehydro48.pt"
   vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_precip_4times/vaeprecip41.pt"
 
-  from_checkpoint: null
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/diffusion_v23_cosine/diffusion69.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/diffusion_v23_cosine/"
   target_path: "/scratch/zgp2ps/s2s_results/train_era5/diffusion_eta000/"
