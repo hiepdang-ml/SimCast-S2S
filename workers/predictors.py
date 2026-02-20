@@ -272,8 +272,8 @@ class VAEPredictor(_AbstractPredictor):
         batch_size, n_days, H, W, n_features = x.shape
         reconstructions: list[torch.Tensor] = []
         groundtruths: list[torch.Tensor] = []
-        for day in range(x.shape[1]):
-            true_x: torch.Tensor = x[:, day: day+1, :, :, :]
+        for date_idx in range(x.shape[1]):
+            true_x: torch.Tensor = x[:, date_idx: date_idx+1, :, :, :]
             reconstructed_x, mu, logvar = self.net(true_x)
             mu_mean: torch.Tensor = mu.mean()
             sigma_mean: torch.Tensor = logvar.exp().sqrt().mean()
@@ -284,7 +284,7 @@ class VAEPredictor(_AbstractPredictor):
             # Plotting
             reconstructions.append(reconstructed_x)
             groundtruths.append(true_x)
-            on_date: str = sampleinfo.in_dates
+            on_date: str = sampleinfo.in_dates[date_idx]
             for idx in range(len(self.dataset.metadata.input_vars)):
                 # Select by output variable
                 true_frame: torch.Tensor = true_x[..., idx]
@@ -306,7 +306,7 @@ class VAEPredictor(_AbstractPredictor):
                 extratropical_mae: float = extratropical_mae_.item()
 
                 # Save results
-                output_name: str = self.output_names[day * len(self.dataset.metadata.input_vars) + idx]
+                output_name: str = self.output_names[date_idx * len(self.dataset.metadata.input_vars) + idx]
                 result_object: dict[str, Any] = {
                     "groundtruth": true_frame,
                     "reconstruction": reconstructed_frame,
