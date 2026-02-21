@@ -1,5 +1,4 @@
 import argparse
-from typing import List
 import cdsapi
 
 def main(year: int, months: list[int]) -> None:
