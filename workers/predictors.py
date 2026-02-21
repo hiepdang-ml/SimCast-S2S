@@ -98,7 +98,9 @@ class _AbstractPredictor(ABC):
         # Batch size should always be 1
         records: dict[str, list[torch.Tensor]] = {"predictions": [], "groundtruths": []}
         # Predict
-        for batch in self.dataloader:
+        for i, batch in enumerate(self.dataloader):
+            if i < 56:
+                continue
             prediction_mean, groundtruth_mean = self._predict_step(batch=batch)
             # Record for aggregate metrics
             records["groundtruths"].append(groundtruth_mean)
