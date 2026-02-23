@@ -105,8 +105,8 @@ class GeographicalRsquaredMap(_SequenceLevelMap, _GeographicalMetricOrMap):
         assert all(tensor.shape == (192, 288, self.n_features) for tensor in predictions)
         assert all(tensor.shape == (192, 288, self.n_features) for tensor in groundtruths)
 
-        prediction_tensor: torch.Tensor = torch.stack(predictions, dim=0).cpu()     # to avoid out of VRAM
-        groundtruth_tensor: torch.Tensor = torch.stack(groundtruths, dim=0).cpu()   # to avoid out of VRAM
+        prediction_tensor: torch.Tensor = torch.stack([p.cpu() for p in predictions], dim=0) # to avoid out of VRAM
+        groundtruth_tensor: torch.Tensor = torch.stack([g.cpu() for g in groundtruths], dim=0) # to avoid out of VRAM
         true_mean_tensor: torch.Tensor = torch.mean(groundtruth_tensor, dim=0, keepdim=True)
         total_variation_tensor: torch.Tensor = torch.sum(input=(groundtruth_tensor - true_mean_tensor) ** 2, dim=0, keepdim=False)
         residual_tensor: torch.Tensor = torch.sum(input=(prediction_tensor - groundtruth_tensor) ** 2, dim=0, keepdim=False)
@@ -138,8 +138,8 @@ class MAEMap(_SequenceLevelMap, _GeographicalMetricOrMap):
         _batch_size: int = groundtruths[0].shape[0]
         assert all(tensor.shape == (192, 288, self.n_features) for tensor in predictions)
         assert all(tensor.shape == (192, 288, self.n_features) for tensor in groundtruths)
-        prediction_tensor: torch.Tensor = torch.stack(predictions, dim=0).cpu()     # to avoid out of VRAM
-        groundtruth_tensor: torch.Tensor = torch.stack(groundtruths, dim=0).cpu()   # to avoid out of VRAM
+        prediction_tensor: torch.Tensor = torch.stack([p.cpu() for p in predictions], dim=0) # to avoid out of VRAM
+        groundtruth_tensor: torch.Tensor = torch.stack([g.cpu() for g in groundtruths], dim=0) # to avoid out of VRAM
         mae_map: torch.Tensor = (groundtruth_tensor - prediction_tensor).abs().mean(dim=0, keepdim=False)
         tropical_mae_map = mae_map[self.tropical_mask]
         extratropical_mae_map = mae_map[~self.tropical_mask]
