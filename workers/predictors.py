@@ -99,7 +99,7 @@ class _AbstractPredictor(ABC):
         records: dict[str, list[torch.Tensor]] = {"predictions": [], "groundtruths": []}
         # Predict
         for i, batch in enumerate(self.dataloader):
-            if i < 40:
+            if i < 19:
                 continue
             prediction_mean, groundtruth_mean = self._predict_step(batch=batch)
             # Record for aggregate metrics
