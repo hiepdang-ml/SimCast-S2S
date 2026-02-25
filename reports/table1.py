@@ -5,6 +5,7 @@ import json
 import numpy as np
 from common.utils import TorchDictIO
 
+
 def main(root_string: str) -> str:
     """
     Produce table 1 in the paper as JSON (saved as file and print as string)
@@ -58,3 +59,12 @@ def main(root_string: str) -> str:
         report_path.write(report_string)
 
     return report_string
+
+
+if __name__ == "__main__":
+    from argparse import ArgumentParser, Namespace
+    parser: ArgumentParser = ArgumentParser()
+    parser.add_argument("--root", type=str, required=True)
+    args: Namespace = parser.parse_args()
+    assert isinstance(args.root, str)
+    main(args.root)
