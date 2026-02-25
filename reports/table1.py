@@ -36,10 +36,6 @@ def main(root_string: str) -> str:
 
         torchio = TorchDictIO(dirpath=parent.as_posix())
         for f in filepaths:
-            data = torchio.load(filename=f.name)
-            global_mae: float = data["global_mae"]
-            tropical_mae: float = data["tropical_mae"]
-            extratropical_mae: float = data["extratropical_mae"]
             try:
                 data = torchio.load(filename=f.name)
             except Exception as err:
