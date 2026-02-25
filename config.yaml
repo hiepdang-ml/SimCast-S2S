@@ -134,13 +134,13 @@ cnn:
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_large/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/cnn_large/"
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_small/cnn5.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_small/"
-  target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_small/"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_small/cnn5.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_small/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_small/"
 
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_mid/cnn11.pt"
-  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_mid/"
-  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_mid/"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_mid/cnn11.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_mid/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_mid/"
 
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_large/cnn4.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_large/"
@@ -173,13 +173,13 @@ unet:
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_large/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/unet_large/"
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_small/unet14.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_small/"
-  target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_small/"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_small/unet14.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_small/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_small/"
 
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_mid/unet25.pt"
-  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_mid/"
-  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_mid/"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_mid/unet25.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_mid/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_mid/"
 
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_large/unet5.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_large/"
