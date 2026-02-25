@@ -68,3 +68,5 @@ if __name__ == "__main__":
     args: Namespace = parser.parse_args()
     assert isinstance(args.root, str)
     main(args.root)
+
+# Example: python reports/table1.py --root="/scratch/zgp2ps/s2s_results/"
