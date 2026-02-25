@@ -42,7 +42,7 @@ def main(root_string: str) -> str:
             extratropical_mae: float = data["extratropical_mae"]
             try:
                 data = torchio.load(filename=f.name)
-            except (RuntimeError, EOFError, KeyError, ValueError) as err:
+            except Exception as err:
                 print(f"[table1] skip invalid file: {f} ({err})", file=sys.stderr)
                 continue
             global_mae: float = data["global_mae"]
