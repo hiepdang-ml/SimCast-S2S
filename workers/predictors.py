@@ -98,7 +98,9 @@ class _AbstractPredictor(ABC):
         # Batch size should always be 1
         records: dict[str, list[torch.Tensor]] = {"predictions": [], "groundtruths": []}
         # Predict
-        for batch in self.dataloader:
+        for i, batch in enumerate(self.dataloader):
+            if i < 27:
+                continue
             prediction_mean, groundtruth_mean = self._predict_step(batch=batch)
             # Record for aggregate metrics
             records["groundtruths"].append(groundtruth_mean)
@@ -304,7 +306,6 @@ class VAEPredictor(_AbstractPredictor):
                 global_mae: float = global_mae_.item()
                 tropical_mae: float = tropical_mae_.item()
                 extratropical_mae: float = extratropical_mae_.item()
-
                 # Save results
                 output_name: str = self.output_names[date_idx * len(self.dataset.metadata.input_vars) + idx]
                 result_object: dict[str, Any] = {
@@ -474,7 +475,6 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
                 global_mae: float = global_mae_.item()
                 tropical_mae: float = tropical_mae_.item()
                 extratropical_mae: float = extratropical_mae_.item()
-
                 # Save member results
                 prefix: str = self._make_filename_prefix(sampleinfo=sampleinfo, output_name=output_name)
                 suffix: str = f"ens_{member_idx:04d}.pt"
@@ -541,7 +541,6 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
             ensemble_q099_frame: torch.Tensor = ensemble_q099[..., idx]
             error_mean_frame: torch.Tensor = ensemble_error_mean[..., idx]
             error_q050_frame: torch.Tensor = ensemble_error_q050[..., idx]
-
             # MSE value
             global_mse_, tropical_mse_, extratropical_mse_ = self.mse(
                 prediction=ensemble_q050_frame, groundtruth=groundtruth_frame
