@@ -54,7 +54,7 @@ if __name__ == "__main__":
         "--model",
         type=str, choices=[
             "cnn", "unet", "vit",
-            "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip", "vae-target",
+            "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip",
             "diffusion"
         ],
         required=True,

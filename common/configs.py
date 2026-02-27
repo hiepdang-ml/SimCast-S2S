@@ -243,14 +243,11 @@ class ViTConfig(BaseConfig):
 
 class VAEConfig(BaseConfig):
 
-    def __init__(self, context_group: Literal["wind", "mass", "thermal", "hydro", "precip"] | None):
-        self.context_group: Literal["wind", "mass", "thermal", "hydro", "precip"] | None = context_group
+    def __init__(self, context_group: Literal["wind", "mass", "thermal", "hydro", "precip"]):
+        self.context_group: Literal["wind", "mass", "thermal", "hydro", "precip"] = context_group
 
         with open("./config.yaml", mode="r") as file:
-            if self.context_group is None:
-                self._config: dict[str, Any] = yaml.safe_load(file)["vae-target"]
-            else:
-                self._config: dict[str, Any] = yaml.safe_load(file)[f"vae-{context_group}"]
+            self._config: dict[str, Any] = yaml.safe_load(file)[f"vae-{context_group}"]
 
         super().__init__()
         self._load()

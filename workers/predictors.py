@@ -98,9 +98,7 @@ class _AbstractPredictor(ABC):
         # Batch size should always be 1
         records: dict[str, list[torch.Tensor]] = {"predictions": [], "groundtruths": []}
         # Predict
-        for i, batch in enumerate(self.dataloader):
-            if i < 15:
-                continue
+        for batch in self.dataloader:
             prediction_mean, groundtruth_mean = self._predict_step(batch=batch)
             # Record for aggregate metrics
             records["groundtruths"].append(groundtruth_mean)
@@ -122,18 +120,18 @@ class _AbstractPredictor(ABC):
                 merged["groundtruths"].extend(shard["groundtruths"])
             records = merged
 
-        # Compute aggregate metrics (rank 0 only)
-        rsquared_frame, global_rsquared, tropical_rsquared, extratropical_rsquared = self.rsquared_map(
-            predictions=records["predictions"], groundtruths=records["groundtruths"],
-        )
-        assert rsquared_frame.shape == (self.H, self.W, self.out_features)
+        # TODO: should save the tensors only and build a different command to plot from results saved by TorchDictIO
+        # # Compute aggregate metrics (rank 0 only)
+        # rsquared_frame, global_rsquared, tropical_rsquared, extratropical_rsquared = self.rsquared_map(
+        #     predictions=records["predictions"], groundtruths=records["groundtruths"],
+        # )
+        # assert rsquared_frame.shape == (self.H, self.W, self.out_features)
 
-        mae_frame, global_mae, tropical_mae, extratropical_mae = self.mae_map(
-            predictions=records["predictions"], groundtruths=records["groundtruths"],
-        )
-        assert mae_frame.shape == (self.H, self.W, self.out_features)
+        # mae_frame, global_mae, tropical_mae, extratropical_mae = self.mae_map(
+        #     predictions=records["predictions"], groundtruths=records["groundtruths"],
+        # )
+        # assert mae_frame.shape == (self.H, self.W, self.out_features)
 
-        # TODO: should save the tensors only and build a different command to plot
         # # Plot aggregate metrics
         # for idx, output_name in enumerate(self.output_names):
         #     self.metric_plotter.plot(
