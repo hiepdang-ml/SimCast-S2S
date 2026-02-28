@@ -40,7 +40,7 @@ class MetaData(BaseConfig):
         },
         "era5": {
             "wind": ["u200", "v200", "u500", "v500", "w500", "u850", "v850"],
-            "mass": ["z200", "z500", "z850", "avgtnlwrf"],
+            "mass": ["z200", "z500", "z850", "msl"],
             "thermal": ["skt", "t200", "t500", "t850", "avgtnlwrf"],
             "hydro": ["tcwv", "q200", "q500", "q850"],
             "precip": ["tp"],
