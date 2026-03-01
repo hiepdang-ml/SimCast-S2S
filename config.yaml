@@ -365,7 +365,7 @@ diffusion:
   beta_min: 0.001  # linear only
   beta_max: 0.020  # linear only
   # Sampling
-  eta: 0.8
+  eta: 1.
   ensemble_size: 20
   # Training
   learning_rate: 1e-6
@@ -384,7 +384,7 @@ diffusion:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/diffusion24.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/"
-  target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_eta080/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_eta100/"
 
   # vae_wind_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_wind_16times/vaewind34.pt"
   # vae_mass_checkpoint:  "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_mass_16times/vaemass228.pt"
