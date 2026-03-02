@@ -392,6 +392,6 @@ diffusion:
   vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_hydro_16times/vaehydro48.pt"
   vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_precip_4times/vaeprecip41.pt"
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/diffusion_v23_cosine/diffusion36.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/diffusion_v23_cosine/diffusion29.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/diffusion_v23_cosine/"
   target_path: "/scratch/zgp2ps/s2s_results/train_era5/diffusion_eta000/"
