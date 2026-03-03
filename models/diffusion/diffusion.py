@@ -556,7 +556,7 @@ class _ScalingBlock(nn.Module):
         assert target.shape == (target_N, target_T, self.output_dim, target_H, target_W)
 
         # Conditioning
-        # Time-only transformer: each spatial location is its own sequence.
+        # Time-only transformer: each spatial location has its own sequence.
         target = target.permute(0, 3, 4, 1, 2).contiguous()
         target = target.reshape(target_N * target_H * target_W, target_T, self.output_dim)
         condition = condition.permute(0, 3, 4, 1, 2).contiguous()
