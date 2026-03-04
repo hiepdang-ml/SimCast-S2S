@@ -374,26 +374,26 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         # Freeze wind_encoder
         self.wind_encoder: VAEEncoder = wind_encoder.to(self.device)
         self.wind_encoder.freeze()
-        assert wind_encoder.is_frozen
+        assert wind_encoder.is_frozen()
         # Freeze mass_encoder
         self.mass_encoder: VAEEncoder = mass_encoder.to(self.device)
         self.mass_encoder.freeze()
-        assert self.mass_encoder.is_frozen
+        assert self.mass_encoder.is_frozen()
         # Freeze thermal_encoder
         self.thermal_encoder: VAEEncoder = thermal_encoder.to(self.device)
         self.thermal_encoder.freeze()
-        assert self.thermal_encoder.is_frozen
+        assert self.thermal_encoder.is_frozen()
         # Freeze hydro_encoder
         self.hydro_encoder: VAEEncoder = hydro_encoder.to(self.device)
         self.hydro_encoder.freeze()
         # Freeze precip_encoder
         self.precip_encoder: VAEEncoder = precip_encoder.to(self.device)
         self.precip_encoder.freeze()
-        assert self.precip_encoder.is_frozen
+        assert self.precip_encoder.is_frozen()
         # Freeze precip_decoder
         self.precip_decoder: VAEDecoder = precip_decoder.to(self.device)
         self.precip_decoder.freeze()
-        assert self.precip_decoder.is_frozen
+        assert self.precip_decoder.is_frozen()
 
         self.noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler = noise_scheduler
         self.n_denoising_steps: int = noise_scheduler.n_steps

@@ -22,7 +22,6 @@ class _HasNamedModules:
 
 class _Freezable:
 
-    @property
     def is_frozen(self) -> bool:
         return not any(param.requires_grad for param in self.parameters())
 

@@ -336,8 +336,15 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler, lr: float,
         train_dataset: CESM2 | ERA5, val_dataset: CESM2 | ERA5,
         train_batch_size: int, val_batch_size: int,
+        is_finetuning: bool,
         local_rank: int,
     ) -> None:
+
+        self.is_finetuning: bool = is_finetuning
+        if is_finetuning:
+            denoiser.freeze_main()
+            assert denoiser.is_main_frozen()
+
         super().__init__(
             net=denoiser, lr=lr, train_dataset=train_dataset, val_dataset=val_dataset,
             train_batch_size=train_batch_size, val_batch_size=val_batch_size,
@@ -350,23 +357,23 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         # Freeze wind_encoder
         self.wind_encoder: VAEEncoder = wind_encoder.to(self.device)
         self.wind_encoder.freeze()
-        assert wind_encoder.is_frozen
+        assert wind_encoder.is_frozen()
         # Freeze mass_encoder
         self.mass_encoder: VAEEncoder = mass_encoder.to(self.device)
         self.mass_encoder.freeze()
-        assert self.mass_encoder.is_frozen
+        assert self.mass_encoder.is_frozen()
         # Freeze thermal_encoder
         self.thermal_encoder: VAEEncoder = thermal_encoder.to(self.device)
         self.thermal_encoder.freeze()
-        assert self.thermal_encoder.is_frozen
+        assert self.thermal_encoder.is_frozen()
         # Freeze hydro_encoder
         self.hydro_encoder: VAEEncoder = hydro_encoder.to(self.device)
         self.hydro_encoder.freeze()
-        assert self.hydro_encoder.is_frozen
+        assert self.hydro_encoder.is_frozen()
         # Freeze precip_encoder
         self.precip_encoder: VAEEncoder = precip_encoder.to(self.device)
         self.precip_encoder.freeze()
-        assert self.precip_encoder.is_frozen
+        assert self.precip_encoder.is_frozen()
 
         self.noise_scheduler: LinearNoiseScheduler = noise_scheduler.to(self.device)
         self.n_denoising_steps: int = noise_scheduler.n_steps

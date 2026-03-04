@@ -7,6 +7,41 @@ import torch.nn.functional as F
 from models.common import NamedModel
 
 
+class _Finetunable:
+
+    def is_main_frozen(self) -> bool:
+        self._validate_architecture()
+        check_down: bool = not any(param.requires_grad for param in self.down_blocks.parameters())
+        check_mid: bool = not any(param.requires_grad for param in self.mid_blocks.parameters())
+        check_up: bool = not any(param.requires_grad for param in self.up_blocks.parameters())
+        return check_down and check_mid and check_up
+
+    def freeze_main(self) -> None:
+        self._validate_architecture()
+        for param in self.down_blocks.parameters():
+            param.requires_grad = False
+            print("denoiser.down_blocks has been frozen")
+        for param in self.mid_blocks.parameters():
+            param.requires_grad = False
+            print("denoiser.mid_blocks has been frozen")
+        for param in self.up_blocks.parameters():
+            param.requires_grad = False
+            print("denoiser.up_blocks has been frozen")
+
+    def unfreeze_all(self) -> None:
+        for param in self.parameters():
+            param.requires_grad = True
+        print(f"{self.name} has been unfrozen")
+
+    def _validate_architecture(self) -> None:
+        assert hasattr(self, "down_blocks")
+        assert hasattr(self, "mid_blocks")
+        assert hasattr(self, "up_blocks")
+        assert isinstance(self.down_blocks, nn.Module)
+        assert isinstance(self.mid_blocks, nn.Module)
+        assert isinstance(self.up_blocks, nn.Module)
+
+
 class _SinusoidEmbedding(nn.Module):
 
     def __init__(self, embedding_dim: int) -> None:
@@ -671,8 +706,38 @@ class _MidBlock(_ScalingBlock):
             type="mid",
         )
 
+class _FineTuneHead(nn.Module):
 
-class UNetDenoiser(NamedModel, nn.Module):
+    def __init__(self, input_dim: int, output_dim: int, hidden_scale: int, n_hidden_layers: int) -> None:
+        super().__init__()
+        self.input_dim: int = input_dim
+        self.output_dim: int = output_dim
+        self.hidden_scale: int = hidden_scale
+        self.n_hidden_layers: int = n_hidden_layers
+        self.hidden_dim: int = input_dim * hidden_scale
+        assert n_hidden_layers > 0
+        # Layers
+        self.input_layer = _ConvActConv(input_dim=input_dim, output_dim=self.hidden_dim)
+        self.hidden_layers = nn.ModuleList([
+            _ConvActConv(input_dim=self.hidden_dim, output_dim=self.hidden_dim,
+            )
+            for i in range(n_hidden_layers)
+        ])
+        self.output_layer = _ConvActConv(input_dim=self.hidden_dim, output_dim=self.output_dim)
+
+    def forward(self, feature: torch.Torch.Tensor) -> torch.Tensor:
+        N, T, D, H, W = feature.shape
+        feature = self.input_layer(feature)
+        for hidden_layer in self.hidden_layers:
+            # _ConvActConv maintains shape
+            feature = feature + hidden_layer(feature)
+
+        output: torch.Tensor = self.output_layer(feature)
+        assert output.shape == (N, T, self.output_dim, H, W)
+        return output
+
+
+class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
 
     def __init__(
         self,
@@ -694,6 +759,7 @@ class UNetDenoiser(NamedModel, nn.Module):
         n_transformer_decoder_layers_per_mid_block: int,
         n_attention_heads: int,
         transformer_maxlength: int,
+        plug_finetune_head: bool,
     ):
         super().__init__()
         self.target_dim: int = target_dim
@@ -715,6 +781,7 @@ class UNetDenoiser(NamedModel, nn.Module):
         self.n_transformer_decoder_layers_per_mid_block: int = n_transformer_decoder_layers_per_mid_block
         self.n_attention_heads: int = n_attention_heads
         self.transformer_maxlength: int = transformer_maxlength
+        self.plug_finetune_head: bool = plug_finetune_head
 
         assert len(down_transformer_model_dims) == len(down_out_dims) == len(up_transformer_model_dims) == len(up_out_dims)
         assert len(down_out_dims) >= 1
@@ -772,7 +839,12 @@ class UNetDenoiser(NamedModel, nn.Module):
             )
             for i in range(self.n_mid_blocks)
         ])
-        self.head: nn.Module = nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
+        if not plug_finetune_head:
+            self.head = nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
+        else:
+            self.head = _FineTuneHead(
+                input_dim=self.up_out_dims[-1], output_dim=target_dim, hidden_scale=4, n_hidden_layers=16,
+            )
 
     def forward(
         self,

@@ -21,6 +21,7 @@ def main(
         "diffusion",
     ],
     dataset: Literal["cesm2", "era5"],
+    is_finetuning: bool,
     local_rank: int,
 ) -> None:
 
@@ -446,7 +447,7 @@ def main(
         if (checkpoint_path := diffusion_config.from_checkpoint) is not None:
             print(f"Training UNetDenoiser from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
-            net: UNetDenoiser = checkpoint_loader.load(scope=globals())
+            net: UNetDenoiser = checkpoint_loader.load(scope=globals(), plug_finetune_head=is_finetuning)
             assert isinstance(net, UNetDenoiser)
         else:
             print(f"Training UNetDenoiser from scratch with: {diffusion_config.to_dict()}")
@@ -469,6 +470,7 @@ def main(
                 transformer_feedforward_dim=diffusion_config.transformer_feedforward_dim,
                 n_attention_heads=diffusion_config.n_attention_heads,
                 transformer_maxlength=diffusion_config.transformer_maxlength,
+                plug_finetune_head=is_finetuning,
             )
 
         # Noise scheduler
@@ -496,6 +498,7 @@ def main(
             val_dataset=val_dataset,
             train_batch_size=diffusion_config.train_batch_size,
             val_batch_size=diffusion_config.val_batch_size,
+            is_finetuning=is_finetuning,
             local_rank=local_rank,
         )
         trainer.train(
@@ -542,10 +545,13 @@ if __name__ == "__main__":
         "--dataset", type=str, choices=["cesm2", "era5"],
         required=True,
     )
+    parser.add_argument(
+        "--finetune", action="store_true", dest="is_finetuning", required=False,
+    )
     args: argparse.Namespace = parser.parse_args()
 
     local_rank: int = setup_ddp()
     try:
-        main(model=args.model, dataset=args.dataset, local_rank=local_rank)
+        main(model=args.model, dataset=args.dataset, is_finetuning=args.is_finetuning, local_rank=local_rank)
     finally:
         cleanup_ddp()

@@ -105,8 +105,8 @@ def main(dataset: Literal["cesm2", "era5"], fresh: bool) -> None:
 if __name__ == "__main__":
 
     parser: argparse.ArgumentParser = argparse.ArgumentParser()
-    group: argparse._MutuallyExclusiveGroup = parser.add_mutually_exclusive_group(required=True)
     parser.add_argument("--dataset", type=str, choices=["cesm2", "era5"], required=True)
+    group: argparse._MutuallyExclusiveGroup = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--fresh",
         action="store_true",

@@ -328,7 +328,7 @@ class CheckpointLoader:
         self,
         scope: dict[str, Any],
         ignored_modules: list[str] = [],
-        **overrided_params: dict[str, Any]
+        **overrided_params: Any,
     ) -> nn.Module:
         """
         Load the model from the checkpoint.
