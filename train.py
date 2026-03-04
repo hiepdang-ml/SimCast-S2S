@@ -448,8 +448,9 @@ def main(
             print(f"Training UNetDenoiser from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: UNetDenoiser = checkpoint_loader.load(
-                scope=globals(), is_finetuning=is_finetuning,
-                ignored_modules=["head.weight", "head.bias"] if is_finetuning else []   # these only exist in original diffusion
+                scope=globals(),
+                ignored_modules=["head.weight", "head.bias"] if is_finetuning else [],   # these only exist in original diffusion
+                is_finetuning=is_finetuning,
             )
             assert isinstance(net, UNetDenoiser)
         else:
