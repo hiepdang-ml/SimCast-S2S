@@ -843,9 +843,8 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         if not is_finetuning:
             self.head = nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
         else:
-            print(f"self.up_out_dims[-1]: {self.up_out_dims[-1]}")
             self.head = _FineTuningHead(
-                input_dim=self.up_out_dims[-1], output_dim=target_dim, hidden_scale=4, n_hidden_layers=6,
+                input_dim=self.up_out_dims[-1], output_dim=target_dim, hidden_scale=4, n_hidden_layers=12,
             )
 
     def forward(
