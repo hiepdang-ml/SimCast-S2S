@@ -841,7 +841,11 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
             for i in range(self.n_mid_blocks)
         ])
         if not plug_finetune_head:
-            self.head = nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
+            self.head = nn.Sequential(
+                # TESTING
+                nn.Flatten(start_dim=0, end_dim=1),
+                nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
+            )
         else:
             self.head = _FineTuneHead(
                 input_dim=self.up_out_dims[-1], output_dim=target_dim, hidden_scale=4, n_hidden_layers=16,
@@ -911,7 +915,9 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
             )
 
         assert len(down_outputs) == 0, f"down_outputs must exhaust, getting {len(down_outputs)} items left"
-        output: torch.Tensor = self.head(up_output.flatten(0, 1))
+        # TESTING
+        # output: torch.Tensor = self.head(up_output.flatten(0, 1))
+        output: torch.Tensor = self.head(up_output)
         output = output.reshape_as(target)
         return output
 

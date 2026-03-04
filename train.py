@@ -447,7 +447,10 @@ def main(
         if (checkpoint_path := diffusion_config.from_checkpoint) is not None:
             print(f"Training UNetDenoiser from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
-            net: UNetDenoiser = checkpoint_loader.load(scope=globals(), plug_finetune_head=is_finetuning)
+            net: UNetDenoiser = checkpoint_loader.load(
+                scope=globals(), plug_finetune_head=is_finetuning,
+                ignored_modules=["head.weight", "head.bias"] if is_finetuning else []   # these only exist in original diffusion
+            )
             assert isinstance(net, UNetDenoiser)
         else:
             print(f"Training UNetDenoiser from scratch with: {diffusion_config.to_dict()}")
