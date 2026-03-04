@@ -368,12 +368,12 @@ class CheckpointLoader:
         model_incompatible_keys: NamedTuple = model.load_state_dict(model_states, strict=False)   # inplace update
         if model_incompatible_keys.missing_keys:  # list[str]
             warnings.warn(
-                f'Missing keys from the loaded model checkpoint: {model_incompatible_keys.missing_keys}',
+                f'Missing keys for {self.model_classname}: {model_incompatible_keys.missing_keys}',
                 category=UserWarning
             )
         if model_incompatible_keys.unexpected_keys: # list[str]
             warnings.warn(
-                f'Unexpected keys found in the loaded model checkpoint: {model_incompatible_keys.unexpected_keys}',
+                f'Unexpected keys for {self.model_classname}: {model_incompatible_keys.unexpected_keys}',
                 category=UserWarning
             )
 
