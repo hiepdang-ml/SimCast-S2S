@@ -706,7 +706,7 @@ class _MidBlock(_ScalingBlock):
             type="mid",
         )
 
-class _FineTuneHead(nn.Module):
+class _FineTuningHead(nn.Module):
 
     def __init__(self, input_dim: int, output_dim: int, hidden_scale: int, n_hidden_layers: int) -> None:
         super().__init__()
@@ -844,7 +844,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
             self.head = nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
         else:
             print(f"self.up_out_dims[-1]: {self.up_out_dims[-1]}")
-            self.head = _FineTuneHead(
+            self.head = _FineTuningHead(
                 input_dim=self.up_out_dims[-1], output_dim=target_dim, hidden_scale=4, n_hidden_layers=6,
             )
 
