@@ -9,14 +9,14 @@ from models.common import NamedModel
 
 class _Finetunable:
 
-    def is_main_frozen(self) -> bool:
+    def is_foundation_frozen(self) -> bool:
         self._validate_architecture()
         check_down: bool = not any(param.requires_grad for param in self.down_blocks.parameters())
         check_mid: bool = not any(param.requires_grad for param in self.mid_blocks.parameters())
         check_up: bool = not any(param.requires_grad for param in self.up_blocks.parameters())
         return check_down and check_mid and check_up
 
-    def freeze_main(self) -> None:
+    def freeze_foundation(self) -> None:
         self._validate_architecture()
         for param in self.down_blocks.parameters():
             param.requires_grad = False
@@ -760,7 +760,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         n_transformer_decoder_layers_per_mid_block: int,
         n_attention_heads: int,
         transformer_maxlength: int,
-        plug_finetune_head: bool,
+        is_finetuning: bool,
     ):
         super().__init__()
         self.target_dim: int = target_dim
@@ -782,7 +782,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         self.n_transformer_decoder_layers_per_mid_block: int = n_transformer_decoder_layers_per_mid_block
         self.n_attention_heads: int = n_attention_heads
         self.transformer_maxlength: int = transformer_maxlength
-        self.plug_finetune_head: bool = plug_finetune_head
+        self.is_finetuning: bool = is_finetuning
 
         assert len(down_transformer_model_dims) == len(down_out_dims) == len(up_transformer_model_dims) == len(up_out_dims)
         assert len(down_out_dims) >= 1
@@ -840,12 +840,8 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
             )
             for i in range(self.n_mid_blocks)
         ])
-        if not plug_finetune_head:
-            self.head = nn.Sequential(
-                # TESTING
-                nn.Flatten(start_dim=0, end_dim=1),
-                nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
-            )
+        if not is_finetuning:
+            self.head = nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
         else:
             self.head = _FineTuneHead(
                 input_dim=self.up_out_dims[-1], output_dim=target_dim, hidden_scale=4, n_hidden_layers=16,
@@ -915,9 +911,15 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
             )
 
         assert len(down_outputs) == 0, f"down_outputs must exhaust, getting {len(down_outputs)} items left"
-        # TESTING
-        # output: torch.Tensor = self.head(up_output.flatten(0, 1))
-        output: torch.Tensor = self.head(up_output)
+        # NOTE:
+        # Here, I needed to work around a bit to keep the params' names unchanged.
+        # Future users who want to retrain the foundation diffusion might put
+        # self.head = nn.Sequential(nn.Flatten(0, 1), nn.Conv2d(...)) layer in __init__
+        # and remove this branching to keep the code structurally consistent.
+        if not self.is_finetuning:
+            output: torch.Tensor = self.head(up_output.flatten(0, 1))
+        else:
+            output: torch.Tensor = self.head(up_output)
         output = output.reshape_as(target)
         return output
 

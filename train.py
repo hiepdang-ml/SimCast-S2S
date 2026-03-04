@@ -473,7 +473,7 @@ def main(
                 transformer_feedforward_dim=diffusion_config.transformer_feedforward_dim,
                 n_attention_heads=diffusion_config.n_attention_heads,
                 transformer_maxlength=diffusion_config.transformer_maxlength,
-                plug_finetune_head=is_finetuning,
+                is_finetuning=is_finetuning,
             )
 
         # Noise scheduler
