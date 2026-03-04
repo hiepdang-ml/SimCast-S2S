@@ -181,7 +181,7 @@ unet:
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_mid/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_mid/"
 
-  from_checkpoint: null
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_large/unet20.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_large/"
   target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_large/"
 
@@ -411,7 +411,7 @@ diffusion:
   vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/vaehydro3.pt"
   vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_precip_4times/vaeprecip41.pt"
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/diffusion24.pt"
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine/diffusion31.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/diffusion24.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine/diffusion83.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine/"
   target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_eta000/"
