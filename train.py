@@ -455,6 +455,7 @@ def main(
             assert isinstance(net, UNetDenoiser)
         else:
             print(f"Training UNetDenoiser from scratch with: {diffusion_config.to_dict()}")
+            assert not is_finetuning
             net: UNetDenoiser = UNetDenoiser(
                 target_dim=diffusion_config.target_dim,
                 condition_dim=diffusion_config.condition_dim,
@@ -474,7 +475,7 @@ def main(
                 transformer_feedforward_dim=diffusion_config.transformer_feedforward_dim,
                 n_attention_heads=diffusion_config.n_attention_heads,
                 transformer_maxlength=diffusion_config.transformer_maxlength,
-                is_finetuning=is_finetuning,
+                is_finetuning=False,
             )
 
         # Noise scheduler
