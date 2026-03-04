@@ -725,12 +725,13 @@ class _FineTuneHead(nn.Module):
         ])
         self.output_layer = _ConvActConv(input_dim=self.hidden_dim, output_dim=self.output_dim)
 
-    def forward(self, feature: torch.Tensor) -> torch.Tensor:
-        N, T, D, H, W = feature.shape
-        feature = self.input_layer(feature)
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        N, T, D, H, W = input.shape
+        feature0: torch.Tensor = self.input_layer(input)
+        feature: torch.Tensor = feature0
         for hidden_layer in self.hidden_layers:
             # _ConvActConv maintains shape
-            feature = feature + hidden_layer(feature)
+            feature = feature0 + hidden_layer(feature)
 
         output: torch.Tensor = self.output_layer(feature)
         assert output.shape == (N, T, self.output_dim, H, W)
