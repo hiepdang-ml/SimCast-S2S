@@ -359,6 +359,7 @@ class CheckpointLoader:
 
         # Load model from model state_dict
         is_wrapped = all(k.startswith("module.") for k in self.__checkpoint['model']['states'].keys())
+        ignored_modules = [f"module.{m}" for m in ignored_modules] if is_wrapped else ignored_modules
         model_states: dict[str, Any] = {
             (k[len("module."):] if is_wrapped else k): v
             for k, v in self.__checkpoint['model']['states'].items()
