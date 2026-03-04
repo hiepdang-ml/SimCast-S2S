@@ -134,15 +134,15 @@ cnn:
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_large/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/cnn_large/"
 
-  # from_checkpoint: null
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_small/cnn37.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_small/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_small/"
 
-  # from_checkpoint: null
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_mid/cnn44.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_mid/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_mid/"
 
-  from_checkpoint: null
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_large/cnn12.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_large/"
   target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_large/"
 
@@ -173,11 +173,11 @@ unet:
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_large/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/unet_large/"
 
-  # from_checkpoint: null
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_small/unet21.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_small/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_small/"
 
-  # from_checkpoint: null
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_mid/unet55.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_mid/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_mid/"
 
@@ -411,6 +411,7 @@ diffusion:
   vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_hydro_16times/vaehydro48.pt"
   vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_precip_4times/vaeprecip41.pt"
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/diffusion24.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/diffusion24.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine/diffusion31.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine/"
   target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_eta000/"
