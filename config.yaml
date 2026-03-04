@@ -110,8 +110,8 @@ cnn:
 
   in_features: 21
   out_features: 1
-  embedding_dim: 512
-  n_hidden_layers: 8
+  embedding_dim: 1024
+  n_hidden_layers: 12
 
   learning_rate: 1e-6
   train_batch_size: 4
@@ -138,13 +138,13 @@ cnn:
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_small/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_small/"
 
-  from_checkpoint: null
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_mid/"
-  target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_mid/"
-
   # from_checkpoint: null
-  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_large/"
-  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_large/"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_mid/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_mid/"
+
+  from_checkpoint: null
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_large/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_large/"
 
 
 unet:
