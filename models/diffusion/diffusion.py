@@ -843,8 +843,9 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         if not is_finetuning:
             self.head = nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
         else:
+            print(f"self.up_out_dims[-1]: {self.up_out_dims[-1]}")
             self.head = _FineTuneHead(
-                input_dim=self.up_out_dims[-1], output_dim=target_dim, hidden_scale=4, n_hidden_layers=16,
+                input_dim=self.up_out_dims[-1], output_dim=target_dim, hidden_scale=4, n_hidden_layers=6,
             )
 
     def forward(
@@ -916,10 +917,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         # Future users who want to retrain the foundation diffusion might put
         # self.head = nn.Sequential(nn.Flatten(0, 1), nn.Conv2d(...)) layer in __init__
         # and remove this branching to keep the code structurally consistent.
-        if not self.is_finetuning:
-            output: torch.Tensor = self.head(up_output.flatten(0, 1))
-        else:
-            output: torch.Tensor = self.head(up_output)
+        output: torch.Tensor = self.head(up_output.flatten(0, 1) if not self.is_finetuning else up_output)
         output = output.reshape_as(target)
         return output
 
