@@ -151,7 +151,7 @@ unet:
 
   in_features: 21
   out_features: 1
-  embedding_dim: 512
+  embedding_dim: 128
 
   learning_rate: 1e-5
   train_batch_size: 4
