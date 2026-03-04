@@ -725,7 +725,7 @@ class _FineTuneHead(nn.Module):
         ])
         self.output_layer = _ConvActConv(input_dim=self.hidden_dim, output_dim=self.output_dim)
 
-    def forward(self, feature: torch.Torch.Tensor) -> torch.Tensor:
+    def forward(self, feature: torch.Tensor) -> torch.Tensor:
         N, T, D, H, W = feature.shape
         feature = self.input_layer(feature)
         for hidden_layer in self.hidden_layers:
