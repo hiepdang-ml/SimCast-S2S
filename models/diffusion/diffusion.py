@@ -20,13 +20,13 @@ class _Finetunable:
         self._validate_architecture()
         for param in self.down_blocks.parameters():
             param.requires_grad = False
-            print("denoiser.down_blocks has been frozen")
+        print("denoiser.down_blocks has been frozen")
         for param in self.mid_blocks.parameters():
             param.requires_grad = False
-            print("denoiser.mid_blocks has been frozen")
+        print("denoiser.mid_blocks has been frozen")
         for param in self.up_blocks.parameters():
             param.requires_grad = False
-            print("denoiser.up_blocks has been frozen")
+        print("denoiser.up_blocks has been frozen")
 
     def unfreeze_all(self) -> None:
         for param in self.parameters():

@@ -407,4 +407,4 @@ diffusion:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/diffusion24.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine/"
-  target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_eta00/"
+  target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_eta000/"
