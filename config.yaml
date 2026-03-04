@@ -412,6 +412,7 @@ diffusion:
   vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_precip_4times/vaeprecip41.pt"
 
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/diffusion24.pt"
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine/diffusion31.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine/diffusion31.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine/diffusion72.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine/"
   target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_eta000/"
