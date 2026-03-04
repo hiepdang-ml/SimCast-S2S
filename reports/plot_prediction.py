@@ -39,13 +39,13 @@ def main(
     visualizer = Visualizer(metadata=metadata, source_dir=source_dir, target_dir=target_dir)
     for f in sorted(visualizer.source_dir.glob("*.pt")):
         try:
+            print(f)
             if model in ["cnn", "unet", "vit"]:
                 visualizer.plot_baseline_prediction(f.name)
             elif model.startswith("vae"):
                 visualizer.plot_vae_prediction(f.name)
             else:
                 visualizer.plot_diffusion_prediction(f.name)
-                print(f)
         except RuntimeError:
             # Catch files only half-written due to KeyboardInterrupted inferences
             print(f"{f} (Skipped)")
