@@ -26,7 +26,7 @@ def main(
 ) -> None:
 
     if is_finetuning and lora_rank <= 0:
-        raise ValueError(f"lora_rank must be >= 0, got {lora_rank}")
+        raise ValueError(f"lora_rank must be > 0, got {lora_rank}")
 
     # Dataset
     train_metadata: MetaData = MetaData(dataset_name=dataset, tp="train")
@@ -452,7 +452,6 @@ def main(
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
             net: UNetDenoiser = checkpoint_loader.load(
                 scope=globals(),
-                ignored_modules=["head.weight", "head.bias"] if is_finetuning else [],   # these only exist in original diffusion
                 is_finetuning=is_finetuning,
                 lora_rank=lora_rank,
             )
