@@ -423,7 +423,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
             # Denoising step must range from 1 to K
             for k in tqdm(
                 range(self.noise_scheduler.n_steps, 0, -1),
-                desc=f"Sampling step (Ensemble member {member_idx + 1}/{self.ensemble_size}): ",
+                desc=f"Ensemble member {member_idx + 1}/{self.ensemble_size} - Sampling step: ",
             ):
                 integer_step: torch.Tensor = (
                     torch.ones((1, 1), device=target_latent.device, dtype=torch.long) * k

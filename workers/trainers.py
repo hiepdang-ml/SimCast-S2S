@@ -342,8 +342,8 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
 
         self.is_finetuning: bool = is_finetuning
         if is_finetuning:
-            denoiser.freeze_foundation()
-            assert denoiser.is_foundation_frozen()
+            denoiser.freeze_backbone()
+            assert denoiser.is_backbone_frozen()
 
         super().__init__(
             net=denoiser, lr=lr, train_dataset=train_dataset, val_dataset=val_dataset,

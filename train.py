@@ -21,9 +21,12 @@ def main(
         "diffusion",
     ],
     dataset: Literal["cesm2", "era5"],
-    is_finetuning: bool,
+    is_finetuning: bool, lora_rank: int,
     local_rank: int,
 ) -> None:
+
+    if is_finetuning and lora_rank <= 0:
+        raise ValueError(f"lora_rank must be >= 0, got {lora_rank}")
 
     # Dataset
     train_metadata: MetaData = MetaData(dataset_name=dataset, tp="train")
@@ -451,6 +454,7 @@ def main(
                 scope=globals(),
                 ignored_modules=["head.weight", "head.bias"] if is_finetuning else [],   # these only exist in original diffusion
                 is_finetuning=is_finetuning,
+                lora_rank=lora_rank,
             )
             assert isinstance(net, UNetDenoiser)
         else:
@@ -476,6 +480,7 @@ def main(
                 n_attention_heads=diffusion_config.n_attention_heads,
                 transformer_maxlength=diffusion_config.transformer_maxlength,
                 is_finetuning=False,
+                lora_rank=0,
             )
 
         # Noise scheduler
@@ -553,10 +558,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--finetune", action="store_true", dest="is_finetuning", required=False,
     )
+    parser.add_argument("--lora-rank", dest="lora_rank", type=int, default=0, required=False)
     args: argparse.Namespace = parser.parse_args()
 
     local_rank: int = setup_ddp()
     try:
-        main(model=args.model, dataset=args.dataset, is_finetuning=args.is_finetuning, local_rank=local_rank)
+        main(
+            model=args.model, dataset=args.dataset,
+            is_finetuning=args.is_finetuning, lora_rank=args.lora_rank,
+            local_rank=local_rank,
+        )
     finally:
         cleanup_ddp()

@@ -1,74 +1,11 @@
+from typing import Literal, cast
 from functools import cached_property
 
-from typing import Literal
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from models.common import NamedModel
-
-
-class _Finetunable:
-
-    def is_foundation_frozen(self) -> bool:
-        self._validate_architecture()
-        check_down: bool = not any(param.requires_grad for param in self.down_blocks.parameters())
-        check_mid: bool = not any(param.requires_grad for param in self.mid_blocks.parameters())
-        check_up: bool = not any(param.requires_grad for param in self.up_blocks.parameters())
-        return check_down and check_mid and check_up
-
-    def freeze_foundation(self) -> None:
-        self._validate_architecture()
-        for param in self.down_blocks.parameters():
-            param.requires_grad = False
-        print("denoiser.down_blocks has been frozen")
-        for param in self.mid_blocks.parameters():
-            param.requires_grad = False
-        print("denoiser.mid_blocks has been frozen")
-        for param in self.up_blocks.parameters():
-            param.requires_grad = False
-        print("denoiser.up_blocks has been frozen")
-
-    def unfreeze_all(self) -> None:
-        for param in self.parameters():
-            param.requires_grad = True
-        print(f"{self.name} has been unfrozen")
-
-    def _validate_architecture(self) -> None:
-        assert hasattr(self, "down_blocks")
-        assert hasattr(self, "mid_blocks")
-        assert hasattr(self, "up_blocks")
-        assert isinstance(self.down_blocks, nn.Module)
-        assert isinstance(self.mid_blocks, nn.Module)
-        assert isinstance(self.up_blocks, nn.Module)
-
-
-class _SinusoidEmbedding(nn.Module):
-
-    def __init__(self, embedding_dim: int) -> None:
-        super().__init__()
-        self.embedding_dim: int = embedding_dim
-        assert embedding_dim % 2 == 0
-
-        # Frequency scaling
-        w = 1.0 / torch.pow(
-            input=torch.tensor(10_000.0, dtype=torch.float),
-            exponent=torch.arange(0, embedding_dim, 2, dtype=torch.float) / embedding_dim,
-        )
-        self.register_buffer("w", w)
-        self.w: torch.Tensor
-        assert self.w.shape == (embedding_dim // 2,)
-
-    def forward(self, t: torch.Tensor) -> torch.Tensor:
-        batch_size, length = t.shape
-        t = t.to(dtype=torch.float32)
-        sinusoid: torch.Tensor = torch.zeros(
-            (batch_size, length, self.embedding_dim), dtype=torch.float32, device=t.device,
-        )
-        scaled: torch.Tensor = t[:, :, None] * self.w[None, None, :]
-        assert scaled.shape == (batch_size, length, self.embedding_dim // 2)
-        sinusoid[:, :, 0::2] = torch.sin(scaled)
-        sinusoid[:, :, 1::2] = torch.cos(scaled)
-        return sinusoid
+from models.adaptation.lora import LoRALinear
 
 
 class _BaseNoiseScheduler:
@@ -119,6 +56,79 @@ class CosineNoiseScheduler(_BaseNoiseScheduler, nn.Module):
 
     def _f(self, x: torch.Tensor) -> torch.Tensor:
         return torch.cos((x + self.cosine_offset) / (1 + self.cosine_offset) * torch.pi / 2) ** 2
+
+
+class _Finetunable:
+
+    def is_backbone_frozen(self) -> bool:
+        self._validate_architecture()
+        check_down: bool = not any(
+            param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
+            for name, param in self.down_blocks.named_parameters()
+        )
+        check_mid: bool = not any(
+            param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
+            for name, param in self.mid_blocks.named_parameters()
+        )
+        check_up: bool = not any(
+            param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
+            for name, param in self.up_blocks.named_parameters()
+        )
+        return check_down and check_mid and check_up
+
+    def freeze_backbone(self) -> None:
+        self._validate_architecture()
+        for name, param in self.down_blocks.named_parameters():
+            param.requires_grad = "lora_A" in name or "lora_B" in name
+        print("denoiser.down_blocks has been frozen")
+        for name, param in self.mid_blocks.named_parameters():
+            param.requires_grad = "lora_A" in name or "lora_B" in name
+        print("denoiser.mid_blocks has been frozen")
+        for name, param in self.up_blocks.named_parameters():
+            param.requires_grad = "lora_A" in name or "lora_B" in name
+        print("denoiser.up_blocks has been frozen")
+
+    def unfreeze_all(self) -> None:
+        for param in self.parameters():
+            param.requires_grad = True
+        print(f"{self.name} has been unfrozen")
+
+    def _validate_architecture(self) -> None:
+        assert hasattr(self, "down_blocks")
+        assert hasattr(self, "mid_blocks")
+        assert hasattr(self, "up_blocks")
+        assert isinstance(self.down_blocks, nn.Module)
+        assert isinstance(self.mid_blocks, nn.Module)
+        assert isinstance(self.up_blocks, nn.Module)
+
+
+class _SinusoidEmbedding(nn.Module):
+
+    def __init__(self, embedding_dim: int) -> None:
+        super().__init__()
+        self.embedding_dim: int = embedding_dim
+        assert embedding_dim % 2 == 0
+
+        # Frequency scaling
+        w = 1.0 / torch.pow(
+            input=torch.tensor(10_000.0, dtype=torch.float),
+            exponent=torch.arange(0, embedding_dim, 2, dtype=torch.float) / embedding_dim,
+        )
+        self.register_buffer("w", w)
+        self.w: torch.Tensor
+        assert self.w.shape == (embedding_dim // 2,)
+
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        batch_size, length = t.shape
+        t = t.to(dtype=torch.float32)
+        sinusoid: torch.Tensor = torch.zeros(
+            (batch_size, length, self.embedding_dim), dtype=torch.float32, device=t.device,
+        )
+        scaled: torch.Tensor = t[:, :, None] * self.w[None, None, :]
+        assert scaled.shape == (batch_size, length, self.embedding_dim // 2)
+        sinusoid[:, :, 0::2] = torch.sin(scaled)
+        sinusoid[:, :, 1::2] = torch.cos(scaled)
+        return sinusoid
 
 
 class _ConvActConv(nn.Module):
@@ -180,6 +190,14 @@ class _TransformerFeedForward(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
 
+    def enable_lora(self, rank: int) -> int:
+        count: int = 0
+        for i, layer in enumerate(self.net):
+            if isinstance(layer, nn.Linear):
+                self.net[i] = LoRALinear(layer, rank=rank)
+                count += 1
+        return count
+
 
 class _TransformerEncoderLayer(nn.Module):
 
@@ -200,7 +218,6 @@ class _TransformerEncoderLayer(nn.Module):
             num_heads=n_heads,
             batch_first=True,
         )
-
         self.feed_forward = _TransformerFeedForward(model_dim=model_dim, feedforward_dim=feedforward_dim)
         self.norm1 = nn.LayerNorm(model_dim)
         self.norm2 = nn.LayerNorm(model_dim)
@@ -215,6 +232,14 @@ class _TransformerEncoderLayer(nn.Module):
         kv = self.norm2(kv + self.feed_forward(kv))
         assert kv.shape == (N, L, self.model_dim)
         return kv
+
+    def enable_lora(self, rank: int) -> int:
+        count: int = 0
+        if isinstance(self.kv_projection, nn.Linear):
+            self.kv_projection = LoRALinear(self.kv_projection, rank=rank)
+            count += 1
+        count += self.feed_forward.enable_lora(rank=rank)
+        return count
 
 
 class _TransformerDecoderLayer(nn.Module):
@@ -266,6 +291,14 @@ class _TransformerDecoderLayer(nn.Module):
         assert q.shape == (q_N, q_L, self.model_dim)
         return q
 
+    def enable_lora(self, rank: int) -> int:
+        count: int = 0
+        if isinstance(self.q_projection, nn.Linear):
+            self.q_projection = LoRALinear(self.q_projection, rank=rank)
+            count += 1
+        count += self.ffn.enable_lora(rank=rank)
+        return count
+
 
 class _TransformerEncoder(nn.Module):
 
@@ -297,6 +330,17 @@ class _TransformerEncoder(nn.Module):
 
         assert kv.shape == (N, L, self.model_dim)
         return kv
+
+    def enable_lora(self, rank: int) -> int:
+        count: int = 0
+        for i, skip in enumerate(self.skips):
+            if isinstance(skip, nn.Linear):
+                self.skips[i] = LoRALinear(skip, rank=rank)
+                count += 1
+        for layer in self.layers:
+            layer = cast(_TransformerEncoderLayer, layer)
+            count += layer.enable_lora(rank=rank)
+        return count
 
 
 class _TransformerDecoder(nn.Module):
@@ -340,6 +384,21 @@ class _TransformerDecoder(nn.Module):
         assert q.shape == (q_N, q_L, q_D)
         return q
 
+    def enable_lora(self, rank: int) -> int:
+        count: int = 0
+        for i, layer in enumerate(self.skips):
+            if isinstance(layer, nn.Linear):
+                self.skips[i] = LoRALinear(layer, rank=rank)
+                count += 1
+        for layer in self.layers:
+            layer = cast(_TransformerDecoderLayer, layer)
+            count += layer.enable_lora(rank=rank)
+        for i, layer in enumerate(self.out_projection):
+            if isinstance(layer, nn.Linear):
+                self.out_projection[i] = LoRALinear(layer, rank=rank)
+                count += 1
+        return count
+
 
 class _Transformer(nn.Module):
     def __init__(self,
@@ -382,6 +441,12 @@ class _Transformer(nn.Module):
         output: torch.Tensor = self.decoder(q=tgt, kv=memory)
         assert output.shape == (tgt_N, tgt_L, tgt_D)
         return output
+
+    def enable_lora(self, rank: int) -> int:
+        count: int = 0
+        count += self.encoder.enable_lora(rank=rank)
+        count += self.decoder.enable_lora(rank=rank)
+        return count
 
 
 class _DownSample(nn.Module):
@@ -520,7 +585,7 @@ class _ScalingBlock(nn.Module):
             for i in range(n_conv_layers)
         ])
         # Attention
-        self.transfomer: nn.Module = _Transformer(
+        self.transfomer = _Transformer(
             q_dim=output_dim,
             kv_dim=condition_dim,
             model_dim=transformer_model_dim,
@@ -607,6 +672,9 @@ class _ScalingBlock(nn.Module):
         # Scaling
         output = self.scaling_block(output)
         return output.reshape(target_N, target_T, self.output_dim, self.out_H, self.out_W)
+
+    def enable_lora(self, rank: int) -> int:
+        return self.transfomer.enable_lora(rank=rank)
 
 
 class _DownBlock(_ScalingBlock):
@@ -706,37 +774,6 @@ class _MidBlock(_ScalingBlock):
             type="mid",
         )
 
-class _FineTuningHead(nn.Module):
-
-    def __init__(self, input_dim: int, output_dim: int, hidden_scale: int, n_hidden_layers: int) -> None:
-        super().__init__()
-        self.input_dim: int = input_dim
-        self.output_dim: int = output_dim
-        self.hidden_scale: int = hidden_scale
-        self.n_hidden_layers: int = n_hidden_layers
-        self.hidden_dim: int = input_dim * hidden_scale
-        assert n_hidden_layers > 0
-        # Layers
-        self.input_layer = _ConvActConv(input_dim=input_dim, output_dim=self.hidden_dim)
-        self.hidden_layers = nn.ModuleList([
-            _ConvActConv(input_dim=self.hidden_dim, output_dim=self.hidden_dim,
-            )
-            for i in range(n_hidden_layers)
-        ])
-        self.output_layer = _ConvActConv(input_dim=self.hidden_dim, output_dim=self.output_dim)
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        N, T, D, H, W = input.shape
-        feature0: torch.Tensor = self.input_layer(input)
-        feature: torch.Tensor = feature0
-        for hidden_layer in self.hidden_layers:
-            # _ConvActConv maintains shape
-            feature = feature0 + hidden_layer(feature)
-
-        output: torch.Tensor = self.output_layer(feature)
-        assert output.shape == (N, T, self.output_dim, H, W)
-        return output
-
 
 class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
 
@@ -761,6 +798,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         n_attention_heads: int,
         transformer_maxlength: int,
         is_finetuning: bool,
+        lora_rank: int = 0,
     ):
         super().__init__()
         self.target_dim: int = target_dim
@@ -783,6 +821,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         self.n_attention_heads: int = n_attention_heads
         self.transformer_maxlength: int = transformer_maxlength
         self.is_finetuning: bool = is_finetuning
+        self.lora_rank: int = lora_rank
 
         assert len(down_transformer_model_dims) == len(down_out_dims) == len(up_transformer_model_dims) == len(up_out_dims)
         assert len(down_out_dims) >= 1
@@ -840,12 +879,20 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
             )
             for i in range(self.n_mid_blocks)
         ])
-        if not is_finetuning:
-            self.head = nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
-        else:
-            self.head = _FineTuningHead(
-                input_dim=self.up_out_dims[-1], output_dim=target_dim, hidden_scale=4, n_hidden_layers=12,
-            )
+        self.head = nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
+        self.n_lora_linear_layers: int = 0
+        if is_finetuning:
+            assert self.lora_rank > 0
+            for block in self.down_blocks:
+                block = cast(_DownBlock, block)
+                self.n_lora_linear_layers += block.enable_lora(rank=self.lora_rank)
+            for block in self.mid_blocks:
+                block = cast(_MidBlock, block)
+                self.n_lora_linear_layers += block.enable_lora(rank=self.lora_rank)
+            for block in self.up_blocks:
+                block = cast(_UpBlock, block)
+                self.n_lora_linear_layers += block.enable_lora(rank=self.lora_rank)
+            print(f"Applied transformer LoRA to {self.n_lora_linear_layers} linear layers")
 
     def forward(
         self,
@@ -911,12 +958,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
             )
 
         assert len(down_outputs) == 0, f"down_outputs must exhaust, getting {len(down_outputs)} items left"
-        # NOTE:
-        # Here, I needed to work around a bit to keep the params' names unchanged.
-        # Future users who want to retrain the foundation diffusion might put
-        # self.head = nn.Sequential(nn.Flatten(0, 1), nn.Conv2d(...)) layer in __init__
-        # and remove this branching to keep the code structurally consistent.
-        output: torch.Tensor = self.head(up_output.flatten(0, 1) if not self.is_finetuning else up_output)
+        output: torch.Tensor = self.head(up_output.flatten(0, 1))
         output = output.reshape_as(target)
         return output
 
