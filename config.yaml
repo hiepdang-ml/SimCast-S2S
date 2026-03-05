@@ -413,7 +413,7 @@ diffusion:
   vae_mass_checkpoint:  "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_mass_16times/vaemass11.pt"
   vae_thermal_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/vaethermal15.pt"
   vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/vaehydro3.pt"
-  vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/vae_precip_4times/vaeprecip32.pt"
+  vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/vae_precip_4times/vaeprecip84.pt"
 
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/diffusion24.pt"
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine/diffusion15.pt"
