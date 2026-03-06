@@ -414,7 +414,6 @@ def main(
             net.freeze_backbone()
             assert net.is_backbone_frozen()
 
-        assert isinstance(net, VAE_Precip)
         trainer = VAETrainer(
             net=net,
             lambda_=vae_config.lambda_,

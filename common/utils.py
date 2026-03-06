@@ -3,6 +3,7 @@ import pathlib
 import time
 import warnings
 from typing import Optional, TextIO, Any, NamedTuple
+from functools import cache, cached_property
 from collections import defaultdict
 import datetime as dt
 import copy
@@ -412,3 +413,35 @@ class TorchDictIO:
 
         """
         return torch.load(f=self.dirpath.joinpath(filename), weights_only=True, map_location="cpu")
+
+
+class ParamCounter:
+
+    def __init__(self, model: nn.Module) -> None:
+        self.model: nn.Module = model
+
+    @property
+    def total_params(self) -> int:
+        return sum(p.numel() for p in self.model.parameters())
+
+    @property
+    def trainable_params(self) -> int:
+        return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+
+    @property
+    def untrainable_params(self) -> int:
+        return sum(p.numel() for p in self.model.parameters() if not p.requires_grad)
+
+    def summary(self) -> dict[str, dict[str, int]]:
+        name: str
+        if hasattr(self.model, "name"):
+            name = self.model.name
+        else:
+            name = self.model.__class__.__name__
+        return {
+            name: {
+                "total_params": self.total_params,
+                "trainable_params": self.trainable_params,
+                "untrainable_params": self.untrainable_params,
+            }
+        }

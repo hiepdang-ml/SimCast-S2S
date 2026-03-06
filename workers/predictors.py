@@ -18,7 +18,7 @@ from datapipeline.readers import ERA5_LandmaskReader, ERA5_CoordinatesReader
 from datapipeline.utils import DataBatch, SampleInfo
 from common.metrics import ErrorMap, MAEMap, GeographicalRsquaredMap, GeographicalMAE, GeographicalMSE
 from common.plotting import MetricPlotter, PredictionPlotter
-from common.utils import TorchDictIO
+from common.utils import TorchDictIO, ParamCounter
 from common.configs import MetaData
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
@@ -49,6 +49,10 @@ class _AbstractPredictor(ABC):
             module=net.to(self.device), device_ids=[self.local_rank],
             output_device=self.local_rank, broadcast_buffers=False,
         )
+        if local_rank == 0:
+            self.param_counter = ParamCounter(self.net)
+            print(self.param_counter.summary())
+
         self.sampler: DistributedSampler[CESM2] = DistributedSampler(dataset=dataset, shuffle=False)
         self.dataloader: DataLoader[DataBatch] = DataLoader(
             dataset=dataset,
@@ -373,27 +377,44 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
 
         # Freeze wind_encoder
         self.wind_encoder: VAEEncoder = wind_encoder.to(self.device)
-        self.wind_encoder.freeze()
-        assert wind_encoder.is_frozen()
+        self.wind_encoder.freeze_all()
+        assert wind_encoder.is_all_frozen()
         # Freeze mass_encoder
         self.mass_encoder: VAEEncoder = mass_encoder.to(self.device)
-        self.mass_encoder.freeze()
-        assert self.mass_encoder.is_frozen()
+        self.mass_encoder.freeze_all()
+        assert self.mass_encoder.is_all_frozen()
         # Freeze thermal_encoder
         self.thermal_encoder: VAEEncoder = thermal_encoder.to(self.device)
-        self.thermal_encoder.freeze()
-        assert self.thermal_encoder.is_frozen()
+        self.thermal_encoder.freeze_all()
+        assert self.thermal_encoder.is_all_frozen()
         # Freeze hydro_encoder
         self.hydro_encoder: VAEEncoder = hydro_encoder.to(self.device)
-        self.hydro_encoder.freeze()
+        self.hydro_encoder.freeze_all()
         # Freeze precip_encoder
         self.precip_encoder: VAEEncoder = precip_encoder.to(self.device)
-        self.precip_encoder.freeze()
-        assert self.precip_encoder.is_frozen()
+        self.precip_encoder.freeze_all()
+        assert self.precip_encoder.is_all_frozen()
         # Freeze precip_decoder
         self.precip_decoder: VAEDecoder = precip_decoder.to(self.device)
-        self.precip_decoder.freeze()
-        assert self.precip_decoder.is_frozen()
+        self.precip_decoder.freeze_all()
+        assert self.precip_decoder.is_all_frozen()
+
+        if local_rank == 0:
+            del self.param_counter  # inheritted from _AbstractPredictor
+            self.denoiser_param_counter = ParamCounter(self.denoiser)
+            print(self.denoiser_param_counter.summary())
+            self.wind_encoder_param_counter = ParamCounter(self.wind_encoder)
+            print(self.wind_encoder_param_counter.summary())
+            self.mass_encoder_param_counter = ParamCounter(self.mass_encoder)
+            print(self.mass_encoder_param_counter.summary())
+            self.thermal_encoder_param_counter = ParamCounter(self.thermal_encoder)
+            print(self.thermal_encoder_param_counter.summary())
+            self.hydro_encoder_param_counter = ParamCounter(self.hydro_encoder)
+            print(self.hydro_encoder_param_counter.summary())
+            self.precip_encoder_param_counter = ParamCounter(self.precip_encoder)
+            print(self.precip_encoder_param_counter.summary())
+            self.precip_decoder_param_counter = ParamCounter(self.precip_decoder)
+            print(self.precip_decoder_param_counter.summary())
 
         self.noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler = noise_scheduler
         self.n_denoising_steps: int = noise_scheduler.n_steps

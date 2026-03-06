@@ -6,25 +6,6 @@ from models.common import NamedModel
 from models.adaptation.lora import LoRAConv2d
 
 
-class _Finetunable:
-
-    def is_backbone_frozen(self) -> bool:
-        return not any(
-            param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
-            for name, param in self.named_parameters()
-        )
-
-    def freeze_backbone(self) -> None:
-        for name, param in self.named_parameters():
-            param.requires_grad = "lora_A" in name or "lora_B" in name
-        print(f"{self.name} backbone has been frozen for LoRA fine-tuning")
-
-    def unfreeze_all(self) -> None:
-        for param in self.parameters():
-            param.requires_grad = True
-        print(f"{self.name} has been unfrozen")
-
-
 class _HasNamedModules:
 
     @staticmethod
@@ -42,18 +23,32 @@ class _HasNamedModules:
 
 class _Freezable:
 
-    def is_frozen(self) -> bool:
+    def is_all_frozen(self) -> bool:
         return not any(param.requires_grad for param in self.parameters())
 
-    def freeze(self) -> None:
+    def freeze_all(self) -> None:
         for param in self.parameters():
             param.requires_grad = False
         print(f"{self.name} has been frozen")
 
-    def unfreeze(self) -> None:
+    def unfreeze_all(self) -> None:
         for param in self.parameters():
             param.requires_grad = True
         print(f"{self.name} has been unfrozen")
+
+
+class _Finetunable:
+
+    def is_backbone_frozen(self) -> bool:
+        return not any(
+            param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
+            for name, param in self.named_parameters()
+        )
+
+    def freeze_backbone(self) -> None:
+        for name, param in self.named_parameters():
+            param.requires_grad = "lora_A" in name or "lora_B" in name
+        print(f"{self.name} backbone has been frozen for LoRA fine-tuning")
 
 
 class _ConvStack(nn.Module):
