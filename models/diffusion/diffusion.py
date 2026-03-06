@@ -80,13 +80,13 @@ class _Finetunable:
         self._validate_architecture()
         for name, param in self.down_blocks.named_parameters():
             param.requires_grad = "lora_A" in name or "lora_B" in name
-        print("denoiser.down_blocks has been frozen")
+        print("denoiser.down_blocks has been frozen for LoRA finetuning")
         for name, param in self.mid_blocks.named_parameters():
             param.requires_grad = "lora_A" in name or "lora_B" in name
-        print("denoiser.mid_blocks has been frozen")
+        print("denoiser.mid_blocks has been frozen for LoRA finetuning")
         for name, param in self.up_blocks.named_parameters():
             param.requires_grad = "lora_A" in name or "lora_B" in name
-        print("denoiser.up_blocks has been frozen")
+        print("denoiser.up_blocks has been frozen for LoRA finetuning")
 
     def unfreeze_all(self) -> None:
         for param in self.parameters():

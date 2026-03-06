@@ -1,8 +1,28 @@
 from typing import Type, cast
-
 import torch
 import torch.nn as nn
-from ..common import NamedModel
+
+from models.common import NamedModel
+from models.adaptation.lora import LoRAConv2d
+
+
+class _Finetunable:
+
+    def is_backbone_frozen(self) -> bool:
+        return not any(
+            param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
+            for name, param in self.named_parameters()
+        )
+
+    def freeze_backbone(self) -> None:
+        for name, param in self.named_parameters():
+            param.requires_grad = "lora_A" in name or "lora_B" in name
+        print(f"{self.name} backbone has been frozen for LoRA fine-tuning")
+
+    def unfreeze_all(self) -> None:
+        for param in self.parameters():
+            param.requires_grad = True
+        print(f"{self.name} has been unfrozen")
 
 
 class _HasNamedModules:
@@ -333,7 +353,7 @@ class VAEDecoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
         return x
 
 
-class VAE(_Freezable, NamedModel, nn.Module):
+class VAE(_Finetunable, _Freezable, NamedModel, nn.Module):
 
     def __init__(
         self,
@@ -377,6 +397,24 @@ class VAE(_Freezable, NamedModel, nn.Module):
                 nn.init.kaiming_normal_(cast(nn.Parameter, module.weight))
                 nn.init.zeros_(cast(nn.Parameter, module.bias))
 
+    @staticmethod
+    def _replace_conv2d_with_lora(module: nn.Module, rank: int) -> int:
+        count: int = 0
+        for name, child in list(module.named_children()):
+            if isinstance(child, LoRAConv2d):
+                continue
+            if isinstance(child, nn.Conv2d):
+                setattr(module, name, LoRAConv2d(base=child, rank=rank))
+                count += 1
+            else:
+                # DFS: Recursive further into the child module
+                count += VAE._replace_conv2d_with_lora(module=child, rank=rank)
+        return count
+
+    def enable_lora_conv2d(self, rank: int) -> int:
+        assert rank > 0
+        return VAE._replace_conv2d_with_lora(module=self, rank=rank)
+
     @property
     def out_features(self) -> int:
         return self.pixel_dim
@@ -395,4 +433,26 @@ class VAE_Hydro(VAE):
     pass
 
 class VAE_Precip(VAE):
-    pass
+
+    def __init__(
+        self,
+        n_days: int, n_features: int, latent_dim: int, hidden_dim: int,
+        n_scaling_blocks: int, n_convstack_layers: int, n_convhead_layers: int,
+        is_finetuning: bool = False, lora_rank: int = 0,
+    ) -> None:
+        self.is_finetuning: bool = is_finetuning
+        self.lora_rank: int = lora_rank
+        super().__init__(
+            n_days=n_days,
+            n_features=n_features,
+            latent_dim=latent_dim,
+            hidden_dim=hidden_dim,
+            n_scaling_blocks=n_scaling_blocks,
+            n_convstack_layers=n_convstack_layers,
+            n_convhead_layers=n_convhead_layers,
+        )
+        self.n_lora_conv_layers: int = 0
+        if self.is_finetuning:
+            assert self.lora_rank > 0
+            self.n_lora_conv_layers = self.enable_lora_conv2d(rank=self.lora_rank)
+            print(f"Applied Conv2d LoRA to {self.n_lora_conv_layers} layers")

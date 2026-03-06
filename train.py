@@ -388,10 +388,15 @@ def main(
         if (checkpoint_path := vae_config.from_checkpoint) is not None:
             print(f"Training VAE_Precip from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
-            net: VAE_Precip = checkpoint_loader.load(scope=globals())
+            net: VAE_Precip = checkpoint_loader.load(
+                scope=globals(),
+                is_finetuning=is_finetuning,
+                lora_rank=lora_rank,
+            )
             assert net.pixel_dim == len(train_metadata.input_vars)
         else:
             print(f"Training VAE_Precip from scratch with: {vae_config.to_dict()}")
+            assert not is_finetuning
             net: VAE_Precip = VAE_Precip(
                 n_days=1,
                 n_features=len(train_metadata.input_vars),
@@ -400,7 +405,14 @@ def main(
                 n_scaling_blocks=vae_config.n_scaling_blocks,
                 n_convstack_layers=vae_config.n_convstack_layers,
                 n_convhead_layers=vae_config.n_convhead_layers,
+                is_finetuning=False,
+                lora_rank=0,
             )
+
+        assert isinstance(net, VAE_Precip)
+        if is_finetuning:
+            net.freeze_backbone()
+            assert net.is_backbone_frozen()
 
         assert isinstance(net, VAE_Precip)
         trainer = VAETrainer(
