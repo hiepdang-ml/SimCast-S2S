@@ -90,7 +90,7 @@ class _Finetunable:
         print("denoiser.mid_blocks has been frozen for LoRA finetuning")
         for name, param in self.up_blocks.named_parameters():
             param.requires_grad = "lora_A" in name or "lora_B" in name
-            print("denoiser.up_blocks has been frozen for LoRA finetuning")
+        print("denoiser.up_blocks has been frozen for LoRA finetuning")
         for name, param in self.head.named_parameters():
             param.requires_grad = "lora_A" in name or "lora_B" in name
         print("denoiser.head has been frozen for LoRA finetuning")

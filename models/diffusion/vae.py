@@ -455,4 +455,4 @@ class VAE_Precip(VAE):
         if self.is_finetuning:
             assert self.lora_rank > 0
             self.n_lora_conv_layers = self.enable_lora_conv2d(rank=self.lora_rank)
-            print(f"Applied Conv2d LoRA to {self.n_lora_conv_layers} layers")
+            print(f"Applied LoRA to {self.n_lora_conv_layers} layers")
