@@ -79,8 +79,4 @@ class LoRAConv2d(nn.Conv2d):
         delta_w: torch.Tensor = self.lora_B @ self.lora_A
         delta_w = delta_w.reshape_as(self.weight)
         w: torch.Tensor = self.weight + delta_w.to(dtype=self.weight.dtype)
-        return F.conv2d(
-            input=x, weight=w, bias=self.bias,
-            stride=self.stride, padding=self.padding,
-            dilation=self.dilation, groups=self.groups,
-        )
+        return self._conv_forward(x, w, self.bias)

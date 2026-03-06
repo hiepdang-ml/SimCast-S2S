@@ -74,7 +74,11 @@ class _Finetunable:
             param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
             for name, param in self.up_blocks.named_parameters()
         )
-        return check_down and check_mid and check_up
+        check_head: bool = not any(
+            param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
+            for name, param in self.head.named_parameters()
+        )
+        return check_down and check_mid and check_up and check_head
 
     def freeze_backbone(self) -> None:
         self._validate_architecture()
@@ -86,7 +90,10 @@ class _Finetunable:
         print("denoiser.mid_blocks has been frozen for LoRA finetuning")
         for name, param in self.up_blocks.named_parameters():
             param.requires_grad = "lora_A" in name or "lora_B" in name
-        print("denoiser.up_blocks has been frozen for LoRA finetuning")
+            print("denoiser.up_blocks has been frozen for LoRA finetuning")
+        for name, param in self.head.named_parameters():
+            param.requires_grad = "lora_A" in name or "lora_B" in name
+        print("denoiser.head has been frozen for LoRA finetuning")
 
     def unfreeze_all(self) -> None:
         for param in self.parameters():
@@ -97,9 +104,11 @@ class _Finetunable:
         assert hasattr(self, "down_blocks")
         assert hasattr(self, "mid_blocks")
         assert hasattr(self, "up_blocks")
+        assert hasattr(self, "head")
         assert isinstance(self.down_blocks, nn.Module)
         assert isinstance(self.mid_blocks, nn.Module)
         assert isinstance(self.up_blocks, nn.Module)
+        assert isinstance(self.head, nn.Module)
 
 
 class _SinusoidEmbedding(nn.Module):
