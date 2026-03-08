@@ -1,9 +1,24 @@
 import torch
 import torch.nn as nn
-from ..common import NamedModel
+from models.common import NamedModel
+from models.adaptation.lora import LoRAConv2d
 
 
-class CNN(NamedModel, nn.Module):
+class _Finetunable:
+
+    def is_backbone_frozen(self) -> bool:
+        return not any(
+            param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
+            for name, param in self.named_parameters()
+        )
+
+    def freeze_backbone(self) -> None:
+        for name, param in self.named_parameters():
+            param.requires_grad = "lora_A" in name or "lora_B" in name
+        print(f"{self.name} backbone has been frozen for LoRA fine-tuning")
+
+
+class CNN(_Finetunable, NamedModel, nn.Module):
 
     def __init__(
         self,
@@ -13,6 +28,8 @@ class CNN(NamedModel, nn.Module):
         out_features: int,
         embedding_dim: int,
         n_hidden_layers: int,
+        is_finetuning: bool = False,
+        lora_rank: int = 0,
     ) -> None:
         super().__init__()
         self.n_input_days: int = n_input_days
@@ -21,6 +38,9 @@ class CNN(NamedModel, nn.Module):
         self.out_features: int = out_features
         self.embedding_dim: int = embedding_dim
         self.n_hidden_layers: int = n_hidden_layers
+        self.is_finetuning: bool = is_finetuning
+        self.lora_rank: int = lora_rank
+        self.n_lora_conv_layers: int = 0
 
         layers: list[nn.Module] = [
             nn.Conv2d(in_channels=n_input_days * in_features, out_channels=embedding_dim, kernel_size=3, padding=1),
@@ -42,6 +62,10 @@ class CNN(NamedModel, nn.Module):
         layers += [nn.Conv2d(in_channels=embedding_dim, out_channels=n_output_days * out_features, kernel_size=1)]
         self.cnn = nn.Sequential(*layers)
 
+        if self.is_finetuning:
+            assert self.lora_rank > 0
+            self.n_lora_conv_layers = self.enable_lora_conv2d(rank=self.lora_rank)
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         batch_size, n_input_days, H, W, in_features = input.shape
         assert n_input_days == self.n_input_days
@@ -56,3 +80,21 @@ class CNN(NamedModel, nn.Module):
         output_tensor = output_tensor.permute(0, 1, 3, 4, 2)
         assert output_tensor.shape == (batch_size, self.n_output_days, 192, 288, self.out_features)
         return output_tensor
+
+    @staticmethod
+    def _replace_conv2d_with_lora(module: nn.Module, rank: int) -> int:
+        count: int = 0
+        for name, child in list(module.named_children()):
+            if isinstance(child, LoRAConv2d):
+                continue
+            if isinstance(child, nn.Conv2d):
+                setattr(module, name, LoRAConv2d(base=child, rank=rank))
+                count += 1
+            else:
+                # DFS: Recursive further into the child module
+                count += CNN._replace_conv2d_with_lora(module=child, rank=rank)
+        return count
+
+    def enable_lora_conv2d(self, rank: int) -> int:
+        assert rank > 0
+        return CNN._replace_conv2d_with_lora(module=self, rank=rank)

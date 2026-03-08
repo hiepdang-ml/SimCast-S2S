@@ -392,24 +392,6 @@ class VAE(_Finetunable, _Freezable, NamedModel, nn.Module):
                 nn.init.kaiming_normal_(cast(nn.Parameter, module.weight))
                 nn.init.zeros_(cast(nn.Parameter, module.bias))
 
-    @staticmethod
-    def _replace_conv2d_with_lora(module: nn.Module, rank: int) -> int:
-        count: int = 0
-        for name, child in list(module.named_children()):
-            if isinstance(child, LoRAConv2d):
-                continue
-            if isinstance(child, nn.Conv2d):
-                setattr(module, name, LoRAConv2d(base=child, rank=rank))
-                count += 1
-            else:
-                # DFS: Recursive further into the child module
-                count += VAE._replace_conv2d_with_lora(module=child, rank=rank)
-        return count
-
-    def enable_lora_conv2d(self, rank: int) -> int:
-        assert rank > 0
-        return VAE._replace_conv2d_with_lora(module=self, rank=rank)
-
     @property
     def out_features(self) -> int:
         return self.pixel_dim
@@ -451,3 +433,21 @@ class VAE_Precip(VAE):
             assert self.lora_rank > 0
             self.n_lora_conv_layers = self.enable_lora_conv2d(rank=self.lora_rank)
             print(f"Applied LoRA to {self.n_lora_conv_layers} layers")
+
+    @staticmethod
+    def _replace_conv2d_with_lora(module: nn.Module, rank: int) -> int:
+        count: int = 0
+        for name, child in list(module.named_children()):
+            if isinstance(child, LoRAConv2d):
+                continue
+            if isinstance(child, nn.Conv2d):
+                setattr(module, name, LoRAConv2d(base=child, rank=rank))
+                count += 1
+            else:
+                # DFS: Recursive further into the child module
+                count += VAE_Precip._replace_conv2d_with_lora(module=child, rank=rank)
+        return count
+
+    def enable_lora_conv2d(self, rank: int) -> int:
+        assert rank > 0
+        return VAE_Precip._replace_conv2d_with_lora(module=self, rank=rank)

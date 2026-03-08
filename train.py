@@ -45,9 +45,15 @@ def main(
         if (checkpoint_path := cnn_config.from_checkpoint) is not None:
             print(f"Training CNN from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
-            net = checkpoint_loader.load(scope=globals())
+            net: CNN = checkpoint_loader.load(
+                scope=globals(),
+                is_finetuning=is_finetuning,
+                lora_rank=lora_rank,
+            )
+            assert isinstance(net, CNN)
             assert net.n_input_days == train_metadata.n_input_days
         else:
+            assert not is_finetuning
             print(f"Training CNN from scratch with: {cnn_config.to_dict()}")
             net: CNN = CNN(
                 n_input_days=train_metadata.n_input_days,
@@ -56,9 +62,15 @@ def main(
                 out_features=cnn_config.out_features,
                 embedding_dim=cnn_config.embedding_dim,
                 n_hidden_layers=cnn_config.n_hidden_layers,
+                is_finetuning=False,
+                lora_rank=0,
             )
+            assert isinstance(net, CNN)    # for type checking only
 
-        assert isinstance(net, CNN)
+        if is_finetuning:
+            net.freeze_backbone()
+            assert net.is_backbone_frozen()
+
         trainer = BaselineTrainer(
             net=net,
             lr=cnn_config.learning_rate,
@@ -82,9 +94,15 @@ def main(
         if (checkpoint_path := unet_config.from_checkpoint) is not None:
             print(f"Training UNet from {checkpoint_path}")
             checkpoint_loader = CheckpointLoader(checkpoint_path=str(checkpoint_path))
-            net: UNet = checkpoint_loader.load(scope=globals())
+            net: UNet = checkpoint_loader.load(
+                scope=globals(),
+                is_finetuning=is_finetuning,
+                lora_rank=lora_rank,
+            )
+            assert isinstance(net, UNet)
             assert net.n_input_days == train_metadata.n_input_days
         else:
+            assert not is_finetuning
             print(f"Training UNet from scratch with: {unet_config.to_dict()}")
             net: UNet = UNet(
                 n_input_days=train_metadata.n_input_days,
@@ -92,9 +110,15 @@ def main(
                 in_features=unet_config.in_features,
                 out_features=unet_config.out_features,
                 embedding_dim=unet_config.embedding_dim,
+                is_finetuning=False,
+                lora_rank=0,
             )
+            assert isinstance(net, UNet)    # for type checking only
 
-        assert isinstance(net, UNet)
+        if is_finetuning:
+            net.freeze_backbone()
+            assert net.is_backbone_frozen()
+
         trainer = BaselineTrainer(
             net=net,
             lr=unet_config.learning_rate,

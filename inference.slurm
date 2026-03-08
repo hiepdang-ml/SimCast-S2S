@@ -34,5 +34,5 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 # Force IPv4 localhost for single-node runs to avoid AF errors
 export MASTER_ADDR=127.0.0.1
 export MASTER_PORT=29501
-# torchrun --master_addr=${MASTER_ADDR} --nproc_per_node=${SLURM_GPUS_ON_NODE} --master_port=${MASTER_PORT} predict.py --model=diffusion --dataset=cesm2
-torchrun --master_addr=${MASTER_ADDR} --nproc_per_node=${SLURM_GPUS_ON_NODE} --master_port=${MASTER_PORT} predict.py --model=diffusion --dataset=era5
+# torchrun --master_addr=${MASTER_ADDR} --master_port=${MASTER_PORT} --nproc_per_node=${SLURM_GPUS_ON_NODE} predict.py --model=diffusion --dataset=cesm2
+torchrun --master_addr=${MASTER_ADDR} --master_port=${MASTER_PORT} --nproc_per_node=${SLURM_GPUS_ON_NODE} predict.py --model=diffusion --dataset=era5
