@@ -532,6 +532,10 @@ def main(
         else:
             raise ValueError(f"Invalid diffusion_config.noise_scheduler={diffusion_config.noise_scheduler}")
 
+        if is_finetuning:
+            net.freeze_backbone()
+            assert net.is_backbone_frozen()
+
         trainer = DiffusionTrainer(
             denoiser=net,
             wind_encoder=wind_encoder, mass_encoder=mass_encoder, thermal_encoder=thermal_encoder,
@@ -542,7 +546,6 @@ def main(
             val_dataset=val_dataset,
             train_batch_size=diffusion_config.train_batch_size,
             val_batch_size=diffusion_config.val_batch_size,
-            is_finetuning=is_finetuning,
             local_rank=local_rank,
         )
         trainer.train(

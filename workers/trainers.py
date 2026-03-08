@@ -340,15 +340,8 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler, lr: float,
         train_dataset: CESM2 | ERA5, val_dataset: CESM2 | ERA5,
         train_batch_size: int, val_batch_size: int,
-        is_finetuning: bool,
         local_rank: int,
     ) -> None:
-
-        self.is_finetuning: bool = is_finetuning
-        if is_finetuning:
-            denoiser.freeze_backbone()
-            assert denoiser.is_backbone_frozen()
-
         super().__init__(
             net=denoiser, lr=lr, train_dataset=train_dataset, val_dataset=val_dataset,
             train_batch_size=train_batch_size, val_batch_size=val_batch_size,

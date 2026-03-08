@@ -47,20 +47,23 @@ class LoRALinear(nn.Linear):
         lora_out: torch.Tensor = F.linear(F.linear(x_lora, self.lora_A), self.lora_B) * self.scaling
         return base_out + lora_out.to(base_out.dtype)
 
-    @torch.no_grad()
-    def merge_weights(self) -> None:
-        delta_w = (self.lora_B @ self.lora_A) * self.scaling
-        self.weight.add_(delta_w.to(self.weight.dtype))
-
 
 class LoRAConv2d(nn.Conv2d):
+    def __init__(
+        self,
+        base: nn.Conv2d,
+        rank: int,
+        alpha: float = 1.0,
+        lora_dropout: float = 0.0,
+    ) -> None:
 
-    def __init__(self, base: nn.Conv2d, rank: int) -> None:
-
+        assert rank > 0
+        assert alpha > 0
         kernel_size = cast(tuple[int, int], base.kernel_size)
         stride = cast(tuple[int, int], base.stride)
         padding = cast(tuple[int, int], base.padding)
         dilation = cast(tuple[int, int], base.dilation)
+
         super().__init__(
             in_channels=base.in_channels,
             out_channels=base.out_channels,
@@ -72,7 +75,6 @@ class LoRAConv2d(nn.Conv2d):
             bias=(base.bias is not None),
             padding_mode=base.padding_mode,
         )
-        assert rank > 0
         with torch.no_grad():
             self.weight.copy_(base.weight)
             if base.bias is not None:
@@ -83,17 +85,24 @@ class LoRAConv2d(nn.Conv2d):
         if self.bias is not None:
             self.bias.requires_grad = False
 
-        assert rank > 0
         self.rank: int = rank
-        in_features: int = (self.in_channels // self.groups) * kernel_size[0] * kernel_size[1]
+        self.alpha: float = alpha
+        self.scaling: float = alpha / rank
+        self.lora_dropout = nn.Dropout(p=lora_dropout) if lora_dropout > 0 else nn.Identity()
+
+        k_h, k_w = kernel_size
+        in_features: int = (self.in_channels // self.groups) * k_h * k_w
         self.lora_A = nn.Parameter(torch.empty(rank, in_features))
         self.lora_B = nn.Parameter(torch.zeros(self.out_channels, rank))
 
         nn.init.kaiming_uniform_(self.lora_A, a=5**0.5)
-        nn.init.zeros_(self.lora_B)  # no-op at init
+        nn.init.zeros_(self.lora_B)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        delta_w: torch.Tensor = self.lora_B @ self.lora_A
+        base_out = self._conv_forward(x, self.weight, self.bias)
+        # Conv2d LoRA via equivalent delta kernel: B @ A -> reshape to weight shape
+        delta_w = (self.lora_B @ self.lora_A) * self.scaling
         delta_w = delta_w.reshape_as(self.weight)
-        w: torch.Tensor = self.weight + delta_w.to(dtype=self.weight.dtype)
-        return self._conv_forward(x, w, self.bias)
+        x_lora = self.lora_dropout(x)
+        lora_out = self._conv_forward(x_lora, delta_w, None)
+        return base_out + lora_out
