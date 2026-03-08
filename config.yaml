@@ -142,9 +142,23 @@ cnn:
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_mid/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_mid/"
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_large/cnn12.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_large/"
-  target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_large/"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_large/cnn12.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_large/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_large/"
+
+  # Finetune
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_small/cnn3.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_small/"
+  target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_small/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_mid/cnn9.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_mid/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_mid/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_large/cnn7.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_large/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_large/"
+
 
 
 unet:
@@ -181,9 +195,22 @@ unet:
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_mid/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_mid/"
 
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_large/unet20.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_large/"
-  target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_large/"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_large/unet20.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_large/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_large/"
+
+  # Finetune
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_small/unet3.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_small/"
+  target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_small/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_mid/unet6.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_mid/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_mid/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_large/unet15.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_large/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_large/"
 
 
 vit:
