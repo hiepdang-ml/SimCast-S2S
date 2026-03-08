@@ -44,9 +44,6 @@ def main(root_string: str) -> str:
             global_mae: float = data["global_mae"]
             tropical_mae: float = data["tropical_mae"]
             extratropical_mae: float = data["extratropical_mae"]
-            global_mae: float = data["global_mae"]
-            tropical_mae: float = data["tropical_mae"]
-            extratropical_mae: float = data["extratropical_mae"]
             global_mae_values.append(global_mae)
             tropical_mae_values.append(tropical_mae)
             extratropical_mae_values.append(extratropical_mae)

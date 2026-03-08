@@ -6,13 +6,21 @@ import torch.nn.functional as F
 
 
 class LoRALinear(nn.Linear):
-
-    def __init__(self, base: nn.Linear, rank: int):
+    def __init__(
+        self,
+        base: nn.Linear,
+        rank: int,
+        alpha: float = 1.0,
+        lora_dropout: float = 0.0,
+    ) -> None:
         super().__init__(
             in_features=base.in_features,
             out_features=base.out_features,
             bias=(base.bias is not None),
         )
+        assert rank > 0
+        assert alpha > 0
+
         with torch.no_grad():
             self.weight.copy_(base.weight)
             if base.bias is not None:
@@ -23,17 +31,26 @@ class LoRALinear(nn.Linear):
         if self.bias is not None:
             self.bias.requires_grad = False
 
-        assert rank > 0
-        self.rank = rank
-        self.lora_A = nn.Linear(self.in_features, rank, bias=False)
-        self.lora_B = nn.Linear(rank, self.out_features, bias=False)  # no-op at init
-        nn.init.kaiming_uniform_(self.lora_A.weight, a=5**0.5)
-        nn.init.zeros_(self.lora_B.weight)
+        self.rank: int = rank
+        self.alpha: float = alpha
+        self.scaling: float = alpha / rank
+        self.lora_dropout = nn.Dropout(p=lora_dropout) if lora_dropout > 0 else nn.Identity()
+
+        self.lora_A = nn.Parameter(torch.empty(rank, self.in_features))
+        self.lora_B = nn.Parameter(torch.zeros(self.out_features, rank))
+        nn.init.kaiming_uniform_(self.lora_A, a=5**2)
+        nn.init.zeros_(self.lora_B)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        base_out = F.linear(input=x, weight=self.weight, bias=self.bias)
-        lora_out = self.lora_B(self.lora_A(x))
-        return base_out + lora_out.to(dtype=base_out.dtype)
+        base_out: torch.Tensor = F.linear(x, self.weight, self.bias)
+        x_lora: torch.Tensor = self.lora_dropout(x)
+        lora_out: torch.Tensor = F.linear(F.linear(x_lora, self.lora_A), self.lora_B) * self.scaling
+        return base_out + lora_out.to(base_out.dtype)
+
+    @torch.no_grad()
+    def merge_weights(self) -> None:
+        delta_w = (self.lora_B @ self.lora_A) * self.scaling
+        self.weight.add_(delta_w.to(self.weight.dtype))
 
 
 class LoRAConv2d(nn.Conv2d):

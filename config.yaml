@@ -147,15 +147,18 @@ cnn:
   # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_large/"
 
   # Finetune
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_small/cnn3.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_small/"
-  target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_small/"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_small/cnn3.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_small/cnn10.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_small/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_small/"
 
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_mid/cnn9.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_mid/cnn10.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_mid/"
   # target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_mid/"
 
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_large/cnn7.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_large/cnn10.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_large/"
   # target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_large/"
 
@@ -200,15 +203,18 @@ unet:
   # target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_large/"
 
   # Finetune
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_small/unet3.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_small/"
-  target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_small/"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_small/unet3.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_small/unet7.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_small/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_small/"
 
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_mid/unet6.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_mid/unet10.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_mid/"
   # target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_mid/"
 
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_large/unet15.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_large/unet10.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_large/"
   # target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_large/"
 
