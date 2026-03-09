@@ -38,7 +38,7 @@ class LoRALinear(nn.Linear):
 
         self.lora_A = nn.Parameter(torch.empty(rank, self.in_features))
         self.lora_B = nn.Parameter(torch.zeros(self.out_features, rank))
-        nn.init.kaiming_uniform_(self.lora_A, a=5**2)
+        nn.init.kaiming_uniform_(self.lora_A, a=5**0.5)
         nn.init.zeros_(self.lora_B)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

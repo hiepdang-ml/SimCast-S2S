@@ -627,3 +627,5 @@ if __name__ == "__main__":
         )
     finally:
         cleanup_ddp()
+
+# torchrun --nproc_per_node=${SLURM_GPUS_ON_NODE} train.py --model=diffusion --dataset=era5 --finetune --lora-rank=8 --lora-linear --lora-conv2d
