@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from models.common import NamedModel
-from models.adaptation.lora import LoRALinear
+from models.adaptation.lora import LoRAConv2d, LoRALinear
 
 
 class _BaseNoiseScheduler:
@@ -109,6 +109,22 @@ class _Finetunable:
         assert isinstance(self.mid_blocks, nn.Module)
         assert isinstance(self.up_blocks, nn.Module)
         assert isinstance(self.head, nn.Module)
+
+
+def _replace_conv2d_with_lora(module: nn.Module, rank: int) -> int:
+    count: int = 0
+    for name, child in list(module.named_children()):
+        if isinstance(child, LoRAConv2d):
+            continue
+        if isinstance(child, nn.Conv2d):
+            kernel_size: tuple[int, int] = cast(tuple[int, int], child.kernel_size)
+            if kernel_size != (1, 1):
+                setattr(module, name, LoRAConv2d(base=child, rank=rank))
+                count += 1
+        else:
+            # recursive
+            count += _replace_conv2d_with_lora(module=child, rank=rank)
+    return count
 
 
 class _SinusoidEmbedding(nn.Module):
@@ -808,6 +824,8 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         transformer_maxlength: int,
         is_finetuning: bool,
         lora_rank: int = 0,
+        lora_linear: bool = True,
+        lora_conv2d: bool = False,
     ):
         super().__init__()
         self.target_dim: int = target_dim
@@ -831,6 +849,8 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         self.transformer_maxlength: int = transformer_maxlength
         self.is_finetuning: bool = is_finetuning
         self.lora_rank: int = lora_rank
+        self.lora_linear: bool = lora_linear
+        self.lora_conv2d: bool = lora_conv2d
 
         assert len(down_transformer_model_dims) == len(down_out_dims) == len(up_transformer_model_dims) == len(up_out_dims)
         assert len(down_out_dims) >= 1
@@ -890,18 +910,31 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         ])
         self.head = nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
         self.n_lora_linear_layers: int = 0
+        self.n_lora_conv2d_layers: int = 0
         if is_finetuning:
             assert self.lora_rank > 0
-            for block in self.down_blocks:
-                block = cast(_DownBlock, block)
-                self.n_lora_linear_layers += block.enable_lora(rank=self.lora_rank)
-            for block in self.mid_blocks:
-                block = cast(_MidBlock, block)
-                self.n_lora_linear_layers += block.enable_lora(rank=self.lora_rank)
-            for block in self.up_blocks:
-                block = cast(_UpBlock, block)
-                self.n_lora_linear_layers += block.enable_lora(rank=self.lora_rank)
-            print(f"Applied transformer LoRA to {self.n_lora_linear_layers} linear layers")
+            if not self.lora_linear and not self.lora_conv2d:
+                raise ValueError("At least one LoRA mode must be enabled: lora_linear or lora_conv2d")
+
+            if self.lora_linear:
+                for block in self.down_blocks:
+                    block = cast(_DownBlock, block)
+                    self.n_lora_linear_layers += block.enable_lora(rank=self.lora_rank)
+                for block in self.mid_blocks:
+                    block = cast(_MidBlock, block)
+                    self.n_lora_linear_layers += block.enable_lora(rank=self.lora_rank)
+                for block in self.up_blocks:
+                    block = cast(_UpBlock, block)
+                    self.n_lora_linear_layers += block.enable_lora(rank=self.lora_rank)
+                print(f"Applied LoRA to {self.n_lora_linear_layers} linear layers")
+
+            if self.lora_conv2d:
+                self.n_lora_conv2d_layers = self.enable_lora_conv2d(rank=self.lora_rank)
+                print(f"Applied LoRA to {self.n_lora_conv2d_layers} conv2d layers")
+
+    def enable_lora_conv2d(self, rank: int) -> int:
+        assert rank > 0
+        return _replace_conv2d_with_lora(module=self, rank=rank)
 
     def forward(
         self,

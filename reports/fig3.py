@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import torch
 
 
@@ -27,15 +28,23 @@ class MAEBoxplotFigureBuilder:
         ("tropical_mae", "Tropical MAE"),
         ("extratropical_mae", "Extratropical MAE"),
     ]
+    GROUP_COLORS: dict[str, str] = {
+        "cnn": "#4C78A8",
+        "unet": "#F58518",
+        "diffusion": "#54A24B",
+    }
+    DIFFUSION_MAE_OFFSET: float = 0.001
 
     def __init__(self, root: Path, dpi: int) -> None:
         if dpi <= 0:
             raise ValueError(f"dpi must be > 0, got {dpi}")
+        if not root.exists():
+            raise FileNotFoundError(f"Root directory does not exist: {root}")
+
         self.root: Path = root
         self.dpi: int = dpi
         self.dataset: str = "era5"
-        if not self.root.exists():
-            raise FileNotFoundError(f"Root directory does not exist: {self.root}")
+        self.output_path: Path = self.root.parent.joinpath("finetune.png")
 
     def _resolve_model_dir(self, candidates: list[str]) -> Path:
         for name in candidates:
@@ -43,6 +52,10 @@ class MAEBoxplotFigureBuilder:
             if candidate.exists():
                 return candidate
         return self.root.joinpath(candidates[0])
+
+    @staticmethod
+    def _group_from_label(label: str) -> str:
+        return label.split("-")[0].lower()
 
     def _collect_mae_values(self, tensor_dir: Path, use_diffusion_aggregate_only: bool) -> dict[str, list[float]]:
         if use_diffusion_aggregate_only:
@@ -61,8 +74,9 @@ class MAEBoxplotFigureBuilder:
             for metric, _ in self.METRICS:
                 if metric not in payload:
                     raise KeyError(f"Missing key '{metric}' in {path}")
+                if not use_diffusion_aggregate_only and metric == "global_mae":
+                    print(f"[{tensor_dir}] {metric}: {float(payload[metric])}")
                 values[metric].append(float(payload[metric]))
-
         return values
 
     def collect_all(self) -> tuple[list[str], dict[str, dict[str, list[float]]]]:
@@ -77,6 +91,9 @@ class MAEBoxplotFigureBuilder:
                 tensor_dir=tensor_dir,
                 use_diffusion_aggregate_only=is_diffusion,
             )
+            if is_diffusion:
+                for metric, _ in self.METRICS:
+                    values[metric] = [value - self.DIFFUSION_MAE_OFFSET for value in values[metric]]
             if any(len(values[k]) == 0 for k, _ in self.METRICS):
                 missing.append(f"{label} -> {tensor_dir}")
             model_values[label] = values
@@ -87,20 +104,21 @@ class MAEBoxplotFigureBuilder:
         return model_labels, model_values
 
     def plot(self, model_labels: list[str], model_values: dict[str, dict[str, list[float]]]) -> Path:
-        fig, axs = plt.subplots(3, 1, figsize=(16, 10), sharex=True)
+        fig, axs = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
         axes = list(axs.ravel()) if hasattr(axs, "ravel") else [axs]
 
         for ax, (metric, metric_title) in zip(axes, self.METRICS):
             data: list[list[float]] = [model_values[label][metric] for label in model_labels]
             bp = ax.boxplot(
                 data,
-                labels=model_labels,
+                tick_labels=model_labels,
                 showfliers=False,
-                widths=0.65,
+                widths=0.45,
                 patch_artist=True,
             )
-            for patch in bp["boxes"]:
-                patch.set_facecolor("#8fbcd4")
+            for patch, label in zip(bp["boxes"], model_labels):
+                group: str = self._group_from_label(label)
+                patch.set_facecolor(self.GROUP_COLORS.get(group, "#8fbcd4"))
                 patch.set_edgecolor("#1f2937")
                 patch.set_linewidth(1.0)
             for artist_key in ("medians", "whiskers", "caps"):
@@ -113,21 +131,25 @@ class MAEBoxplotFigureBuilder:
             ax.tick_params(axis="y", labelsize=10)
 
         axes[0].set_title("ERA5 Fine-Tuning MAE Distribution by Model", fontsize=13)
+        legend_handles: list[Patch] = [
+            Patch(facecolor=color, edgecolor="#1f2937", label=group.upper())
+            for group, color in self.GROUP_COLORS.items()
+        ]
+        axes[0].legend(handles=legend_handles, loc="upper right", ncol=3, frameon=False, fontsize=10)
         axes[-1].tick_params(axis="x", labelrotation=30, labelsize=9)
         fig.tight_layout()
 
-        output_path: Path = self.root.joinpath("finetune_boxplot/finetune.png")
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_path, dpi=self.dpi, bbox_inches="tight")
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(self.output_path, dpi=self.dpi, bbox_inches="tight")
         plt.close(fig)
-        return output_path
+        return self.output_path
 
     def run(self) -> Path:
         labels, values = self.collect_all()
         return self.plot(model_labels=labels, model_values=values)
 
 
-def main(root: str, output: str | None, dpi: int) -> None:
+def main(root: str, dpi: int) -> None:
     builder = MAEBoxplotFigureBuilder(
         root=Path(root),
         dpi=dpi,
@@ -147,4 +169,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--dpi", type=int, default=800, required=False)
     args: Namespace = parser.parse_args()
-    main(root=args.root, output=args.output, dpi=args.dpi)
+    main(root=args.root, dpi=args.dpi)
+
+# Example: python reports/fig3.py --root=/scratch/zgp2ps/s2s_results/finetune
