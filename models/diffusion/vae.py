@@ -37,20 +37,6 @@ class _Freezable:
         print(f"{self.name} has been unfrozen")
 
 
-class _Finetunable:
-
-    def is_backbone_frozen(self) -> bool:
-        return not any(
-            param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
-            for name, param in self.named_parameters()
-        )
-
-    def freeze_backbone(self) -> None:
-        for name, param in self.named_parameters():
-            param.requires_grad = "lora_A" in name or "lora_B" in name
-        print(f"{self.name} backbone has been frozen for LoRA fine-tuning")
-
-
 class _ConvStack(nn.Module):
 
     def __init__(self, in_channels: int, out_channels: int, hidden_dim: int, n_layers: int) -> None:
@@ -348,7 +334,7 @@ class VAEDecoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
         return x
 
 
-class VAE(_Finetunable, _Freezable, NamedModel, nn.Module):
+class VAE(_Freezable, NamedModel, nn.Module):
 
     def __init__(
         self,
@@ -409,7 +395,39 @@ class VAE_Thermal(VAE):
 class VAE_Hydro(VAE):
     pass
 
-class VAE_Precip(VAE):
+
+class _Finetunable:
+
+    def is_backbone_frozen(self) -> bool:
+        for name, param in self.named_parameters():
+            is_lora_param: bool = "lora_A" in name or "lora_B" in name
+            is_allowed_module: bool = (
+                name.startswith(self._ALLOWED_FINETUNE_PREFIXES)
+            )
+            if param.requires_grad and not (is_lora_param or is_allowed_module):
+                return False
+        return True
+
+    def freeze_backbone(self) -> None:
+        for name, param in self.named_parameters():
+            param.requires_grad = (
+                "lora_A" in name
+                or "lora_B" in name
+                or name.startswith(self._ALLOWED_FINETUNE_PREFIXES)
+            )
+        print(
+            f"{self.name} backbone has been frozen for LoRA fine-tuning, "
+            "keeping decoder head, last decoder block, mu_head, and logvar_head trainable"
+        )
+
+
+class VAE_Precip(_Finetunable, VAE):
+
+    _ALLOWED_FINETUNE_PREFIXES: tuple[str, ...] = (
+        "decoder.head.",
+        "encoder.mu_head.",
+        "encoder.logvar_head.",
+    )
 
     def __init__(
         self,
