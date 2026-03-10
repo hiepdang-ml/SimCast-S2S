@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 from models.common import NamedModel
-from models.adaptation.lora import LoRAConv2d
+from models.adaptation.lora import LoRAConv2d, LoRATConv2d
 
 
 class _HasNamedModules:
@@ -429,25 +429,37 @@ class VAE_Precip(VAE):
             n_convhead_layers=n_convhead_layers,
         )
         self.n_lora_conv_layers: int = 0
+        self.n_lora_tconv_layers: int = 0
         if self.is_finetuning:
             assert self.lora_rank > 0
-            self.n_lora_conv_layers = self.enable_lora_conv2d(rank=self.lora_rank)
-            print(f"Applied LoRA to {self.n_lora_conv_layers} conv2d layers")
+            self.n_lora_conv_layers, self.n_lora_tconv_layers = self.enable_lora_conv2d(rank=self.lora_rank)
+            print(
+                f"Applied LoRA to {self.n_lora_conv_layers} Conv2d layers "
+                f"and {self.n_lora_tconv_layers} ConvTranspose2d layers"
+            )
 
     @staticmethod
-    def _replace_conv2d_with_lora(module: nn.Module, rank: int) -> int:
-        count: int = 0
+    def _replace_conv2d_with_lora(module: nn.Module, rank: int) -> tuple[int, int]:
+        conv_count: int = 0
+        tconv_count: int = 0
         for name, child in list(module.named_children()):
-            if isinstance(child, LoRAConv2d):
+            if isinstance(child, (LoRAConv2d, LoRATConv2d)):
                 continue
             if isinstance(child, nn.Conv2d):
                 setattr(module, name, LoRAConv2d(base=child, rank=rank))
-                count += 1
+                conv_count += 1
+            elif isinstance(child, nn.ConvTranspose2d):
+                setattr(module, name, LoRATConv2d(base=child, rank=rank))
+                tconv_count += 1
             else:
                 # DFS: Recursive further into the child module
-                count += VAE_Precip._replace_conv2d_with_lora(module=child, rank=rank)
-        return count
+                child_conv_count, child_tconv_count = VAE_Precip._replace_conv2d_with_lora(
+                    module=child, rank=rank
+                )
+                conv_count += child_conv_count
+                tconv_count += child_tconv_count
+        return conv_count, tconv_count
 
-    def enable_lora_conv2d(self, rank: int) -> int:
+    def enable_lora_conv2d(self, rank: int) -> tuple[int, int]:
         assert rank > 0
         return VAE_Precip._replace_conv2d_with_lora(module=self, rank=rank)
