@@ -38,7 +38,7 @@ class LoRALinear(nn.Linear):
 
         self.lora_A = nn.Parameter(torch.empty(rank, self.in_features))
         self.lora_B = nn.Parameter(torch.zeros(self.out_features, rank))
-        nn.init.kaiming_uniform_(self.lora_A, a=5**0.5)
+        nn.init.xavier_normal_(self.lora_A)
         nn.init.zeros_(self.lora_B)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -59,6 +59,12 @@ class LoRAConv2d(nn.Conv2d):
 
         assert rank > 0
         assert alpha > 0
+        if base.groups != 1:
+            raise RuntimeError(
+                f"{self.__class__.__name__} is only able to wrap "
+                f"Conv2d with groups=1, getting groups={self.groups}"
+            )
+        assert base.groups == 1
         kernel_size = cast(tuple[int, int], base.kernel_size)
         stride = cast(tuple[int, int], base.stride)
         padding = cast(tuple[int, int], base.padding)
@@ -91,11 +97,9 @@ class LoRAConv2d(nn.Conv2d):
         self.lora_dropout = nn.Dropout(p=lora_dropout) if lora_dropout > 0 else nn.Identity()
 
         k_h, k_w = kernel_size
-        in_features: int = (self.in_channels // self.groups) * k_h * k_w
-        self.lora_A = nn.Parameter(torch.empty(rank, in_features))
-        self.lora_B = nn.Parameter(torch.zeros(self.out_channels, rank))
-
-        nn.init.kaiming_uniform_(self.lora_A, a=5**0.5)
+        self.lora_A = nn.Parameter(torch.empty(rank, self.in_channels * k_h))
+        self.lora_B = nn.Parameter(torch.zeros(self.out_channels * k_w, rank))
+        nn.init.xavier_normal_(self.lora_A)
         nn.init.zeros_(self.lora_B)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

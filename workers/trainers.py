@@ -372,7 +372,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         self.precip_encoder.freeze_all()
         assert self.precip_encoder.is_all_frozen()
 
-        if local_rank == 0:
+        if dist.get_rank() == 0:
             del self.param_counter  # inheritted from _AbstractPredictor
             self.denoiser_param_counter = ParamCounter(self.denoiser)
             print(self.denoiser_param_counter.summary())
