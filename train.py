@@ -21,8 +21,7 @@ def main(
         "diffusion",
     ],
     dataset: Literal["cesm2", "era5"],
-    is_finetuning: bool, lora_linear: bool,
-    lora_conv2d: bool, lora_rank: int,
+    is_finetuning: bool, lora_rank: int,
     local_rank: int,
 ) -> None:
 
@@ -490,8 +489,6 @@ def main(
                 scope=globals(),
                 is_finetuning=is_finetuning,
                 lora_rank=lora_rank,
-                lora_linear=lora_linear,
-                lora_conv2d=lora_conv2d,
             )
             assert isinstance(net, UNetDenoiser)
         else:
@@ -599,20 +596,6 @@ if __name__ == "__main__":
         "--finetune", action="store_true", dest="is_finetuning", required=False,
     )
     parser.add_argument("--lora-rank", dest="lora_rank", type=int, default=0, required=False)
-    parser.add_argument(
-        "--lora-linear",
-        action="store_true",
-        dest="lora_linear",
-        required=False,
-        help="Enable Linear LoRA in diffusion finetuning (default: enabled).",
-    )
-    parser.add_argument(
-        "--lora-conv2d",
-        action="store_true",
-        dest="lora_conv2d",
-        required=False,
-        help="Enable Conv2d LoRA in diffusion finetuning.",
-    )
     args: argparse.Namespace = parser.parse_args()
 
     local_rank: int = setup_ddp()
@@ -620,12 +603,10 @@ if __name__ == "__main__":
         main(
             model=args.model, dataset=args.dataset,
             is_finetuning=args.is_finetuning,
-            lora_linear=args.lora_linear,
-            lora_conv2d=args.lora_conv2d,
             lora_rank=args.lora_rank,
             local_rank=local_rank,
         )
     finally:
         cleanup_ddp()
 
-# torchrun --nproc_per_node=${SLURM_GPUS_ON_NODE} train.py --model=diffusion --dataset=era5 --finetune --lora-rank=8 --lora-linear --lora-conv2d
+# torchrun --nproc_per_node=${SLURM_GPUS_ON_NODE} train.py --model=diffusion --dataset=era5 --finetune --lora-rank=8
