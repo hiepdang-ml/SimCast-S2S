@@ -447,5 +447,5 @@ diffusion:
 
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/diffusion24.pt"
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine/diffusion16.pt" # rank=8, loss=9.705e-01
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_rank32"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_rank32/"
   target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_eta000/"
