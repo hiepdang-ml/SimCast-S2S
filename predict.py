@@ -187,6 +187,9 @@ def main(
         checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint.as_posix())
         net: UNetDenoiser = checkpoint_loader.load(scope=globals())
         assert isinstance(net, UNetDenoiser)
+        if net.is_finetuning:
+            net.freeze_backbone()
+            assert net.is_backbone_frozen()
         # Wind encoder
         print(f"Loading wind_encoder from {model_config.vae_wind_checkpoint}")
         checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.vae_wind_checkpoint.as_posix())
