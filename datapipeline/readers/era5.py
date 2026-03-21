@@ -66,8 +66,8 @@ class Merger:
             objects=[self.from_pressure_levels(year=year), self.from_single_level(year=year)],
         )
         # Preprocess ERA5 into CESM2 format
-        ds = self.__dropfeb29(ds)
-        ds = self.__fliplatitude(ds)
+        ds = ERA5Utilities.dropfeb29(ds)
+        ds = ERA5Utilities.fliplatitude(ds)
         # Resize
         newlat: NDArray[np.float64] = np.linspace(
             ds.latitude.min().item(), ds.latitude.max().item(), target_resolution[0]
@@ -87,8 +87,11 @@ class Merger:
             var_da.to_netcdf(target_path.joinpath(f"{var_name}_{year}.nc"))
             print(f"Saved {var_name}_{year}.nc - Shape: {var_da.shape}")
 
+
+class ERA5Utilities:
+
     @staticmethod
-    def __dropfeb29(ds: xr.Dataset) -> xr.Dataset:
+    def dropfeb29(ds: xr.Dataset) -> xr.Dataset:
         """
         ERA5 accounts for leaf years, CESM2 standardizes years into 365-day periods
         """
@@ -96,12 +99,42 @@ class Merger:
         return ds.sel(valid_time=~((ds.valid_time.dt.month == 2) & (ds.valid_time.dt.day == 29)))
 
     @staticmethod
-    def __fliplatitude(ds: xr.Dataset) -> xr.Dataset:
+    def fliplatitude(data: xr.Dataset | xr.DataArray) -> xr.Dataset | xr.DataArray:
         """
         ERA5 stores latitude in descending order (90 -> -90), CESM2 stores it in ascending order
         """
-        assert "latitude" in ds.coords
-        return ds.sortby("latitude", ascending=True)
+        assert "latitude" in data.coords
+        return data.sortby("latitude", ascending=True)
+
+    @staticmethod
+    def convert_to_cesm2_definition(var_name: str, da: xr.DataArray) -> xr.DataArray:
+        if var_name == "avgtnlwrf":
+            print(f"Convert {var_name} (flip sign)")
+            return -da    # ECMWF convention assigns possitive downward
+        if var_name == "tp":
+            print(f"Convert {var_name} (divided by 3600)")
+            return da / 3600  # precisely, da = da * 24 / 86400
+        if var_name in {"z200", "z500", "z850"}:
+            print(f"Convert {var_name} (divided by 9.80665)")
+            return da / 9.80665   # geopotential -> geopotential height
+
+        print(f"No conversion {var_name}")
+        return da
+
+    @staticmethod
+    def validate_complete_data(da: xr.DataArray, var_name: str, year: int) -> None:
+        # check var name
+        assert da.name == var_name
+        # expected (365, H, W)
+        time: xr.DataArray = da.coords["valid_time"]
+        found_years: set[int] = set(y.item() for y in time.dt.year.values)
+        assert found_years == {year}, f"Found years: {found_years}"
+        months: set[int] = set(m.item() for m in time.dt.month.values)
+        assert len(months) == 12, f"Found months: {months}"
+        days = set(d.item() for d in time.dt.floor("D").values.astype("datetime64[D]"))
+        assert len(days) == 365, f"Found {len(days)} unique days"
+        return
+
 
 class DataReader:
 
@@ -129,9 +162,9 @@ class DataReader:
         # NOTE: Force to load full data to RAM (not just memory references)
         da: xr.DataArray = xr.open_dataarray(filepath, engine="netcdf4").load()
         # Convert to ERA5's definition
-        da = self.__convert_to_cesm2_definition(var_name=var_name, da=da)
+        da = ERA5Utilities.convert_to_cesm2_definition(var_name=var_name, da=da)
         # Validate
-        self.__validate_complete_data(da=da, var_name=var_name, year=year)
+        ERA5Utilities.validate_complete_data(da=da, var_name=var_name, year=year)
         tensor: torch.Tensor = torch.from_numpy(da.values.astype("float32"))
         return tensor
 
@@ -140,33 +173,6 @@ class DataReader:
             source_root=self.raw_root.as_posix(), target_root=self.array_root.as_posix(),
         )
         merger.to_netcdf(year=year, target_resolution=self.target_resolution)
-
-    def __validate_complete_data(self, da: xr.DataArray, var_name: str, year: int) -> None:
-        # check var name
-        assert da.name == var_name
-        # expected (365, H, W)
-        time: xr.DataArray = da.coords["valid_time"]
-        found_years: set[int] = set(y.item() for y in time.dt.year.values)
-        assert found_years == {year}, f"Found years: {found_years}"
-        months: set[int] = set(m.item() for m in time.dt.month.values)
-        assert len(months) == 12, f"Found months: {months}"
-        days = set(d.item() for d in time.dt.floor("D").values.astype("datetime64[D]"))
-        assert len(days) == 365, f"Found {len(days)} unique days"
-
-    @staticmethod
-    def __convert_to_cesm2_definition(var_name: str, da: xr.DataArray) -> xr.DataArray:
-        if var_name == "avgtnlwrf":
-            print(f"Convert {var_name} (flip sign)")
-            return -da    # ECMWF convention assigns possitive downward
-        if var_name == "tp":
-            print(f"Convert {var_name} (divided by 3600)")
-            return da / 3600  # precisely, da = da * 24 / 86400
-        if var_name in {"z200", "z500", "z850"}:
-            print(f"Convert {var_name} (divided by 9.80665)")
-            return da / 9.80665   # geopotential -> geopotential height
-
-        print(f"No conversion {var_name}")
-        return da
 
 
 class LandmaskReader:
@@ -189,18 +195,10 @@ class LandmaskReader:
         da = da.interp(latitude=newlat, longitude=newlon, method="nearest")
         return da
 
-    @staticmethod
-    def __fliplatitude(da: xr.DataArray) -> xr.DataArray:
-        """
-        ERA5 stores latitude in descending order (90 -> -90), CESM2 stores it in ascending order
-        """
-        assert "latitude" in da.coords
-        return da.sortby("latitude", ascending=True)
-
     @cached_property
     def tensor(self) -> torch.Tensor:
         da: xr.DataArray = xr.load_dataarray(self.filepath, engine="netcdf4").isel(valid_time=0)
-        da = self.__fliplatitude(da)
+        da = ERA5Utilities.fliplatitude(da)
         da = self.__resize(da)
         value: torch.Tensor = torch.from_numpy(da.values).nan_to_num(0.0)
         landmask: torch.Tensor = (value != 0.).float()

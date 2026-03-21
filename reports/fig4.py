@@ -304,6 +304,199 @@ class DiffusionQuantileBuilder:
         print(f"[fig4] Saved PIT histogram to: {pit_histogram_path}")
 
 
+class DiffusionCRPSDecompositionBuilder:
+
+    _MEMBER_PATTERN = re.compile(r"^(?P<prefix>.+)_ens_(?P<member>\d{4})\.pt$")
+
+    def __init__(
+        self,
+        source_dir: Path,
+        target_dir: Path,
+        output_name: str,
+    ) -> None:
+        self.source_dir: Path = source_dir
+        self.target_dir: Path = target_dir
+        self.output_name: str = output_name
+        self.target_dir.mkdir(parents=True, exist_ok=True)
+
+    @cached_property
+    def _ensemble_groups(self) -> dict[str, list[Path]]:
+        groups: dict[str, list[Path]] = {}
+        for path in sorted(self.source_dir.glob("*_ens_*.pt")):
+            if path.name.endswith("_ens_aggregate.pt"):
+                continue
+            match: re.Match | None = self._MEMBER_PATTERN.match(path.name)
+            if match is None:
+                continue
+            prefix: str = match.group("prefix")
+            if f"_{self.output_name}_" not in prefix:
+                continue
+            groups.setdefault(prefix, []).append(path)
+        for prefix in groups:
+            groups[prefix].sort(key=lambda x: x.name)
+        return groups
+
+    @staticmethod
+    def compute_crps_terms(
+        groundtruth: torch.Tensor,
+        member_predictions: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        assert groundtruth.ndim == 2
+        assert member_predictions.ndim == 3
+        assert groundtruth.shape == member_predictions.shape[1:]
+
+        obs_term: torch.Tensor = (member_predictions - groundtruth.unsqueeze(dim=0)).abs().mean(dim=0)
+        pairwise_distance: torch.Tensor = (
+            member_predictions[:, None, :, :] - member_predictions[None, :, :, :]
+        ).abs()
+        spread_term: torch.Tensor = 0.5 * pairwise_distance.mean(dim=(0, 1))
+        crps_map: torch.Tensor = obs_term - spread_term
+        return obs_term, spread_term, crps_map
+
+    def build_one(self, prefix: str, member_paths: list[Path]) -> Path:
+        assert len(member_paths) > 0
+        predictions: list[torch.Tensor] = []
+        groundtruth: torch.Tensor | None = None
+        last_object: dict[str, Any] | None = None
+        for path in member_paths:
+            obj: dict[str, Any] = torch.load(path, map_location="cpu")
+            last_object = obj
+            if groundtruth is None:
+                groundtruth = torch.as_tensor(obj["groundtruth"], dtype=torch.float32)
+            predictions.append(torch.as_tensor(obj["prediction"], dtype=torch.float32))
+
+        assert last_object is not None
+        assert groundtruth is not None
+        prediction_stack: torch.Tensor = torch.stack(predictions, dim=0)
+        resized_groundtruth: torch.Tensor = DiffusionQuantileBuilder.resize_groundtruth(
+            groundtruth=groundtruth,
+            target_shape=tuple(prediction_stack.shape[1:]),   # pyright: ignore
+        )
+        obs_term, spread_term, crps_map = self.compute_crps_terms(
+            groundtruth=resized_groundtruth,
+            member_predictions=prediction_stack,
+        )
+        result_object: dict[str, Any] = {
+            "prefix": prefix,
+            "groundtruth": resized_groundtruth,
+            "ensemble_mean": prediction_stack.mean(dim=0),
+            "obs_term": obs_term,
+            "spread_term": spread_term,
+            "crps_map": crps_map,
+            "ensemble_size": int(prediction_stack.shape[0]),
+            "model_name": last_object["model_name"],
+            "output_name": last_object["output_name"],
+            "sim_id": last_object["sim_id"],
+            "in_startdate": last_object["in_startdate"],
+            "in_enddate": last_object["in_enddate"],
+            "out_startdate": last_object["out_startdate"],
+            "out_enddate": last_object["out_enddate"],
+        }
+        output_path: Path = self.target_dir.joinpath(f"{prefix}_crps.pt")
+        torch.save(result_object, output_path)
+        return output_path
+
+    def load_all_crps_maps(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        pattern: str = f"*_{self.output_name}_*_crps.pt"
+        filepaths: list[Path] = sorted(self.target_dir.glob(pattern))
+        if not filepaths:
+            raise FileNotFoundError(f"No CRPS files found in: {self.target_dir}")
+
+        obs_terms: list[torch.Tensor] = []
+        spread_terms: list[torch.Tensor] = []
+        crps_maps: list[torch.Tensor] = []
+        for filepath in filepaths:
+            result_object: dict[str, Any] = torch.load(filepath, map_location="cpu")
+            obs_terms.append(torch.as_tensor(result_object["obs_term"], dtype=torch.float32))
+            spread_terms.append(torch.as_tensor(result_object["spread_term"], dtype=torch.float32))
+            crps_maps.append(torch.as_tensor(result_object["crps_map"], dtype=torch.float32))
+        return (
+            torch.stack(obs_terms, dim=0),
+            torch.stack(spread_terms, dim=0),
+            torch.stack(crps_maps, dim=0),
+        )
+
+    def plot_all_crps_maps(self) -> list[Path]:
+        pattern: str = f"*_{self.output_name}_*_crps.pt"
+        filepaths: list[Path] = sorted(self.target_dir.glob(pattern))
+        if not filepaths:
+            raise FileNotFoundError(f"No CRPS files found in: {self.target_dir}")
+
+        output_paths: list[Path] = []
+        for filepath in filepaths:
+            result_object: dict[str, Any] = torch.load(filepath, map_location="cpu")
+            prefix: str = result_object["prefix"]
+            output_name: str = result_object["output_name"]
+            obs_term: torch.Tensor = torch.as_tensor(result_object["obs_term"], dtype=torch.float32)
+            spread_term: torch.Tensor = torch.as_tensor(result_object["spread_term"], dtype=torch.float32)
+            crps_map: torch.Tensor = torch.as_tensor(result_object["crps_map"], dtype=torch.float32)
+
+            fig, axs = plt.subplots(1, 3, figsize=(18, 4.2))
+            titles: list[str] = ["Observation Term", "Spread Term", "CRPS"]
+            frames: list[torch.Tensor] = [obs_term, spread_term, crps_map]
+            for ax, title, frame in zip(axs, titles, frames):
+                im = ax.imshow(frame, origin="lower", cmap="magma", vmin=0.0, vmax=0.08)
+                ax.set_title(title)
+                ax.set_xticks([])
+                ax.set_yticks([])
+                cax = make_axes_locatable(ax).append_axes("right", size="4%", pad=0.08)
+                fig.colorbar(im, cax=cax)
+
+            fig.suptitle(f"CRPS Decomposition: {output_name} | {prefix}", fontsize=16)
+            fig.tight_layout()
+            output_path: Path = filepath.with_suffix(".png")
+            fig.savefig(output_path, dpi=300, bbox_inches="tight")
+            plt.close(fig)
+            output_paths.append(output_path)
+        return output_paths
+
+    def plot_summary(self) -> tuple[Path, Path]:
+        obs_terms, spread_terms, crps_maps = self.load_all_crps_maps()
+        mean_obs_term: torch.Tensor = obs_terms.mean(dim=0)
+        mean_spread_term: torch.Tensor = spread_terms.mean(dim=0)
+        mean_crps: torch.Tensor = crps_maps.mean(dim=0)
+
+        stats_path: Path = self.target_dir.joinpath(f"{self.output_name}_crps_decomposition.pt")
+        torch.save(
+            {
+                "output_name": self.output_name,
+                "n_samples": int(crps_maps.shape[0]),
+                "mean_obs_term": mean_obs_term,
+                "mean_spread_term": mean_spread_term,
+                "mean_crps": mean_crps,
+            },
+            stats_path,
+        )
+
+        fig, axs = plt.subplots(1, 3, figsize=(18, 4.2))
+        titles: list[str] = ["Observation Term", "Spread Term", "CRPS"]
+        frames: list[torch.Tensor] = [mean_obs_term, mean_spread_term, mean_crps]
+        for ax, title, frame in zip(axs, titles, frames):
+            im = ax.imshow(frame, origin="lower", cmap="magma", vmin=0.0, vmax=0.08)
+            ax.set_title(title)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            cax = make_axes_locatable(ax).append_axes("right", size="4%", pad=0.08)
+            fig.colorbar(im, cax=cax)
+
+        fig.suptitle(f"CRPS Decomposition: {self.output_name}", fontsize=16)
+        fig.tight_layout()
+        figure_path: Path = self.target_dir.joinpath(f"{self.output_name}_crps_decomposition.png")
+        fig.savefig(figure_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        return stats_path, figure_path
+
+    def run(self) -> None:
+        groups: dict[str, list[Path]] = self._ensemble_groups
+        for prefix in sorted(groups.keys()):
+            self.build_one(prefix=prefix, member_paths=groups[prefix])
+        crps_map_paths: list[Path] = self.plot_all_crps_maps()
+        stats_path, figure_path = self.plot_summary()
+        print(f"[fig4] Saved {len(crps_map_paths)} CRPS maps for {self.output_name}")
+        print(f"[fig4] Saved CRPS decomposition stats to: {stats_path}")
+        print(f"[fig4] Saved CRPS decomposition figure to: {figure_path}")
+
+
 
 def main(
     dataset: Literal["cesm2", "era5"],
@@ -313,12 +506,18 @@ def main(
     source_dir: Path = config.target_path.joinpath(f"{dataset}/tensors")
     target_dir: Path = config.target_path.joinpath(f"{dataset}/quantiles")
     for output_name in metadata.output_vars:
-        builder = DiffusionQuantileBuilder(
+        quantile_builder = DiffusionQuantileBuilder(
             source_dir=source_dir,
             target_dir=target_dir,
             output_name=output_name,
         )
-        builder.run()
+        quantile_builder.run()
+        crps_builder = DiffusionCRPSDecompositionBuilder(
+            source_dir=source_dir,
+            target_dir=target_dir,
+            output_name=output_name,
+        )
+        crps_builder.run()
 
 
 if __name__ == "__main__":
