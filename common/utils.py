@@ -393,7 +393,7 @@ class TorchDictIO:
         self.dirpath: pathlib.Path = pathlib.Path(dirpath)
         os.makedirs(name=self.dirpath, exist_ok=True)
 
-    def save(self, obj: dict[str, torch.Tensor | float | str], filename: str) -> None:
+    def save(self, obj: dict[str, torch.Tensor | float | int | str], filename: str) -> None:
         """
         Serialize objections to a file.
 

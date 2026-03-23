@@ -241,6 +241,24 @@ class ViTConfig(BaseConfig):
         }
 
 
+class ECMWFS2SConfig:
+
+    def __init__(self) -> None:
+        with open("./config.yaml", mode="r") as file:
+            self._config: dict[str, Any] = yaml.safe_load(file)["ecmwf-s2s"]
+
+        self.groundtruth_path: Path = Path(self._config["groundtruth_path"])
+        self.prediction_path: Path = Path(self._config["prediction_path"])
+        self.target_path: Path = Path(self._config["target_path"])
+
+    def to_dict(self) -> dict[str, Path]:
+        return {
+            "groundtruth_path": self.groundtruth_path,
+            "prediction_path": self.prediction_path,
+            "target_path": self.target_path,
+        }
+
+
 class VAEConfig(BaseConfig):
 
     def __init__(self, context_group: Literal["wind", "mass", "thermal", "hydro", "precip"]):

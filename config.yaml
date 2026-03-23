@@ -29,21 +29,21 @@ cesm2:
     "1251.011",
     "1281.011",
     "1301.011",
-    # # Boundary condition: BHISTcmip6
-    # "1001.001",
-    # "1021.002",
-    # "1041.003",
-    # "1061.004",
-    # "1081.005",
-    # "1101.006",
-    # "1121.007",
-    # "1141.008",
-    # "1161.009",
-    # "1181.010",
-    # "1231.001",
-    # "1251.001",
-    # "1281.001",
-    # "1301.001",
+    # Boundary condition: BHISTcmip6
+    "1001.001",
+    "1021.002",
+    "1041.003",
+    "1061.004",
+    "1081.005",
+    "1101.006",
+    "1121.007",
+    "1141.008",
+    "1161.009",
+    "1181.010",
+    "1231.001",
+    "1251.001",
+    "1281.001",
+    "1301.001",
   ]
   # modifiable configs:
   train_start_year: 1950
@@ -163,7 +163,6 @@ cnn:
   # target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_large/"
 
 
-
 unet:
 
   in_features: 21
@@ -240,6 +239,13 @@ vit:
   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/vit/vit3.pt"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/vit/"
   target_path: "/scratch/zgp2ps/s2s_results/vit/"
+
+
+ecmwf-s2s:
+
+  groundtruth_path: "/scratch/zgp2ps/era5/arrays/"
+  prediction_path: "/scratch/zgp2ps/s2s_ecmwf/"
+  target_path: "/scratch/zgp2ps/s2s_results/ecmwfs2s/"
 
 
 vae-wind:

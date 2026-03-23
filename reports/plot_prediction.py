@@ -1,11 +1,11 @@
 from typing import Literal
-from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, VAEConfig, DiffusionConfig
+from common.configs import MetaData, CNNConfig, UnetConfig, ViTConfig, ECMWFS2SConfig, VAEConfig, DiffusionConfig
 from workers.predictors import Visualizer
 
 
 def main(
     model: Literal[
-        "cnn", "unet", "vit",
+        "cnn", "unet", "vit", "ecmwf-s2s",
         "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip",
         "diffusion",
     ],
@@ -18,6 +18,8 @@ def main(
         model_config = UnetConfig()
     elif model.lower() == "vit":
         model_config = ViTConfig()
+    elif model.lower() == "ecmwf-s2s":
+        model_config = ECMWFS2SConfig()
     elif model.lower() == "vae-wind":
         model_config = VAEConfig(context_group="wind")
     elif model.lower() == "vae-mass":
@@ -58,7 +60,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model",
         type=str, choices=[
-            "cnn", "unet", "vit",
+            "cnn", "unet", "vit", "ecmwf-s2s",
             "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip",
             "diffusion"
         ],

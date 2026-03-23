@@ -562,7 +562,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
             error_q050_frame: torch.Tensor = ensemble_error_q050[..., idx]
             # MSE value
             global_mse_, tropical_mse_, extratropical_mse_ = self.mse(
-                prediction=ensemble_q050_frame, groundtruth=groundtruth_frame
+                prediction=ensemble_mean_frame, groundtruth=groundtruth_frame
             )
             global_mse: float = global_mse_.item()
             tropical_mse: float = tropical_mse_.item()
@@ -573,7 +573,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
             extratropical_rmse: float = extratropical_mse ** 0.5
             # MAE value
             global_mae_, tropical_mae_, extratropical_mae_ = self.mae(
-                prediction=ensemble_q050_frame, groundtruth=groundtruth_frame
+                prediction=ensemble_mean_frame, groundtruth=groundtruth_frame
             )
             global_mae: float = global_mae_.item()
             tropical_mae: float = tropical_mae_.item()
@@ -734,9 +734,9 @@ class Visualizer:
             uncertainty_frame = None
         else:
             ensemble_label: str = "Ensemble Mean"
-            prediction_frame: torch.Tensor = result_object["ensemble_q050"]
+            prediction_frame: torch.Tensor = result_object["ensemble_mean"]
             groundtruth_frame: torch.Tensor = result_object["groundtruth"]
-            error_frame: torch.Tensor = result_object["error_q050_frame"]
+            error_frame: torch.Tensor = result_object["error_mean_frame"]
             uncertainty_frame: torch.Tensor = result_object["ensemble_var"]
 
         # Make title

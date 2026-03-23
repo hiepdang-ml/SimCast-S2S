@@ -1,0 +1,462 @@
+from pathlib import Path
+from functools import cached_property
+import datetime as dt
+import random
+from typing import Any
+import numpy as np
+from numpy.typing import NDArray
+import xarray as xr
+import torch
+
+from common.configs import MetaData, ECMWFS2SConfig
+from common.metrics import GeographicalMAE, GeographicalMSE
+from common.utils import TorchDictIO
+from datapipeline.readers.era5 import ERA5Utilities
+from datapipeline.utils import SampleInfo
+
+
+class ECMWFReader:
+
+    VAR_NAME: str = "tp"
+
+    def __init__(
+        self,
+        root: str, n_lead_days: int, n_output_days: int,
+        target_resolution: tuple[int, int],
+    ) -> None:
+        self.root: Path = Path(root)
+        self.filepaths: list[Path] = sorted(self.root.glob("*.grib"))
+        assert len(self.filepaths) > 0
+        self.n_lead_days: int = n_lead_days
+        self.n_output_days: int = n_output_days
+        self.target_resolution: tuple[int, int] = target_resolution
+
+    @cached_property
+    def output_steps(self) -> list[np.timedelta64]:
+        start_day: int = self.n_lead_days + 1
+        end_day: int = start_day + self.n_output_days
+        return [np.timedelta64(d, "D") for d in range(start_day, end_day)]
+
+    @staticmethod
+    def resize(da: xr.DataArray, target_resolution: tuple[int, int]) -> xr.DataArray:
+        newlat: NDArray[np.float64] = np.linspace(
+            da.latitude.min().item(), da.latitude.max().item(), target_resolution[0]
+        )
+        newlon: NDArray[np.float64] = np.linspace(
+            da.longitude.min().item(), da.longitude.max().item(), target_resolution[1]
+        )
+        return da.interp(latitude=newlat, longitude=newlon, method="linear")
+
+    @staticmethod
+    def sample_two_forecasts(da: xr.DataArray) -> xr.DataArray:
+        valid_time: xr.DataArray = da.coords["valid_time"]
+        assert valid_time.dims == ("time", "step")
+        start_years: NDArray[np.int64] = valid_time.isel(step=0).dt.year.values.astype(np.int64)
+        end_years: NDArray[np.int64] = valid_time.isel(step=-1).dt.year.values.astype(np.int64)
+        eligible_indices: list[int] = np.flatnonzero(start_years == end_years).tolist()
+        if len(eligible_indices) < 2:
+            raise RuntimeError(
+                "Need at least 2 ECMWF-S2s forecast initializations whose output window stays "
+                f"within a single year, got {len(eligible_indices)}"
+            )
+
+        split_idx: int = len(eligible_indices) // 2
+        first_idx: int = random.choice(eligible_indices[:split_idx])
+        second_idx: int = random.choice(eligible_indices[split_idx:])
+        return da.isel(time=[first_idx, second_idx])
+
+    def read(self) -> xr.DataArray:
+        monthly_outputs: list[xr.DataArray] = []
+        for filepath in self.filepaths[:2]:
+            ds: xr.Dataset = xr.open_dataset(filepath, engine="cfgrib")
+            da: xr.DataArray = ds[self.VAR_NAME].sel(step=self.output_steps)
+            da = self.sample_two_forecasts(da)
+            da = ERA5Utilities.fliplatitude(da)
+            da = ERA5Utilities.convert_to_cesm2_definition(var_name=self.VAR_NAME, da=da)
+            monthly_outputs.append(self.resize(da, self.target_resolution))
+        return xr.concat(objs=monthly_outputs, dim="time")
+
+
+class ECMWFPreprocessor:
+
+    def __init__(self, train_metadata: MetaData) -> None:
+        assert train_metadata.dataset_name == "era5"
+        assert train_metadata.tp == "train"
+        self.train_metadata: MetaData = train_metadata
+        self.var_name: str = train_metadata.output_vars[0]
+        self.sim_id: str = train_metadata.sim_ids[0]
+        self.H, self.W = train_metadata.resolution
+
+        suffix: str = f"{self.sim_id}_{self.var_name}_{train_metadata.start_year}_{train_metadata.end_year}.pt"
+        self.lr_weight: NDArray[np.float32] = torch.load(
+            f=train_metadata.detrender_state_directory.joinpath(suffix),
+            weights_only=False,
+            map_location="cpu",
+        ).numpy().astype(np.float32, copy=False)
+        self.climatological_mean: NDArray[np.float32] = torch.load(
+            f=train_metadata.climatology_state_directory.joinpath(f"mean_{suffix}"),
+            weights_only=False,
+            map_location="cpu",
+        ).numpy().astype(np.float32, copy=False)
+        self.climatological_std: NDArray[np.float32] = torch.load(
+            f=train_metadata.climatology_state_directory.joinpath(f"std_{suffix}"),
+            weights_only=False,
+            map_location="cpu",
+        ).numpy().astype(np.float32, copy=False)
+        assert self.lr_weight.shape == (2, self.H * self.W)
+        assert self.climatological_mean.shape == (365, self.H, self.W)
+        assert self.climatological_std.shape == (365, self.H, self.W)
+
+    def preprocess_predictions(self, da: xr.DataArray) -> xr.DataArray:
+        required_dims: tuple[str, ...] = ("number", "time", "step", "latitude", "longitude")
+        assert da.dims == required_dims, f"Expected dims {required_dims}, got {da.dims}"
+        assert da.shape[-2:] == (self.H, self.W), (
+            f"Resolution mismatch: expected {(self.H, self.W)}, got {da.shape[-2:]}"
+        )
+        valid_time: xr.DataArray = da.coords["valid_time"]
+        years: NDArray[np.float32] = valid_time.dt.year.values.astype(np.float32)
+        dayofyears: NDArray[np.int64] = valid_time.dt.dayofyear.values.astype(np.int64)
+        assert valid_time.shape == years.shape == dayofyears.shape
+        day_index: NDArray[np.int64] = dayofyears - 1
+        assert np.all((0 <= day_index) & (day_index < 365))
+
+        trend: NDArray[np.float32] = self._compute_trend(years=years)
+        climatological_mean: NDArray[np.float32] = self.climatological_mean[day_index]
+        climatological_std: NDArray[np.float32] = self.climatological_std[day_index]
+
+        input_array: NDArray[np.float32] = da.values.astype(np.float32)
+        detrended: NDArray[np.float32] = input_array - trend[None, :, :, :, :]
+        standardized_anomaly: NDArray[np.float32] = (
+            detrended - climatological_mean[None, :, :, :, :]
+        ) / climatological_std[None, :, :, :, :]
+
+        output: xr.DataArray = da.copy(data=standardized_anomaly)
+        return output
+
+    def preprocess_groundtruths(self, da: xr.DataArray) -> xr.DataArray:
+        required_dims: tuple[str, ...] = ("valid_time", "latitude", "longitude")
+        assert da.dims == required_dims, f"Expected dims {required_dims}, got {da.dims}"
+        assert da.shape[-2:] == (self.H, self.W), (
+            f"Resolution mismatch: expected {(self.H, self.W)}, got {da.shape[-2:]}"
+        )
+        valid_time: xr.DataArray = da.coords["valid_time"]
+        years: NDArray[np.float32] = valid_time.dt.year.values.astype(np.float32)
+        dayofyears: NDArray[np.int64] = valid_time.dt.dayofyear.values.astype(np.int64)
+        assert valid_time.shape == years.shape == dayofyears.shape
+        day_index: NDArray[np.int64] = dayofyears - 1
+        assert np.all((0 <= day_index) & (day_index < 365))
+
+        trend: NDArray[np.float32] = self._compute_trend(years=years)
+        climatological_mean: NDArray[np.float32] = self.climatological_mean[day_index]
+        climatological_std: NDArray[np.float32] = self.climatological_std[day_index]
+
+        input_array: NDArray[np.float32] = da.values.astype(np.float32)
+        detrended: NDArray[np.float32] = input_array - trend
+        standardized_anomaly: NDArray[np.float32] = (
+            detrended - climatological_mean
+        ) / climatological_std
+        return da.copy(data=standardized_anomaly)
+
+    def _compute_trend(self, years: NDArray[np.float32]) -> NDArray[np.float32]:
+        assert years.ndim in {1, 2}
+        X: NDArray[np.float32] = np.stack(
+            [
+                np.ones(years.shape, dtype=np.float32),
+                years.astype(np.float32, copy=False),
+            ],
+            axis=-1,
+        )
+        trend: NDArray[np.float32] = X.reshape(-1, 2) @ self.lr_weight
+        trend = trend.reshape(*years.shape, self.H, self.W)
+        return trend
+
+
+class ECMWFGenerator:
+
+    def __init__(
+        self,
+        groundtruth_path: str | Path,
+        prediction_path: str | Path,
+        metadata: MetaData,
+        train_metadata: MetaData,
+    ) -> None:
+        assert metadata.dataset_name == "era5"
+        assert metadata.tp == "test"
+        assert len(metadata.output_vars) == 1
+
+        self.metadata: MetaData = metadata
+        self.output_name: str = metadata.output_vars[0]
+        self.groundtruth_path: Path = Path(groundtruth_path)
+        self.prediction_path: Path = Path(prediction_path)
+        self.preprocessor: ECMWFPreprocessor = ECMWFPreprocessor(train_metadata=train_metadata)
+        self.model_name: str = "ECMWFS2S"
+        self.tropical_lats: tuple[float, float] = (-25.0, 25.0) # fixed
+        self.mse = GeographicalMSE(
+            landmask_path=metadata.landmask_path.as_posix(),
+            tropical_lats=self.tropical_lats,
+        )
+        self.mae = GeographicalMAE(
+            landmask_path=metadata.landmask_path.as_posix(),
+            tropical_lats=self.tropical_lats,
+        )
+        self.n_members, self.n_samples, self.n_output_days, self.H, self.W = self.prediction_tensor.shape
+        assert (self.H, self.W) == metadata.resolution
+
+    @staticmethod
+    def _get_date_index(year: int) -> list[np.datetime64]:
+        start_date: dt.date = dt.date(year, 1, 1)
+        end_date: dt.date = dt.date(year, 12, 31)
+        values: list[np.datetime64] = []
+        current: dt.date = start_date
+        while current <= end_date:
+            if not (current.month == 2 and current.day == 29):
+                values.append(np.datetime64(current.isoformat()))
+            current += dt.timedelta(days=1)
+        assert len(values) == 365
+        return values
+
+    @cached_property
+    def sample_timearray_lookup(self) -> dict[int, NDArray[np.datetime64]]:
+        return dict(enumerate(self.prediction_array.coords["valid_time"].values))
+
+    @cached_property
+    def sample_years(self) -> list[int]:
+        years: NDArray[np.int64] = (
+            self.prediction_array.coords["valid_time"].values
+            .astype("datetime64[Y]").astype(np.int64).reshape(-1) + 1970
+        )
+        return sorted(set(years.tolist()))
+
+    @cached_property
+    def era5_truth(self) -> dict[np.datetime64, torch.Tensor]:
+        result: dict[np.datetime64, torch.Tensor] = {}
+        for year in self.sample_years:
+            filename: str = f"{self.output_name}/{self.output_name}_{year}.nc"
+            filepath: Path = self.groundtruth_path.joinpath(filename)
+            assert filepath.exists()
+            da: xr.DataArray = xr.open_dataarray(filepath, engine="netcdf4").load()
+            da = ERA5Utilities.convert_to_cesm2_definition(var_name=self.output_name, da=da)
+            ERA5Utilities.validate_complete_data(da=da, var_name=self.output_name, year=year)
+            da = self.preprocessor.preprocess_groundtruths(da=da)
+            tensor: torch.Tensor = torch.from_numpy(da.values.astype(np.float32))
+            assert tensor.shape == (365, self.H, self.W)
+            for day_idx, date_value in enumerate(self._get_date_index(year)):
+                record: torch.Tensor = tensor[day_idx]
+                assert record.shape == (self.H, self.W)
+                result[date_value] = record
+        return result
+
+    @cached_property
+    def prediction_array(self) -> xr.DataArray:
+        reader: ECMWFReader = ECMWFReader(
+            root=self.prediction_path.as_posix(),
+            n_lead_days=self.metadata.n_lead_days,
+            n_output_days=self.metadata.n_output_days,
+            target_resolution=self.metadata.resolution,
+        )
+        predictions: xr.DataArray = reader.read()
+        predictions = self.preprocessor.preprocess_predictions(predictions)
+        expected_shape: tuple[int, int, int, int, int] = (
+            predictions.sizes["number"],
+            predictions.sizes["time"],
+            self.metadata.n_output_days,
+            self.metadata.resolution[0],
+            self.metadata.resolution[1],
+        )
+        assert predictions.shape == expected_shape, (
+            "Unexpected raw ECMWF-S2S prediction shape: "
+            f"expected {expected_shape}, got {predictions.shape}"
+        )
+        return predictions
+
+    @cached_property
+    def prediction_tensor(self) -> torch.Tensor:
+        tensor: torch.Tensor = torch.from_numpy(self.prediction_array.values.astype(np.float32))
+        assert tensor.ndim == 5 # n_members, n_samples, n_output_days, H, W
+        return tensor
+
+    @staticmethod
+    def _to_datetime(value: np.datetime64) -> dt.datetime:
+        timestamp_us: int = int(value.astype("datetime64[us]").astype(np.int64))
+        return dt.datetime(1970, 1, 1) + dt.timedelta(microseconds=timestamp_us)
+
+    def get_sample_info(self, sample_id: int) -> SampleInfo:
+        prediction_time: NDArray[np.datetime64] = self.sample_timearray_lookup[sample_id]
+        assert prediction_time.shape == (self.n_output_days,)
+        start_dt: dt.datetime = self._to_datetime(prediction_time[0])
+        end_dt: dt.datetime = self._to_datetime(prediction_time[-1])
+        return SampleInfo(
+            sim_id="ecmwf",
+            in_startdate=start_dt.strftime("%Y/%m/%d"),
+            in_enddate=start_dt.strftime("%Y/%m/%d"),
+            out_startdate=start_dt.strftime("%Y/%m/%d"),
+            out_enddate=end_dt.strftime("%Y/%m/%d"),
+        )
+
+    def get_prediction(self, sample_id: int) -> torch.Tensor:
+        return self.prediction_tensor[:, sample_id].mean(dim=1)
+
+    def get_groundtruth(self, sample_id: int) -> torch.Tensor:
+        prediction_time: NDArray[np.datetime64] = self.sample_timearray_lookup[sample_id]
+        assert prediction_time.shape == (self.n_output_days,)
+        tensors: list[torch.Tensor] = []
+        for value in prediction_time:
+            day_key: np.datetime64 = value.astype("datetime64[D]")
+            if day_key not in self.era5_truth:
+                raise KeyError(f"Missing ERA5 groundtruth for valid_time={day_key}")
+            tensors.append(self.era5_truth[day_key])
+        groundtruth: torch.Tensor = torch.stack(tensors, dim=0)
+        assert groundtruth.shape == (self.n_output_days, self.H, self.W)
+        return groundtruth.mean(dim=0)
+
+    def _make_filename_prefix(self, sampleinfo: SampleInfo) -> str:
+        prefix: str = (
+            f"{self.model_name}_{self.output_name}_{sampleinfo.sim_id}_"
+            f"{sampleinfo.in_startdate}{sampleinfo.in_enddate}_"
+            f"{sampleinfo.out_startdate}{sampleinfo.out_enddate}"
+        )
+        return prefix.replace("/", "")
+
+    def generate(self, target_dir: str | Path) -> None:
+        torchio: TorchDictIO = TorchDictIO(dirpath=Path(target_dir).as_posix())
+        for sample_id in range(self.n_samples):
+            sampleinfo: SampleInfo = self.get_sample_info(sample_id=sample_id)
+            prediction: torch.Tensor = self.get_prediction(sample_id=sample_id)
+            groundtruth: torch.Tensor = self.get_groundtruth(sample_id=sample_id)
+            assert prediction.shape == (self.n_members, self.H, self.W)
+            assert groundtruth.shape == (self.H, self.W)
+            prefix: str = self._make_filename_prefix(sampleinfo=sampleinfo)
+
+            for member_idx in range(self.n_members):
+                prediction_frame: torch.Tensor = prediction[member_idx]
+                error_frame: torch.Tensor = groundtruth - prediction_frame
+                global_mse_, tropical_mse_, extratropical_mse_ = self.mse(
+                    prediction=prediction_frame, groundtruth=groundtruth
+                )
+                global_mse: float = global_mse_.item()
+                tropical_mse: float = tropical_mse_.item()
+                extratropical_mse: float = extratropical_mse_.item()
+                global_rmse: float = global_mse ** 0.5
+                tropical_rmse: float = tropical_mse ** 0.5
+                extratropical_rmse: float = extratropical_mse ** 0.5
+                global_mae_, tropical_mae_, extratropical_mae_ = self.mae(
+                    prediction=prediction_frame, groundtruth=groundtruth
+                )
+                global_mae: float = global_mae_.item()
+                tropical_mae: float = tropical_mae_.item()
+                extratropical_mae: float = extratropical_mae_.item()
+                suffix: str = f"ens_{member_idx:04d}.pt"
+                result_object: dict[str, Any] = {
+                    "groundtruth": groundtruth,
+                    "prediction": prediction_frame,
+                    "error_map": error_frame,
+                    "global_mse": global_mse,
+                    "tropical_mse": tropical_mse,
+                    "extratropical_mse": extratropical_mse,
+                    "global_rmse": global_rmse,
+                    "tropical_rmse": tropical_rmse,
+                    "extratropical_rmse": extratropical_rmse,
+                    "global_mae": global_mae,
+                    "tropical_mae": tropical_mae,
+                    "extratropical_mae": extratropical_mae,
+                    "model_name": self.model_name,
+                    "output_name": self.output_name,
+                    "sim_id": sampleinfo.sim_id,
+                    "in_startdate": sampleinfo.in_startdate,
+                    "in_enddate": sampleinfo.in_enddate,
+                    "out_startdate": sampleinfo.out_startdate,
+                    "out_enddate": sampleinfo.out_enddate,
+                    "tropical_lats": self.tropical_lats,
+                    "ensemble_size": self.n_members,
+                    "ensemble_member": member_idx + 1,
+                    "ensemble_stat": "member",
+                    "prefix": prefix,
+                    "suffix": suffix,
+                }
+                torchio.save(obj=result_object, filename=f"{prefix}_{suffix}")
+
+            ensemble_mean: torch.Tensor = prediction.mean(dim=0)
+            ensemble_var: torch.Tensor = prediction.var(dim=0, unbiased=True)
+            ensemble_std: torch.Tensor = prediction.std(dim=0, unbiased=True)
+            ensemble_q001: torch.Tensor = prediction.quantile(q=0.01, dim=0)
+            ensemble_q005: torch.Tensor = prediction.quantile(q=0.05, dim=0)
+            ensemble_q010: torch.Tensor = prediction.quantile(q=0.10, dim=0)
+            ensemble_q025: torch.Tensor = prediction.quantile(q=0.25, dim=0)
+            ensemble_q050: torch.Tensor = prediction.quantile(q=0.50, dim=0)
+            ensemble_q075: torch.Tensor = prediction.quantile(q=0.75, dim=0)
+            ensemble_q090: torch.Tensor = prediction.quantile(q=0.90, dim=0)
+            ensemble_q095: torch.Tensor = prediction.quantile(q=0.95, dim=0)
+            ensemble_q099: torch.Tensor = prediction.quantile(q=0.99, dim=0)
+            error_mean_frame: torch.Tensor = groundtruth - ensemble_mean
+            error_q050_frame: torch.Tensor = groundtruth - ensemble_q050
+            global_mse_, tropical_mse_, extratropical_mse_ = self.mse(
+                prediction=ensemble_mean, groundtruth=groundtruth
+            )
+            global_mse: float = global_mse_.item()
+            tropical_mse: float = tropical_mse_.item()
+            extratropical_mse: float = extratropical_mse_.item()
+            global_rmse: float = global_mse ** 0.5
+            tropical_rmse: float = tropical_mse ** 0.5
+            extratropical_rmse: float = extratropical_mse ** 0.5
+            global_mae_, tropical_mae_, extratropical_mae_ = self.mae(
+                prediction=ensemble_mean, groundtruth=groundtruth
+            )
+            global_mae: float = global_mae_.item()
+            tropical_mae: float = tropical_mae_.item()
+            extratropical_mae: float = extratropical_mae_.item()
+            suffix = "ens_aggregate.pt"
+            result_object = {
+                "groundtruth": groundtruth,
+                "ensemble_mean": ensemble_mean,
+                "ensemble_std": ensemble_std,
+                "ensemble_var": ensemble_var,
+                "ensemble_q001": ensemble_q001,
+                "ensemble_q005": ensemble_q005,
+                "ensemble_q010": ensemble_q010,
+                "ensemble_q025": ensemble_q025,
+                "ensemble_q050": ensemble_q050,
+                "ensemble_q075": ensemble_q075,
+                "ensemble_q090": ensemble_q090,
+                "ensemble_q095": ensemble_q095,
+                "ensemble_q099": ensemble_q099,
+                "error_mean_frame": error_mean_frame,
+                "error_q050_frame": error_q050_frame,
+                "global_mse": global_mse,
+                "tropical_mse": tropical_mse,
+                "extratropical_mse": extratropical_mse,
+                "global_rmse": global_rmse,
+                "tropical_rmse": tropical_rmse,
+                "extratropical_rmse": extratropical_rmse,
+                "global_mae": global_mae,
+                "tropical_mae": tropical_mae,
+                "extratropical_mae": extratropical_mae,
+                "model_name": self.model_name,
+                "output_name": self.output_name,
+                "sim_id": sampleinfo.sim_id,
+                "in_startdate": sampleinfo.in_startdate,
+                "in_enddate": sampleinfo.in_enddate,
+                "out_startdate": sampleinfo.out_startdate,
+                "out_enddate": sampleinfo.out_enddate,
+                "tropical_lats": self.tropical_lats,
+                "ensemble_size": self.n_members,
+                "ensemble_member": -1,
+                "ensemble_stat": "aggregate",
+                "prefix": prefix,
+                "suffix": suffix,
+            }
+            torchio.save(obj=result_object, filename=f"{prefix}_{suffix}")
+
+
+
+if __name__ == "__main__":
+    dataset: str = "era5"
+    model_config: ECMWFS2SConfig = ECMWFS2SConfig()
+    ecmwf_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
+    era5_metadata: MetaData = MetaData(dataset_name=dataset, tp="train")
+    self = ECMWFGenerator(
+        groundtruth_path=model_config.groundtruth_path,
+        prediction_path=model_config.prediction_path,
+        metadata=ecmwf_metadata,
+        train_metadata=era5_metadata,
+    )
+    self.generate(target_dir=model_config.target_path)
