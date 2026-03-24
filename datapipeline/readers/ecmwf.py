@@ -59,13 +59,14 @@ class ECMWFReader:
         )
         return da.interp(latitude=newlat, longitude=newlon, method="linear")
 
-    def sample_two_forecast_indices(self, da: xr.DataArray) -> list[int]:
+    @staticmethod
+    def sample_two_forecast_indices(da: xr.DataArray) -> list[int]:
         valid_time: xr.DataArray = da.coords["valid_time"]
         assert valid_time.dims == ("time", "step")
         start_years: NDArray[np.int64] = valid_time.isel(step=0).dt.year.values.astype(np.int64)
         end_years: NDArray[np.int64] = valid_time.isel(step=-1).dt.year.values.astype(np.int64)
         flag1: NDArray[np.bool] = start_years == end_years
-        flag2: NDArray[np.bool] = np.isin(end_years, self.groundtruth_years)
+        flag2: NDArray[np.bool] = np.isin(end_years, da.time.dt.year)
         eligible_indices: list[int] = np.flatnonzero(flag1 & flag2).tolist()
         if len(eligible_indices) < 2:
             raise RuntimeError(
