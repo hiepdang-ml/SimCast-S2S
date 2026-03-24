@@ -133,6 +133,12 @@ class ECMWFPreprocessor:
     def preprocess_predictions(self, da: xr.DataArray) -> xr.DataArray:
         required_dims: tuple[str, ...] = ("number", "time", "step", "latitude", "longitude")
         assert da.dims == required_dims, f"Expected dims {required_dims}, got {da.dims}"
+        feb29_mask: NDArray[np.bool_] = (
+            (da.coords["valid_time"].dt.month.values == 2) &
+            (da.coords["valid_time"].dt.day.values == 29)
+        )
+        keep_mask: NDArray[np.bool_] = ~np.any(feb29_mask, axis=1)
+        da = da.isel(time=keep_mask)
         n_members: int = da.sizes["number"]
         n_samples: int = da.sizes["time"]
         n_output_days: int = da.sizes["step"]
@@ -160,6 +166,7 @@ class ECMWFPreprocessor:
     def preprocess_groundtruths(self, da: xr.DataArray) -> xr.DataArray:
         required_dims: tuple[str, ...] = ("valid_time", "latitude", "longitude")
         assert da.dims == required_dims, f"Expected dims {required_dims}, got {da.dims}"
+        da = ERA5Utilities.dropfeb29(da)
         n_valid_times: int = da.sizes["valid_time"]
         assert da.shape == (n_valid_times, self.H, self.W), (
             f"Unexpected groundtruth shape: expected {(n_valid_times, self.H, self.W)}, got {da.shape}"

@@ -91,12 +91,12 @@ class Merger:
 class ERA5Utilities:
 
     @staticmethod
-    def dropfeb29(ds: xr.Dataset) -> xr.Dataset:
+    def dropfeb29(data: xr.Dataset | xr.DataArray) -> xr.Dataset | xr.DataArray:
         """
         ERA5 accounts for leaf years, CESM2 standardizes years into 365-day periods
         """
-        assert "valid_time" in ds.coords
-        return ds.sel(valid_time=~((ds.valid_time.dt.month == 2) & (ds.valid_time.dt.day == 29)))
+        assert "valid_time" in data.coords
+        return data.isel(valid_time=~((data.valid_time.dt.month == 2) & (data.valid_time.dt.day == 29)))
 
     @staticmethod
     def fliplatitude(data: xr.Dataset | xr.DataArray) -> xr.Dataset | xr.DataArray:
