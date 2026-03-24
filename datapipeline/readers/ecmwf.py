@@ -1,3 +1,4 @@
+from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from functools import cached_property
 import datetime as dt
@@ -23,10 +24,17 @@ class ECMWFReader:
         self,
         root: str, n_lead_days: int, n_output_days: int,
         target_resolution: tuple[int, int],
+        from_year: int,
+        to_year: int,
     ) -> None:
         self.root: Path = Path(root)
-        self.filepaths: list[Path] = sorted(self.root.glob("*.grib"))
-        assert len(self.filepaths) > 0
+        filepaths: list[Path] = sorted(self.root.glob("*.grib"))
+        filepaths = [
+            filepath for filepath in filepaths
+            if from_year <= int(filepath.stem[:4]) <= to_year
+        ]
+        self.filepaths: list[Path] = filepaths
+        assert len(self.filepaths) > 0, f"No ECMWF GRIB files found in {self.root}"
         self.n_lead_days: int = n_lead_days
         self.n_output_days: int = n_output_days
         self.target_resolution: tuple[int, int] = target_resolution
@@ -210,6 +218,8 @@ class ECMWFGenerator:
         prediction_path: str | Path,
         metadata: MetaData,
         train_metadata: MetaData,
+        from_year: int,
+        to_year: int,
     ) -> None:
         assert metadata.dataset_name == "era5"
         assert metadata.tp == "test"
@@ -219,6 +229,8 @@ class ECMWFGenerator:
         self.output_name: str = metadata.output_vars[0]
         self.groundtruth_path: Path = Path(groundtruth_path)
         self.prediction_path: Path = Path(prediction_path)
+        self.from_year: int = from_year
+        self.to_year: int = to_year
         self.preprocessor: ECMWFPreprocessor = ECMWFPreprocessor(train_metadata=train_metadata)
         self.model_name: str = "ECMWFS2S"
         self.tropical_lats: tuple[float, float] = (-25.0, 25.0) # fixed
@@ -295,6 +307,8 @@ class ECMWFGenerator:
             n_lead_days=self.metadata.n_lead_days,
             n_output_days=self.metadata.n_output_days,
             target_resolution=self.metadata.resolution,
+            from_year=self.from_year,
+            to_year=self.to_year,
         )
         predictions: xr.DataArray = reader.read()
         predictions = self.preprocessor.preprocess_predictions(da=predictions)
@@ -493,6 +507,12 @@ class ECMWFGenerator:
 
 
 if __name__ == "__main__":
+    parser: ArgumentParser = ArgumentParser()
+    parser.add_argument("fromyear", type=int)
+    parser.add_argument("toyear", type=int)
+    args: Namespace = parser.parse_args()
+    assert args.fromyear <= args.toyear, "fromyear must be <= toyear"
+
     dataset: str = "era5"
     model_config: ECMWFS2SConfig = ECMWFS2SConfig()
     ecmwf_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
@@ -502,5 +522,7 @@ if __name__ == "__main__":
         prediction_path=model_config.prediction_path,
         metadata=ecmwf_metadata,
         train_metadata=era5_metadata,
+        from_year=args.fromyear,
+        to_year=args.toyear,
     )
-    self.generate(target_dir=model_config.target_path.joinpath(f"{dataset}/tensors"))
+    self.generate(target_dir=model_config.target_path.joinpath(f"{dataset}/tensors/"))
