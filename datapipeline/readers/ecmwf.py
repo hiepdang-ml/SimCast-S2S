@@ -37,6 +37,10 @@ class ECMWFReader:
         end_day: int = start_day + self.n_output_days
         return [np.timedelta64(d, "D") for d in range(start_day, end_day)]
 
+    @cached_property
+    def boundary_steps(self) -> list[np.timedelta64]:
+        return [np.timedelta64(self.n_lead_days, "D")] + self.output_steps
+
     @staticmethod
     def resize(da: xr.DataArray, target_resolution: tuple[int, int]) -> xr.DataArray:
         newlat: NDArray[np.float64] = np.linspace(
@@ -48,7 +52,7 @@ class ECMWFReader:
         return da.interp(latitude=newlat, longitude=newlon, method="linear")
 
     @staticmethod
-    def sample_two_forecasts(da: xr.DataArray) -> xr.DataArray:
+    def sample_two_forecast_indices(da: xr.DataArray) -> list[int]:
         valid_time: xr.DataArray = da.coords["valid_time"]
         assert valid_time.dims == ("time", "step")
         start_years: NDArray[np.int64] = valid_time.isel(step=0).dt.year.values.astype(np.int64)
@@ -63,14 +67,26 @@ class ECMWFReader:
         split_idx: int = len(eligible_indices) // 2
         first_idx: int = random.choice(eligible_indices[:split_idx])
         second_idx: int = random.choice(eligible_indices[split_idx:])
-        return da.isel(time=[first_idx, second_idx])
+        return [first_idx, second_idx]
+
+    def accumulated_tp_to_daily_totals(self, da: xr.DataArray) -> xr.DataArray:
+        cumulative: xr.DataArray = da.sel(step=self.boundary_steps)
+        daily_totals: xr.DataArray = cumulative.diff(dim="step", label="upper")
+        assert daily_totals.dims == ("number", "time", "step", "latitude", "longitude")
+        valid_time: xr.DataArray = da["valid_time"].sel(step=self.output_steps)
+        daily_totals = daily_totals.assign_coords(valid_time=valid_time)
+        return daily_totals
 
     def read(self) -> xr.DataArray:
         monthly_outputs: list[xr.DataArray] = []
         for filepath in self.filepaths[:2]:
             ds: xr.Dataset = xr.open_dataset(filepath, engine="cfgrib")
-            da: xr.DataArray = ds[self.VAR_NAME].sel(step=self.output_steps)
-            da = self.sample_two_forecasts(da)
+            raw_tp: xr.DataArray = ds[self.VAR_NAME]
+            output_window: xr.DataArray = raw_tp.sel(step=self.output_steps)
+            sampled_time_indices: list[int] = self.sample_two_forecast_indices(output_window)
+            da: xr.DataArray = raw_tp.isel(time=sampled_time_indices)
+            da = self.accumulated_tp_to_daily_totals(da)
+            da = da / 1000.0  # ECMWF tp is kg m^-2; expecting m
             da = ERA5Utilities.fliplatitude(da)
             da = ERA5Utilities.convert_to_cesm2_definition(var_name=self.VAR_NAME, da=da)
             monthly_outputs.append(self.resize(da, self.target_resolution))
@@ -110,51 +126,65 @@ class ECMWFPreprocessor:
     def preprocess_predictions(self, da: xr.DataArray) -> xr.DataArray:
         required_dims: tuple[str, ...] = ("number", "time", "step", "latitude", "longitude")
         assert da.dims == required_dims, f"Expected dims {required_dims}, got {da.dims}"
-        assert da.shape[-2:] == (self.H, self.W), (
-            f"Resolution mismatch: expected {(self.H, self.W)}, got {da.shape[-2:]}"
+        n_members: int = da.sizes["number"]
+        n_samples: int = da.sizes["time"]
+        n_output_days: int = da.sizes["step"]
+        assert da.shape == (n_members, n_samples, n_output_days, self.H, self.W), (
+            "Unexpected prediction shape: "
+            f"expected {(n_members, n_samples, n_output_days, self.H, self.W)}, got {da.shape}"
         )
         valid_time: xr.DataArray = da.coords["valid_time"]
         years: NDArray[np.float32] = valid_time.dt.year.values.astype(np.float32)
         dayofyears: NDArray[np.int64] = valid_time.dt.dayofyear.values.astype(np.int64)
-        assert valid_time.shape == years.shape == dayofyears.shape
-        day_index: NDArray[np.int64] = dayofyears - 1
-        assert np.all((0 <= day_index) & (day_index < 365))
-
-        trend: NDArray[np.float32] = self._compute_trend(years=years)
-        climatological_mean: NDArray[np.float32] = self.climatological_mean[day_index]
-        climatological_std: NDArray[np.float32] = self.climatological_std[day_index]
-
-        input_array: NDArray[np.float32] = da.values.astype(np.float32)
-        detrended: NDArray[np.float32] = input_array - trend[None, :, :, :, :]
-        standardized_anomaly: NDArray[np.float32] = (
-            detrended - climatological_mean[None, :, :, :, :]
-        ) / climatological_std[None, :, :, :, :]
-
-        output: xr.DataArray = da.copy(data=standardized_anomaly)
+        assert valid_time.shape == years.shape == dayofyears.shape == (n_samples, n_output_days)
+        flattened: xr.DataArray = da.transpose("time", "step", "number", "latitude", "longitude").stack(
+            sample=("time", "step", "number")
+        ).transpose("sample", "latitude", "longitude")
+        assert flattened.shape == (n_samples * n_output_days * n_members, self.H, self.W)
+        flat_valid_time: xr.DataArray = valid_time.expand_dims(number=da.coords["number"]).transpose(
+            "time", "step", "number"
+        ).stack(sample=("time", "step", "number"))
+        assert flat_valid_time.shape == (n_samples * n_output_days * n_members,)
+        processed: xr.DataArray = self._preprocess(da=flattened, valid_time=flat_valid_time)
+        output: xr.DataArray = processed.unstack("sample").transpose("number", "time", "step", "latitude", "longitude")
+        assert output.shape == (n_members, n_samples, n_output_days, self.H, self.W)
         return output
 
     def preprocess_groundtruths(self, da: xr.DataArray) -> xr.DataArray:
         required_dims: tuple[str, ...] = ("valid_time", "latitude", "longitude")
         assert da.dims == required_dims, f"Expected dims {required_dims}, got {da.dims}"
-        assert da.shape[-2:] == (self.H, self.W), (
-            f"Resolution mismatch: expected {(self.H, self.W)}, got {da.shape[-2:]}"
+        n_valid_times: int = da.sizes["valid_time"]
+        assert da.shape == (n_valid_times, self.H, self.W), (
+            f"Unexpected groundtruth shape: expected {(n_valid_times, self.H, self.W)}, got {da.shape}"
         )
         valid_time: xr.DataArray = da.coords["valid_time"]
+        assert valid_time.shape == (n_valid_times,)
+        return self._preprocess(da=da, valid_time=valid_time)
+
+    def _preprocess(self, da: xr.DataArray, valid_time: xr.DataArray) -> xr.DataArray:
+        required_dims: tuple[str, ...] = ("sample", "latitude", "longitude")
+        assert da.dims == required_dims, f"Expected dims {required_dims}, got {da.dims}"
+        n_samples: int = da.sizes["sample"]
+        assert da.shape == (n_samples, self.H, self.W), (
+            f"Unexpected flattened shape: expected {(n_samples, self.H, self.W)}, got {da.shape}"
+        )
+        assert valid_time.shape == (n_samples,), (
+            f"Unexpected valid_time shape: expected {(n_samples,)}, got {valid_time.shape}"
+        )
         years: NDArray[np.float32] = valid_time.dt.year.values.astype(np.float32)
         dayofyears: NDArray[np.int64] = valid_time.dt.dayofyear.values.astype(np.int64)
-        assert valid_time.shape == years.shape == dayofyears.shape
+        assert years.shape == dayofyears.shape == (n_samples,)
         day_index: NDArray[np.int64] = dayofyears - 1
         assert np.all((0 <= day_index) & (day_index < 365))
 
         trend: NDArray[np.float32] = self._compute_trend(years=years)
         climatological_mean: NDArray[np.float32] = self.climatological_mean[day_index]
         climatological_std: NDArray[np.float32] = self.climatological_std[day_index]
+        assert trend.shape == climatological_mean.shape == climatological_std.shape == (n_samples, self.H, self.W)
 
         input_array: NDArray[np.float32] = da.values.astype(np.float32)
-        detrended: NDArray[np.float32] = input_array - trend
-        standardized_anomaly: NDArray[np.float32] = (
-            detrended - climatological_mean
-        ) / climatological_std
+        assert input_array.shape == (n_samples, self.H, self.W)
+        standardized_anomaly: NDArray[np.float32] = (input_array - trend - climatological_mean) / climatological_std
         return da.copy(data=standardized_anomaly)
 
     def _compute_trend(self, years: NDArray[np.float32]) -> NDArray[np.float32]:
@@ -255,7 +285,7 @@ class ECMWFGenerator:
             target_resolution=self.metadata.resolution,
         )
         predictions: xr.DataArray = reader.read()
-        predictions = self.preprocessor.preprocess_predictions(predictions)
+        predictions = self.preprocessor.preprocess_predictions(da=predictions)
         expected_shape: tuple[int, int, int, int, int] = (
             predictions.sizes["number"],
             predictions.sizes["time"],
@@ -459,4 +489,4 @@ if __name__ == "__main__":
         metadata=ecmwf_metadata,
         train_metadata=era5_metadata,
     )
-    self.generate(target_dir=model_config.target_path)
+    self.generate(target_dir=model_config.target_path.joinpath(f"{dataset}/tensors"))
