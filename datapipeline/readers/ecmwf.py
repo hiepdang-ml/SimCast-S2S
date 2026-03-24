@@ -59,8 +59,7 @@ class ECMWFReader:
         )
         return da.interp(latitude=newlat, longitude=newlon, method="linear")
 
-    @staticmethod
-    def sample_two_forecast_indices(da: xr.DataArray) -> list[int]:
+    def sample_two_forecast_indices(self, da: xr.DataArray) -> list[int]:
         valid_time: xr.DataArray = da.coords["valid_time"]
         assert valid_time.dims == ("time", "step")
         start_years: NDArray[np.int64] = valid_time.isel(step=0).dt.year.values.astype(np.int64)
