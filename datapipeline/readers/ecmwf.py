@@ -79,16 +79,15 @@ class ECMWFReader:
 
     def read(self) -> xr.DataArray:
         monthly_outputs: list[xr.DataArray] = []
-        for filepath in self.filepaths[:2]:
+        for filepath in self.filepaths:
             ds: xr.Dataset = xr.open_dataset(filepath, engine="cfgrib")
             raw_tp: xr.DataArray = ds[self.VAR_NAME]
             output_window: xr.DataArray = raw_tp.sel(step=self.output_steps)
             sampled_time_indices: list[int] = self.sample_two_forecast_indices(output_window)
             da: xr.DataArray = raw_tp.isel(time=sampled_time_indices)
             da = self.accumulated_tp_to_daily_totals(da)
-            da = da / 1000.0  # ECMWF tp is kg m^-2; expecting m
+            da = da / 1000.0 / 86400.0  # kg m^-2 -> m, then daily total -> m s^-1
             da = ERA5Utilities.fliplatitude(da)
-            da = ERA5Utilities.convert_to_cesm2_definition(var_name=self.VAR_NAME, da=da)
             monthly_outputs.append(self.resize(da, self.target_resolution))
         return xr.concat(objs=monthly_outputs, dim="time")
 
@@ -159,7 +158,9 @@ class ECMWFPreprocessor:
         )
         valid_time: xr.DataArray = da.coords["valid_time"]
         assert valid_time.shape == (n_valid_times,)
-        return self._preprocess(da=da, valid_time=valid_time)
+        flattened: xr.DataArray = da.rename(valid_time="sample")
+        processed: xr.DataArray = self._preprocess(da=flattened, valid_time=valid_time)
+        return processed.rename(sample="valid_time")
 
     def _preprocess(self, da: xr.DataArray, valid_time: xr.DataArray) -> xr.DataArray:
         required_dims: tuple[str, ...] = ("sample", "latitude", "longitude")
@@ -247,7 +248,18 @@ class ECMWFGenerator:
 
     @cached_property
     def sample_timearray_lookup(self) -> dict[int, NDArray[np.datetime64]]:
-        return dict(enumerate(self.prediction_array.coords["valid_time"].values))
+        valid_time: xr.DataArray = self.prediction_array.coords["valid_time"]
+        if valid_time.dims == ("time", "step"):
+            values: NDArray[np.datetime64] = valid_time.values
+        elif valid_time.dims == ("number", "time", "step"):
+            values = valid_time.isel(number=0).values
+        else:
+            raise RuntimeError(f"Unexpected valid_time dims: {valid_time.dims}")
+        assert values.shape == (self.n_samples, self.n_output_days), (
+            "Unexpected valid_time lookup shape: "
+            f"expected {(self.n_samples, self.n_output_days)}, got {values.shape}"
+        )
+        return dict(enumerate(values))
 
     @cached_property
     def sample_years(self) -> list[int]:
@@ -313,14 +325,16 @@ class ECMWFGenerator:
     def get_sample_info(self, sample_id: int) -> SampleInfo:
         prediction_time: NDArray[np.datetime64] = self.sample_timearray_lookup[sample_id]
         assert prediction_time.shape == (self.n_output_days,)
-        start_dt: dt.datetime = self._to_datetime(prediction_time[0])
-        end_dt: dt.datetime = self._to_datetime(prediction_time[-1])
+        init_time: np.datetime64 = self.prediction_array.coords["time"].values[sample_id]
+        init_dt: dt.datetime = self._to_datetime(init_time)
+        out_start_dt: dt.datetime = self._to_datetime(prediction_time[0])
+        out_end_dt: dt.datetime = self._to_datetime(prediction_time[-1])
         return SampleInfo(
             sim_id="ecmwf",
-            in_startdate=start_dt.strftime("%Y/%m/%d"),
-            in_enddate=start_dt.strftime("%Y/%m/%d"),
-            out_startdate=start_dt.strftime("%Y/%m/%d"),
-            out_enddate=end_dt.strftime("%Y/%m/%d"),
+            in_startdate=init_dt.strftime("%Y/%m/%d"),
+            in_enddate=init_dt.strftime("%Y/%m/%d"),
+            out_startdate=out_start_dt.strftime("%Y/%m/%d"),
+            out_enddate=out_end_dt.strftime("%Y/%m/%d"),
         )
 
     def get_prediction(self, sample_id: int) -> torch.Tensor:
