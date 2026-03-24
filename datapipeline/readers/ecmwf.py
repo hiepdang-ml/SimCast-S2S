@@ -65,8 +65,9 @@ class ECMWFReader:
         assert valid_time.dims == ("time", "step")
         start_years: NDArray[np.int64] = valid_time.isel(step=0).dt.year.values.astype(np.int64)
         end_years: NDArray[np.int64] = valid_time.isel(step=-1).dt.year.values.astype(np.int64)
-        flag1: NDArray[np.bool] = start_years == end_years
-        flag2: NDArray[np.bool] = np.isin(end_years, da.time.dt.year)
+        init_years: NDArray[np.int64] = da.time.dt.year.values.astype(np.int64)
+        flag1: NDArray[np.bool_] = start_years == end_years
+        flag2: NDArray[np.bool_] = init_years == start_years
         eligible_indices: list[int] = np.flatnonzero(flag1 & flag2).tolist()
         if len(eligible_indices) < 2:
             raise RuntimeError(
@@ -140,7 +141,8 @@ class ECMWFPreprocessor:
             (da.coords["valid_time"].dt.day.values == 29)
         )
         keep_mask: NDArray[np.bool_] = ~np.any(feb29_mask, axis=1)
-        da = da.isel(time=keep_mask)
+        keep_indices: NDArray[np.int64] = np.flatnonzero(keep_mask).astype(np.int64, copy=False)
+        da = da.isel(time=keep_indices)
         n_members: int = da.sizes["number"]
         n_samples: int = da.sizes["time"]
         n_output_days: int = da.sizes["step"]
@@ -162,7 +164,9 @@ class ECMWFPreprocessor:
         assert flat_valid_time.shape == (n_samples * n_output_days * n_members,)
         processed: xr.DataArray = self._preprocess(da=flattened, valid_time=flat_valid_time)
         output: xr.DataArray = processed.unstack("sample").transpose("number", "time", "step", "latitude", "longitude")
+        output = output.assign_coords(valid_time=da.coords["valid_time"])
         assert output.shape == (n_members, n_samples, n_output_days, self.H, self.W)
+        assert output.coords["valid_time"].dims == ("time", "step")
         return output
 
     def preprocess_groundtruths(self, da: xr.DataArray) -> xr.DataArray:
@@ -270,12 +274,8 @@ class ECMWFGenerator:
     @cached_property
     def sample_timearray_lookup(self) -> dict[int, NDArray[np.datetime64]]:
         valid_time: xr.DataArray = self.prediction_array.coords["valid_time"]
-        if valid_time.dims == ("time", "step"):
-            values: NDArray[np.datetime64] = valid_time.values
-        elif valid_time.dims == ("number", "time", "step"):
-            values = valid_time.isel(number=0).values
-        else:
-            raise RuntimeError(f"Unexpected valid_time dims: {valid_time.dims}")
+        assert valid_time.dims == ("time", "step"), f"Unexpected valid_time dims: {valid_time.dims}"
+        values: NDArray[np.datetime64] = valid_time.values
         assert values.shape == (self.n_samples, self.n_output_days), (
             "Unexpected valid_time lookup shape: "
             f"expected {(self.n_samples, self.n_output_days)}, got {values.shape}"
@@ -289,15 +289,6 @@ class ECMWFGenerator:
             .astype("datetime64[Y]").astype(np.int64).reshape(-1) + 1970
         )
         return sorted(set(years.tolist()))
-
-    @cached_property
-    def groundtruth_years(self) -> list[int]:
-        pattern: str = f"{self.output_name}/{self.output_name}_*.nc"
-        years: list[int] = list({
-            int(filepath.stem.rsplit("_", maxsplit=1)[-1])
-            for filepath in self.groundtruth_path.glob(pattern)
-        })
-        return years
 
     @cached_property
     def era5_truth(self) -> dict[np.datetime64, torch.Tensor]:
@@ -330,21 +321,6 @@ class ECMWFGenerator:
         )
         predictions: xr.DataArray = reader.read()
         predictions = self.preprocessor.preprocess_predictions(da=predictions)
-        valid_years: NDArray[np.int64] = (
-            predictions.coords["valid_time"].values
-            .astype("datetime64[Y]").astype(np.int64) + 1970
-        )
-        keep_mask: NDArray[np.bool_] = np.all(
-            np.isin(valid_years, list(self.groundtruth_years)),
-            axis=1,
-        )
-        keep_indexer: xr.DataArray = xr.DataArray(
-            keep_mask,
-            dims=("time",),
-            coords={"time": predictions.coords["time"]},
-        )
-        predictions = predictions.isel(time=keep_indexer)
-        assert predictions.sizes["time"] > 0, "No ECMWF samples remain after truth-year filtering"
         expected_shape: tuple[int, int, int, int, int] = (
             predictions.sizes["number"],
             predictions.sizes["time"],

@@ -10,10 +10,10 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import torch
 import torch.nn.functional as F
 from scipy.stats import kstest
-from common.configs import DiffusionConfig, MetaData
+from common.configs import DiffusionConfig, ECMWFS2SConfig, MetaData
 
 
-class DiffusionQuantileBuilder:
+class EnsembleQuantileBuilder:
 
     _MEMBER_PATTERN = re.compile(r"^(?P<prefix>.+)_ens_(?P<member>\d{4})\.pt$")
 
@@ -304,7 +304,7 @@ class DiffusionQuantileBuilder:
         print(f"[fig4] Saved PIT histogram to: {pit_histogram_path}")
 
 
-class DiffusionCRPSDecompositionBuilder:
+class EnsembleCRPSDecompositionBuilder:
 
     _MEMBER_PATTERN = re.compile(r"^(?P<prefix>.+)_ens_(?P<member>\d{4})\.pt$")
 
@@ -368,7 +368,7 @@ class DiffusionCRPSDecompositionBuilder:
         assert last_object is not None
         assert groundtruth is not None
         prediction_stack: torch.Tensor = torch.stack(predictions, dim=0)
-        resized_groundtruth: torch.Tensor = DiffusionQuantileBuilder.resize_groundtruth(
+        resized_groundtruth: torch.Tensor = EnsembleQuantileBuilder.resize_groundtruth(
             groundtruth=groundtruth,
             target_shape=tuple(prediction_stack.shape[1:]),   # pyright: ignore
         )
@@ -499,20 +499,24 @@ class DiffusionCRPSDecompositionBuilder:
 
 
 def main(
+    model: Literal["diffusion", "ecmwf-s2s"],
     dataset: Literal["cesm2", "era5"],
 ) -> None:
-    config: DiffusionConfig = DiffusionConfig()
+    if model == "diffusion":
+        config: DiffusionConfig = DiffusionConfig()
+    else:
+        config: ECMWFS2SConfig = ECMWFS2SConfig()
     metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
     source_dir: Path = config.target_path.joinpath(f"{dataset}/tensors")
     target_dir: Path = config.target_path.joinpath(f"{dataset}/quantiles")
     for output_name in metadata.output_vars:
-        quantile_builder = DiffusionQuantileBuilder(
+        quantile_builder = EnsembleQuantileBuilder(
             source_dir=source_dir,
             target_dir=target_dir,
             output_name=output_name,
         )
         quantile_builder.run()
-        crps_builder = DiffusionCRPSDecompositionBuilder(
+        crps_builder = EnsembleCRPSDecompositionBuilder(
             source_dir=source_dir,
             target_dir=target_dir,
             output_name=output_name,
@@ -522,6 +526,7 @@ def main(
 
 if __name__ == "__main__":
     parser = ArgumentParser()
+    parser.add_argument("--model", type=str, choices=["diffusion", "ecmwf-s2s"], required=True)
     parser.add_argument("--dataset", type=str, choices=["cesm2", "era5"], required=True)
     args: Namespace = parser.parse_args()
-    main(dataset=args.dataset)
+    main(model=args.model, dataset=args.dataset)
