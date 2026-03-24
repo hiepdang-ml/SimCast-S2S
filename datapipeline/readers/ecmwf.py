@@ -65,7 +65,9 @@ class ECMWFReader:
         assert valid_time.dims == ("time", "step")
         start_years: NDArray[np.int64] = valid_time.isel(step=0).dt.year.values.astype(np.int64)
         end_years: NDArray[np.int64] = valid_time.isel(step=-1).dt.year.values.astype(np.int64)
-        eligible_indices: list[int] = np.flatnonzero(start_years == end_years).tolist()
+        flag1: NDArray[np.bool] = start_years == end_years
+        flag2: NDArray[np.bool] = np.isin(end_years, self.groundtruth_years)
+        eligible_indices: list[int] = np.flatnonzero(flag1 & flag2).tolist()
         if len(eligible_indices) < 2:
             raise RuntimeError(
                 "Need at least 2 ECMWF-S2s forecast initializations whose output window stays "
@@ -281,7 +283,7 @@ class ECMWFGenerator:
         return dict(enumerate(values))
 
     @cached_property
-    def sample_years(self) -> list[int]:
+    def prediction_years(self) -> list[int]:
         years: NDArray[np.int64] = (
             self.prediction_array.coords["valid_time"].values
             .astype("datetime64[Y]").astype(np.int64).reshape(-1) + 1970
@@ -289,9 +291,18 @@ class ECMWFGenerator:
         return sorted(set(years.tolist()))
 
     @cached_property
+    def groundtruth_years(self) -> list[int]:
+        pattern: str = f"{self.output_name}/{self.output_name}_*.nc"
+        years: list[int] = list({
+            int(filepath.stem.rsplit("_", maxsplit=1)[-1])
+            for filepath in self.groundtruth_path.glob(pattern)
+        })
+        return years
+
+    @cached_property
     def era5_truth(self) -> dict[np.datetime64, torch.Tensor]:
         result: dict[np.datetime64, torch.Tensor] = {}
-        for year in self.sample_years:
+        for year in self.prediction_years:
             filename: str = f"{self.output_name}/{self.output_name}_{year}.nc"
             filepath: Path = self.groundtruth_path.joinpath(filename)
             assert filepath.exists()
@@ -319,6 +330,21 @@ class ECMWFGenerator:
         )
         predictions: xr.DataArray = reader.read()
         predictions = self.preprocessor.preprocess_predictions(da=predictions)
+        valid_years: NDArray[np.int64] = (
+            predictions.coords["valid_time"].values
+            .astype("datetime64[Y]").astype(np.int64) + 1970
+        )
+        keep_mask: NDArray[np.bool_] = np.all(
+            np.isin(valid_years, list(self.groundtruth_years)),
+            axis=1,
+        )
+        keep_indexer: xr.DataArray = xr.DataArray(
+            keep_mask,
+            dims=("time",),
+            coords={"time": predictions.coords["time"]},
+        )
+        predictions = predictions.isel(time=keep_indexer)
+        assert predictions.sizes["time"] > 0, "No ECMWF samples remain after truth-year filtering"
         expected_shape: tuple[int, int, int, int, int] = (
             predictions.sizes["number"],
             predictions.sizes["time"],
