@@ -187,10 +187,10 @@ class ECMWFPreprocessor:
         assert valid_time.shape == (n_samples,), (
             f"Unexpected valid_time shape: expected {(n_samples,)}, got {valid_time.shape}"
         )
+        months: NDArray[np.int64] = valid_time.dt.month.values.astype(np.int64)
         years: NDArray[np.float32] = valid_time.dt.year.values.astype(np.float32)
         dayofyears: NDArray[np.int64] = valid_time.dt.dayofyear.values.astype(np.int64)
-        assert years.shape == dayofyears.shape == (n_samples,)
-        day_index: NDArray[np.int64] = dayofyears - 1
+        day_index: NDArray[np.int64] = dayofyears - 1 - (months > 2).astype(np.int64)
         assert np.all((0 <= day_index) & (day_index < 365))
 
         trend: NDArray[np.float32] = self._compute_trend(years=years)
@@ -515,8 +515,8 @@ class ECMWFGenerator:
 
 if __name__ == "__main__":
     parser: ArgumentParser = ArgumentParser()
-    parser.add_argument("--fromyear", type=int)
-    parser.add_argument("--toyear", type=int)
+    parser.add_argument("--fromyear", type=int, required=True)
+    parser.add_argument("--toyear", type=int, required=True)
     args: Namespace = parser.parse_args()
     assert args.fromyear <= args.toyear, "fromyear must be <= toyear"
 

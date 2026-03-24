@@ -96,7 +96,7 @@ class ERA5Utilities:
         ERA5 accounts for leaf years, CESM2 standardizes years into 365-day periods
         """
         assert "valid_time" in data.coords
-        return data.isel(valid_time=~((data.valid_time.dt.month == 2) & (data.valid_time.dt.day == 29)))
+        return data.sel(valid_time=~((data.valid_time.dt.month == 2) & (data.valid_time.dt.day == 29)))
 
     @staticmethod
     def fliplatitude(data: xr.Dataset | xr.DataArray) -> xr.Dataset | xr.DataArray:
