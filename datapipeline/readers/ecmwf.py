@@ -508,8 +508,8 @@ class ECMWFGenerator:
 
 if __name__ == "__main__":
     parser: ArgumentParser = ArgumentParser()
-    parser.add_argument("fromyear", type=int)
-    parser.add_argument("toyear", type=int)
+    parser.add_argument("--fromyear", type=int)
+    parser.add_argument("--toyear", type=int)
     args: Namespace = parser.parse_args()
     assert args.fromyear <= args.toyear, "fromyear must be <= toyear"
 
