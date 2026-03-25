@@ -275,6 +275,7 @@ class EnsembleQuantileBuilder:
         ax.axhline(y=1.0, color="#D62728", linestyle="--", linewidth=1.5, label="Uniform density")
         ax.axvline(x=mean_pit, color="#111827", linestyle="-", linewidth=1.2, label=f"Mean PIT = {mean_pit:.3f}")
         ax.set_xlim(0.0, 1.0)
+        ax.set_ylim(0.0, 5.0)
         bin_width: float = 1.0 / n_bins
         tick_positions: list[float] = [i * bin_width for i in range(n_bins + 1)]
         tick_labels: list[str] = [f"{i * bin_width:.2f}" for i in range(n_bins + 1)]
