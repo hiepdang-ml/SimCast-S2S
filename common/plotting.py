@@ -1,5 +1,6 @@
 import pathlib
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 
 
@@ -16,10 +17,11 @@ class _BasePlotter:
         tropical_lats: tuple[float, float],
         title: str, cmap: str, vmin: float, vmax: float,
     ) -> None:
-        im = ax.pcolormesh(
+        levels = np.linspace(vmin, vmax, 17)
+        im = ax.contourf(
             coords[1], coords[0], data,
-            cmap=cmap, vmin=vmin, vmax=vmax,
-            shading='nearest',
+            levels=levels, cmap=cmap, vmin=vmin, vmax=vmax,
+            extend="both",
         )
         ax.set_title(title, fontsize=12)
         ax.axhline(y=tropical_lats[0], color="black", linewidth=0.8, linestyle="--")

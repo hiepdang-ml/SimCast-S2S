@@ -12,8 +12,8 @@ class _BaseNoiseScheduler:
 
     @cached_property
     def snr(self) -> torch.Tensor:
-        # NOTE: first element always inf
-        return torch.sqrt(self.alpha_bar_schedule) / torch.sqrt(1 - self.alpha_bar_schedule)
+        # k=0 has alpha_bar=1, so clamp the denominator to keep SNR finite.
+        return self.alpha_bar_schedule / (1 - self.alpha_bar_schedule).clamp(min=1e-8)
 
 
 class LinearNoiseScheduler(_BaseNoiseScheduler, nn.Module):
@@ -173,12 +173,31 @@ class _ConditionFuser(nn.Module):
     def __init__(self, condition_dim: int):
         super().__init__()
         self.condition_dim: int = condition_dim
-        self.a = nn.Parameter(torch.ones((1, 1, condition_dim, 1, 1)) / condition_dim)
-        self.b = nn.Parameter(torch.ones((1, 1, condition_dim, 1, 1)) / condition_dim)
-        self.c = nn.Parameter(torch.ones((1, 1, condition_dim, 1, 1)) / condition_dim)
+        self.mu_projection: nn.Module = nn.Conv2d(
+            in_channels=condition_dim, out_channels=condition_dim, kernel_size=1,
+        )
+        self.logvar_projection: nn.Module = nn.Conv2d(
+            in_channels=condition_dim, out_channels=condition_dim, kernel_size=1,
+        )
+        self.gate_projection: nn.Module = nn.Conv2d(
+            in_channels=condition_dim * 2, out_channels=condition_dim, kernel_size=1,
+        )
+        self.activation: nn.Module = nn.GELU()
 
     def forward(self, condition_mu: torch.Tensor, condition_logvar: torch.Tensor) -> torch.Tensor:
-        output: torch.Tensor = condition_mu * self.a + condition_logvar * self.b + self.c
+        N, T, D, H, W = condition_mu.shape
+        assert condition_mu.shape == condition_logvar.shape
+        assert D == self.condition_dim
+
+        mu: torch.Tensor = condition_mu.flatten(0, 1)
+        logvar: torch.Tensor = condition_logvar.flatten(0, 1)
+        fused_input: torch.Tensor = torch.cat([mu, logvar], dim=1)
+        candidate: torch.Tensor = self.activation(
+            self.mu_projection(mu) + self.logvar_projection(logvar)
+        )
+        gate: torch.Tensor = torch.sigmoid(self.gate_projection(fused_input))
+        output: torch.Tensor = gate * candidate + (1.0 - gate) * mu
+        output = output.reshape(N, T, D, H, W)
         assert output.shape == condition_mu.shape == condition_logvar.shape
         return output
 
@@ -207,6 +226,64 @@ class _TransformerFeedForward(nn.Module):
         return count
 
 
+class _MultiheadAttention(nn.Module):
+
+    def __init__(self, embed_dim: int, n_heads: int) -> None:
+        super().__init__()
+        if embed_dim % n_heads != 0:
+            raise ValueError(f"embed_dim must be divisible by n_heads, got {embed_dim=} and {n_heads=}")
+        self.embed_dim: int = embed_dim
+        self.n_heads: int = n_heads
+        self.head_dim: int = embed_dim // n_heads
+
+        self.q_projection: nn.Module = nn.Linear(in_features=embed_dim, out_features=embed_dim)
+        self.k_projection: nn.Module = nn.Linear(in_features=embed_dim, out_features=embed_dim)
+        self.v_projection: nn.Module = nn.Linear(in_features=embed_dim, out_features=embed_dim)
+        self.out_projection: nn.Module = nn.Linear(in_features=embed_dim, out_features=embed_dim)
+
+    def _split_heads(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size, length, embed_dim = x.shape
+        assert embed_dim == self.embed_dim
+        x = x.reshape(batch_size, length, self.n_heads, self.head_dim)
+        return x.transpose(1, 2)
+
+    def _merge_heads(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size, n_heads, length, head_dim = x.shape
+        assert n_heads == self.n_heads
+        assert head_dim == self.head_dim
+        x = x.transpose(1, 2).contiguous()
+        return x.reshape(batch_size, length, self.embed_dim)
+
+    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor) -> torch.Tensor:
+        q_N, q_L, q_D = query.shape
+        k_N, k_L, k_D = key.shape
+        v_N, v_L, v_D = value.shape
+        assert q_N == k_N == v_N
+        assert k_L == v_L
+        assert q_D == k_D == v_D == self.embed_dim
+
+        q: torch.Tensor = self._split_heads(self.q_projection(query))
+        k: torch.Tensor = self._split_heads(self.k_projection(key))
+        v: torch.Tensor = self._split_heads(self.v_projection(value))
+
+        attention_scores: torch.Tensor = torch.matmul(q, k.transpose(-2, -1)) / (self.head_dim ** 0.5)
+        attention_weights: torch.Tensor = torch.softmax(attention_scores, dim=-1)
+        output: torch.Tensor = torch.matmul(attention_weights, v)
+        output = self._merge_heads(output)
+        output = self.out_projection(output)
+        assert output.shape == (q_N, q_L, self.embed_dim)
+        return output
+
+    def enable_lora(self, rank: int) -> int:
+        count: int = 0
+        for name in ("q_projection", "k_projection", "v_projection", "out_projection"):
+            layer = getattr(self, name)
+            if isinstance(layer, nn.Linear):
+                setattr(self, name, LoRALinear(layer, rank=rank))
+                count += 1
+        return count
+
+
 class _TransformerEncoderLayer(nn.Module):
 
     def __init__(self, kv_dim: int, model_dim: int, n_heads: int, feedforward_dim: int):
@@ -221,11 +298,7 @@ class _TransformerEncoderLayer(nn.Module):
         else:
             self.kv_projection = nn.Identity()
 
-        self.self_attention = nn.MultiheadAttention(
-            embed_dim=model_dim,
-            num_heads=n_heads,
-            batch_first=True,
-        )
+        self.self_attention = _MultiheadAttention(embed_dim=model_dim, n_heads=n_heads)
         self.feed_forward = _TransformerFeedForward(model_dim=model_dim, feedforward_dim=feedforward_dim)
         self.norm1 = nn.LayerNorm(model_dim)
         self.norm2 = nn.LayerNorm(model_dim)
@@ -233,9 +306,7 @@ class _TransformerEncoderLayer(nn.Module):
     def forward(self, kv: torch.Tensor) -> torch.Tensor:
         N, L, D = kv.shape
         kv = self.kv_projection(kv)
-        output: torch.Tensor = self.self_attention(
-            query=kv, key=kv, value=kv, need_weights=False
-        )[0]
+        output: torch.Tensor = self.self_attention(query=kv, key=kv, value=kv)
         kv = self.norm1(kv + output)
         kv = self.norm2(kv + self.feed_forward(kv))
         assert kv.shape == (N, L, self.model_dim)
@@ -246,6 +317,7 @@ class _TransformerEncoderLayer(nn.Module):
         if isinstance(self.kv_projection, nn.Linear):
             self.kv_projection = LoRALinear(self.kv_projection, rank=rank)
             count += 1
+        count += self.self_attention.enable_lora(rank=rank)
         count += self.feed_forward.enable_lora(rank=rank)
         return count
 
@@ -264,20 +336,8 @@ class _TransformerDecoderLayer(nn.Module):
         else:
             self.q_projection = nn.Identity()
 
-        # Decoder self-attention (symmetric)
-        self.self_attention = nn.MultiheadAttention(
-            embed_dim=model_dim,
-            num_heads=n_heads,
-            batch_first=True,
-        )
-        # Cross-attention (Q from decoder, K/V from encoder)
-        self.cross_attention = nn.MultiheadAttention(
-            embed_dim=model_dim,
-            num_heads=n_heads,
-            kdim=model_dim,
-            vdim=model_dim,
-            batch_first=True,
-        )
+        self.self_attention = _MultiheadAttention(embed_dim=model_dim, n_heads=n_heads)
+        self.cross_attention = _MultiheadAttention(embed_dim=model_dim, n_heads=n_heads)
         self.ffn = _TransformerFeedForward(model_dim=model_dim, feedforward_dim=feedforward_dim)
         self.norm1 = nn.LayerNorm(model_dim)
         self.norm2 = nn.LayerNorm(model_dim)
@@ -289,11 +349,11 @@ class _TransformerDecoderLayer(nn.Module):
         assert q_D == self.q_dim
         assert kv_D == self.model_dim
         q = self.q_projection(q)
-        output: torch.Tensor = self.self_attention(query=q, key=q, value=q, need_weights=False)[0]
+        output: torch.Tensor = self.self_attention(query=q, key=q, value=q)
         q = self.norm1(q + output)
 
         # Cross-attention
-        output = self.cross_attention(q, kv, kv, need_weights=False)[0]
+        output = self.cross_attention(query=q, key=kv, value=kv)
         q = self.norm2(q + output)
         q = self.norm3(q + self.ffn(q))
         assert q.shape == (q_N, q_L, self.model_dim)
@@ -304,6 +364,8 @@ class _TransformerDecoderLayer(nn.Module):
         if isinstance(self.q_projection, nn.Linear):
             self.q_projection = LoRALinear(self.q_projection, rank=rank)
             count += 1
+        count += self.self_attention.enable_lora(rank=rank)
+        count += self.cross_attention.enable_lora(rank=rank)
         count += self.ffn.enable_lora(rank=rank)
         return count
 

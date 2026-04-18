@@ -4,9 +4,10 @@ from pathlib import Path
 from typing import Any, Literal
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 
-from common.configs import DiffusionConfig
+from common.configs import DiffusionConfig, ECMWFS2SConfig
 
 
 class DiffusionEnsembleFigureBuilder:
@@ -79,6 +80,7 @@ class DiffusionEnsembleFigureBuilder:
         assert gt is not None
         vmax: float = self.vlimit
         vmin: float = -vmax
+        levels = np.linspace(vmin, vmax, 17)
 
         # Equal-size layout:
         # left block (5x4) = 20 members, spacer column, right side = groundtruth.
@@ -86,7 +88,7 @@ class DiffusionEnsembleFigureBuilder:
             5,
             6,
             figsize=(20, 15),
-            gridspec_kw={"width_ratios": [1, 1, 1, 1, 0.28, 1], "wspace": 0.03, "hspace": 0.06},
+            gridspec_kw={"width_ratios": [1, 1, 1, 1, 0.15, 1], "wspace": 0.05, "hspace": 0.15},
         )
 
         all_axes: list[Any] = axs.ravel().tolist()
@@ -95,35 +97,47 @@ class DiffusionEnsembleFigureBuilder:
 
         member_slots: list[tuple[int, int]] = [(r, c) for r in range(5) for c in range(4)]
         for (member_idx, pred), (r, c) in zip(member_tensors, member_slots):
-            im = axs[r, c].imshow(pred, cmap="RdBu", vmin=vmin, vmax=vmax, origin="lower")
+            y = np.arange(pred.shape[0], dtype=np.float64)
+            x = np.arange(pred.shape[1], dtype=np.float64)
+            xx, yy = np.meshgrid(x, y)
+            im = axs[r, c].contourf(xx, yy, pred, levels=levels, cmap="RdBu", extend="both")
             self._style_panel(ax=axs[r, c], title=f"Member {member_idx}", title_size=18, is_bold=True)
 
         gt_row: int = 2
         gt_col: int = 5
-        im = axs[gt_row, gt_col].imshow(gt, cmap="RdBu", vmin=vmin, vmax=vmax, origin="lower")
-        self._style_panel(ax=axs[gt_row, gt_col], title="Groundtruth", title_size=18, is_bold=True)
+        y = np.arange(gt.shape[0], dtype=np.float64)
+        x = np.arange(gt.shape[1], dtype=np.float64)
+        xx, yy = np.meshgrid(x, y)
+        im = axs[gt_row, gt_col].contourf(xx, yy, gt, levels=levels, cmap="RdBu", extend="both")
+        self._style_panel(ax=axs[gt_row, gt_col], title="Truth", title_size=18, is_bold=True)
 
         # Reserve bottom space and place a dedicated horizontal colorbar axis.
         fig.subplots_adjust(left=0.01, right=0.99, bottom=0.08, top=0.99)
-        cbar_ax = fig.add_axes((0.14, 0.03, 0.72, 0.020))  # [left, bottom, width, height]
+        cbar_ax = fig.add_axes((0., 0.03, 1., 0.020))  # [left, bottom, width, height]
         cbar = fig.colorbar(im, cax=cbar_ax, orientation="horizontal", extend="both", extendfrac=0.025)
         cbar.ax.tick_params(labelsize=18)
 
         output_filename: str = f"{prefix}_ensemble_grid.png"
         output_path: Path = self.target_dir.joinpath(output_filename)
-        fig.savefig(output_path, dpi=900, bbox_inches="tight")
+        fig.savefig(output_path, dpi=1000, bbox_inches="tight")
         plt.close(fig)
         return output_path
 
 
 def main(
+    model: Literal["diffusion", "ecmwf-s2s"],
     dataset: Literal["cesm2", "era5"],
     output_name: str | None,
     vlimit: float,
 ) -> None:
-    config: DiffusionConfig = DiffusionConfig()
-    src: Path = config.target_path.joinpath(f"{dataset}/tensors")
-    dst: Path = config.target_path.joinpath(f"{dataset}/grids")
+    if model == "diffusion":
+        target_path: Path = DiffusionConfig().target_path
+    elif model == "ecmwf-s2s":
+        target_path = ECMWFS2SConfig().target_path
+    else:
+        raise ValueError(f"Unsupported model: {model}")
+    src: Path = target_path.joinpath(f"{dataset}/tensors")
+    dst: Path = target_path.joinpath(f"{dataset}/grids")
 
     builder = DiffusionEnsembleFigureBuilder(
         source_dir=src,
@@ -133,7 +147,7 @@ def main(
     )
     groups: dict[str, list[Path]] = builder.extract_groups()
     if not groups:
-        raise FileNotFoundError(f"No diffusion ensemble member files found in: {src}")
+        raise FileNotFoundError(f"No ensemble member files found in: {src}")
 
     for idx, prefix in enumerate(sorted(groups.keys()), start=1):
         output_path: Path = builder.build_and_save(prefix=prefix, member_paths=groups[prefix], max_members=20)
@@ -142,15 +156,17 @@ def main(
 
 if __name__ == "__main__":
     parser = ArgumentParser()
+    parser.add_argument("--model", type=str, choices=["diffusion", "ecmwf-s2s"], required=True)
     parser.add_argument("--dataset", type=str, choices=["cesm2", "era5"], required=True)
     parser.add_argument("--output-name", type=str, default=None, required=False)
     parser.add_argument("--vlimit", type=float, required=True)
     args: Namespace = parser.parse_args()
 
     main(
+        model=args.model,
         dataset=args.dataset,
         output_name=args.output_name,
         vlimit=args.vlimit,
     )
 
-# Example: python reports/fig3.py --dataset era5 --vlimit 0.08
+# Example: python reports/fig5.py --model ecmwf-s2s --dataset era5 --vlimit 0.04

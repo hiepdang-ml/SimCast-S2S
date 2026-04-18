@@ -15,15 +15,18 @@ def main(root_string: str) -> str:
     report: dict[str, Any] = {}
 
     # Group files by parent directory to avoid rescanning/recomputing per file.
-    pt_files: list[Path] = sorted(root_path.rglob("*.pt"))
+    pt_files: list[Path] = sorted(
+        path for path in root_path.rglob("tensors/*.pt")
+        if "vae" not in path.as_posix().lower()
+    )
     parents: set[Path] = {p.parent for p in pt_files}
 
     for parent in sorted(parents):
         relative_parent: Path = parent.relative_to(root_path)
         directories: tuple[str, ...] = relative_parent.parts
 
-        if "diffusion" in parent.as_posix():
-            filepaths: list[Path] = sorted(parent.glob("*aggregate.pt"))
+        if "diffusion" in parent.as_posix() or "ecmwfs2s" in parent.as_posix():
+            filepaths: list[Path] = sorted(parent.glob("*_ens_aggregate.pt"))
         else:
             filepaths = sorted(parent.glob("*.pt"))
 
@@ -35,12 +38,13 @@ def main(root_string: str) -> str:
         extratropical_mae_values: list[float] = []
 
         torchio = TorchDictIO(dirpath=parent.as_posix())
-        for f in filepaths:
+        for f in filepaths[:-20]:   # drop last 20 samples due to time mismatch
             try:
                 data = torchio.load(filename=f.name)
             except Exception as err:
                 print(f"[table1] skip invalid file: {f} ({err})", file=sys.stderr)
                 continue
+            print(f"[table1] use file: {f}")
             global_mae: float = data["global_mae"]
             tropical_mae: float = data["tropical_mae"]
             extratropical_mae: float = data["extratropical_mae"]
@@ -60,7 +64,7 @@ def main(root_string: str) -> str:
         node["extratropical_std_mae"] = np.std(extratropical_mae_values).item()
 
     report_string: str = json.dumps(report)
-    with open(root_path.joinpath("report.json"), mode="w") as report_path:
+    with open(root_path.joinpath("table1.json"), mode="w") as report_path:
         report_path.write(report_string)
 
     return report_string

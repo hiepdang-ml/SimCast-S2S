@@ -4,9 +4,10 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Any, Literal
 
+import cmocean
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap, BoundaryNorm
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+import numpy as np
 import torch
 import torch.nn.functional as F
 from scipy.stats import kstest
@@ -16,6 +17,9 @@ from common.configs import DiffusionConfig, ECMWFS2SConfig, MetaData
 class EnsembleQuantileBuilder:
 
     _MEMBER_PATTERN = re.compile(r"^(?P<prefix>.+)_ens_(?P<member>\d{4})\.pt$")
+    KS_STAT_CMAP = cmocean.cm.turbid
+    P_VALUE_CMAP = cmocean.cm.deep_r
+    REJECT_CMAP_COLORS: list[str] = ["#1B9E77", "#D95F02"]
 
     def __init__(
         self,
@@ -155,29 +159,6 @@ class EnsembleQuantileBuilder:
         output_path: Path = self.target_dir.joinpath(f"{prefix}_quantile.pt")
         torch.save(obj=result_object, f=output_path)
 
-    def plot_all(self) -> None:
-        pattern: str = (
-            f"*_{self.output_name}_*_quantile.pt"
-            if self.output_name is not None
-            else "*_quantile.pt"
-        )
-        filepaths: list[Path] = sorted(self.target_dir.glob(pattern))
-        for filepath in filepaths:
-            result_object: dict[str, Any] = torch.load(filepath, map_location="cpu")
-            quantile_map: torch.Tensor = result_object["quantile_map"]
-            output_name: str = result_object["output_name"]
-            prefix: str = result_object["prefix"]
-            fig, ax = plt.subplots(1, 1, figsize=(15, 5))
-            im = ax.imshow(quantile_map, origin="lower", cmap="viridis", vmin=0.0, vmax=100.0)
-            ax.set_title("Truth Quantile")
-            ax.set_xticks([])
-            ax.set_yticks([])
-            fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-            fig.suptitle(f"{output_name}: {prefix}", fontsize=12)
-            fig.tight_layout()
-            fig.savefig(fname=filepath.with_suffix(".png"), dpi=300, bbox_inches="tight")
-            plt.close(fig)
-
     def load_all_quantile_maps(self) -> torch.Tensor:
         pattern: str = (
             f"*_{self.output_name}_*_quantile.pt"
@@ -226,30 +207,34 @@ class EnsembleQuantileBuilder:
             },
             stats_path,
         )
-        fig, axs = plt.subplots(1, 3, figsize=(18, 4.2))
-        im0 = axs[0].imshow(d_stat, origin="lower", cmap="magma")
-        axs[0].set_title("KS D Statistic")
+        fig, axs = plt.subplots(1, 3, figsize=(14, 4.8), constrained_layout=True)
+        y = np.arange(d_stat.shape[0], dtype=np.float64)
+        x = np.arange(d_stat.shape[1], dtype=np.float64)
+        xx, yy = np.meshgrid(x, y)
+        levels_d = np.linspace(0.0, 0.8, 17)
+        levels_p = np.linspace(0.0, 0.2, 17)
+        im0 = axs[0].contourf(xx, yy, d_stat, levels=levels_d, cmap=self.KS_STAT_CMAP, extend="max")
+        axs[0].set_title("KS D Statistic", fontsize=10)
         axs[0].set_xticks([])
         axs[0].set_yticks([])
-        cax0 = make_axes_locatable(axs[0]).append_axes("right", size="4%", pad=0.08)
-        fig.colorbar(im0, cax=cax0)
-        im1 = axs[1].imshow(p_value, origin="lower", cmap="viridis", vmin=0.0, vmax=0.2)
-        axs[1].set_title("p-value")
+        cax0 = axs[0].inset_axes([0.0, -0.18, 1.0, 0.06])
+        fig.colorbar(im0, cax=cax0, orientation="horizontal")
+        im1 = axs[1].contourf(xx, yy, p_value, levels=levels_p, cmap=self.P_VALUE_CMAP, extend="max")
+        axs[1].set_title("p-value", fontsize=10)
         axs[1].set_xticks([])
         axs[1].set_yticks([])
-        cax1 = make_axes_locatable(axs[1]).append_axes("right", size="4%", pad=0.08)
-        fig.colorbar(im1, cax=cax1)
-        reject_cmap = ListedColormap(["#9ecae1", "#ef8a62"])
+        cax1 = axs[1].inset_axes([0.0, -0.18, 1.0, 0.06])
+        fig.colorbar(im1, cax=cax1, orientation="horizontal")
+        reject_cmap = ListedColormap(self.REJECT_CMAP_COLORS)
         reject_norm = BoundaryNorm(boundaries=[-0.5, 0.5, 1.5], ncolors=reject_cmap.N)
         im2 = axs[2].imshow(reject_map, origin="lower", cmap=reject_cmap, norm=reject_norm)
-        axs[2].set_title(f"Reject Uniformity (alpha={alpha})")
+        axs[2].set_title(f"Reject Uniformity (alpha={alpha})", fontsize=10)
         axs[2].set_xticks([])
         axs[2].set_yticks([])
-        cax2 = make_axes_locatable(axs[2]).append_axes("right", size="4%", pad=0.08)
-        cbar = fig.colorbar(im2, cax=cax2, ticks=[0.1, 0.9])
-        cbar.ax.set_yticklabels(["Cannot\nReject\nUniform", "Reject\nUniform"])
-        fig.suptitle(f"KS Uniformity Test of Quantile Maps: {self.output_name}", fontsize=16)
-        fig.tight_layout()
+        cax2 = axs[2].inset_axes([0.0, -0.18, 1.0, 0.06])
+        cbar = fig.colorbar(im2, cax=cax2, orientation="horizontal", ticks=[0.25, 0.75])
+        cbar.ax.set_xticklabels(["Cannot Reject", "Reject"])
+        fig.suptitle("KS Uniformity Test of Quantile Maps", fontsize=16)
         figure_path: Path = self.target_dir.joinpath(f"{self.output_name}_uniformity_ks.png")
         fig.savefig(figure_path, dpi=300, bbox_inches="tight")
         plt.close(fig)
@@ -259,9 +244,7 @@ class EnsembleQuantileBuilder:
         assert n_bins > 1
         quantile_maps: torch.Tensor = self.load_all_quantile_maps()
         pit_values: torch.Tensor = (quantile_maps.reshape(-1) / 100.0).clamp(min=0.0, max=1.0)
-        mean_pit: float = float(pit_values.mean())
-
-        fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+        fig, ax = plt.subplots(1, 1, figsize=(6, 3.2))
         ax.hist(
             pit_values.cpu().numpy(),
             bins=n_bins,
@@ -273,7 +256,6 @@ class EnsembleQuantileBuilder:
             alpha=0.85,
         )
         ax.axhline(y=1.0, color="#D62728", linestyle="--", linewidth=1.5, label="Uniform density")
-        ax.axvline(x=mean_pit, color="#111827", linestyle="-", linewidth=1.2, label=f"Mean PIT = {mean_pit:.3f}")
         ax.set_xlim(0.0, 1.0)
         ax.set_ylim(0.0, 5.0)
         bin_width: float = 1.0 / n_bins
@@ -283,7 +265,7 @@ class EnsembleQuantileBuilder:
         ax.set_xticklabels(tick_labels, rotation=45, ha="center")
         ax.set_xlabel("PIT")
         ax.set_ylabel("Density")
-        ax.set_title(f"PIT Histogram: {self.output_name}")
+        ax.set_title("PIT Histogram")
         ax.legend(frameon=False)
         ax.grid(axis="y", linestyle="--", alpha=0.35)
         fig.tight_layout()
@@ -297,7 +279,7 @@ class EnsembleQuantileBuilder:
         groups: dict[str, list[Path]] = self._ensemble_groups
         for prefix in sorted(self._ensemble_groups.keys()):
             self.build_one(prefix=prefix, member_paths=groups[prefix])
-        self.plot_all()
+
         stats_path, figure_path = self.plot_uniformity_test()
         pit_histogram_path: Path = self.plot_pit_histogram()
         print(f"[fig4] Saved uniformity stats to: {stats_path}")
@@ -308,6 +290,7 @@ class EnsembleQuantileBuilder:
 class EnsembleCRPSDecompositionBuilder:
 
     _MEMBER_PATTERN = re.compile(r"^(?P<prefix>.+)_ens_(?P<member>\d{4})\.pt$")
+    CRPS_CMAP = cmocean.cm.rain
 
     def __init__(
         self,
@@ -346,13 +329,13 @@ class EnsembleCRPSDecompositionBuilder:
         assert member_predictions.ndim == 3
         assert groundtruth.shape == member_predictions.shape[1:]
 
-        obs_term: torch.Tensor = (member_predictions - groundtruth.unsqueeze(dim=0)).abs().mean(dim=0)
+        error_term: torch.Tensor = (member_predictions - groundtruth.unsqueeze(dim=0)).abs().mean(dim=0)
         pairwise_distance: torch.Tensor = (
             member_predictions[:, None, :, :] - member_predictions[None, :, :, :]
         ).abs()
         spread_term: torch.Tensor = 0.5 * pairwise_distance.mean(dim=(0, 1))
-        crps_map: torch.Tensor = obs_term - spread_term
-        return obs_term, spread_term, crps_map
+        crps_map: torch.Tensor = error_term - spread_term
+        return error_term, spread_term, crps_map
 
     def build_one(self, prefix: str, member_paths: list[Path]) -> Path:
         assert len(member_paths) > 0
@@ -373,7 +356,7 @@ class EnsembleCRPSDecompositionBuilder:
             groundtruth=groundtruth,
             target_shape=tuple(prediction_stack.shape[1:]),   # pyright: ignore
         )
-        obs_term, spread_term, crps_map = self.compute_crps_terms(
+        error_term, spread_term, crps_map = self.compute_crps_terms(
             groundtruth=resized_groundtruth,
             member_predictions=prediction_stack,
         )
@@ -381,7 +364,7 @@ class EnsembleCRPSDecompositionBuilder:
             "prefix": prefix,
             "groundtruth": resized_groundtruth,
             "ensemble_mean": prediction_stack.mean(dim=0),
-            "obs_term": obs_term,
+            "error_term": error_term,
             "spread_term": spread_term,
             "crps_map": crps_map,
             "ensemble_size": int(prediction_stack.shape[0]),
@@ -403,85 +386,68 @@ class EnsembleCRPSDecompositionBuilder:
         if not filepaths:
             raise FileNotFoundError(f"No CRPS files found in: {self.target_dir}")
 
-        obs_terms: list[torch.Tensor] = []
+        error_terms: list[torch.Tensor] = []
         spread_terms: list[torch.Tensor] = []
         crps_maps: list[torch.Tensor] = []
         for filepath in filepaths:
             result_object: dict[str, Any] = torch.load(filepath, map_location="cpu")
-            obs_terms.append(torch.as_tensor(result_object["obs_term"], dtype=torch.float32))
+            error_terms.append(torch.as_tensor(result_object["error_term"], dtype=torch.float32))
             spread_terms.append(torch.as_tensor(result_object["spread_term"], dtype=torch.float32))
             crps_maps.append(torch.as_tensor(result_object["crps_map"], dtype=torch.float32))
         return (
-            torch.stack(obs_terms, dim=0),
+            torch.stack(error_terms, dim=0),
             torch.stack(spread_terms, dim=0),
             torch.stack(crps_maps, dim=0),
         )
 
-    def plot_all_crps_maps(self) -> list[Path]:
-        pattern: str = f"*_{self.output_name}_*_crps.pt"
-        filepaths: list[Path] = sorted(self.target_dir.glob(pattern))
-        if not filepaths:
-            raise FileNotFoundError(f"No CRPS files found in: {self.target_dir}")
-
-        output_paths: list[Path] = []
-        for filepath in filepaths:
-            result_object: dict[str, Any] = torch.load(filepath, map_location="cpu")
-            prefix: str = result_object["prefix"]
-            output_name: str = result_object["output_name"]
-            obs_term: torch.Tensor = torch.as_tensor(result_object["obs_term"], dtype=torch.float32)
-            spread_term: torch.Tensor = torch.as_tensor(result_object["spread_term"], dtype=torch.float32)
-            crps_map: torch.Tensor = torch.as_tensor(result_object["crps_map"], dtype=torch.float32)
-
-            fig, axs = plt.subplots(1, 3, figsize=(18, 4.2))
-            titles: list[str] = ["Observation Term", "Spread Term", "CRPS"]
-            frames: list[torch.Tensor] = [obs_term, spread_term, crps_map]
-            for ax, title, frame in zip(axs, titles, frames):
-                im = ax.imshow(frame, origin="lower", cmap="magma", vmin=0.0, vmax=0.08)
-                ax.set_title(title)
-                ax.set_xticks([])
-                ax.set_yticks([])
-                cax = make_axes_locatable(ax).append_axes("right", size="4%", pad=0.08)
-                fig.colorbar(im, cax=cax)
-
-            fig.suptitle(f"CRPS Decomposition: {output_name} | {prefix}", fontsize=16)
-            fig.tight_layout()
-            output_path: Path = filepath.with_suffix(".png")
-            fig.savefig(output_path, dpi=300, bbox_inches="tight")
-            plt.close(fig)
-            output_paths.append(output_path)
-        return output_paths
-
     def plot_summary(self) -> tuple[Path, Path]:
-        obs_terms, spread_terms, crps_maps = self.load_all_crps_maps()
-        mean_obs_term: torch.Tensor = obs_terms.mean(dim=0)
+        error_terms, spread_terms, crps_maps = self.load_all_crps_maps()
+        mean_error_term: torch.Tensor = error_terms.mean(dim=0)
         mean_spread_term: torch.Tensor = spread_terms.mean(dim=0)
         mean_crps: torch.Tensor = crps_maps.mean(dim=0)
+        avg_error_term: float = float(mean_error_term.mean().item())
+        avg_spread_term: float = float(mean_spread_term.mean().item())
+        avg_crps: float = float(mean_crps.mean().item())
 
         stats_path: Path = self.target_dir.joinpath(f"{self.output_name}_crps_decomposition.pt")
         torch.save(
             {
                 "output_name": self.output_name,
                 "n_samples": int(crps_maps.shape[0]),
-                "mean_obs_term": mean_obs_term,
+                "mean_error_term": mean_error_term,
                 "mean_spread_term": mean_spread_term,
                 "mean_crps": mean_crps,
+                "avg_error_term": avg_error_term,
+                "avg_spread_term": avg_spread_term,
+                "avg_crps": avg_crps,
             },
             stats_path,
         )
 
-        fig, axs = plt.subplots(1, 3, figsize=(18, 4.2))
-        titles: list[str] = ["Observation Term", "Spread Term", "CRPS"]
-        frames: list[torch.Tensor] = [mean_obs_term, mean_spread_term, mean_crps]
+        fig, axs = plt.subplots(1, 3, figsize=(14, 4.8), constrained_layout=True)
+        titles: list[str] = ["Error Term", "Spread Term", "CRPS"]
+        frames: list[torch.Tensor] = [mean_error_term, mean_spread_term, mean_crps]
+        y = np.arange(mean_crps.shape[0], dtype=np.float64)
+        x = np.arange(mean_crps.shape[1], dtype=np.float64)
+        xx, yy = np.meshgrid(x, y)
+        levels = np.linspace(0.0, 0.04, 17)
+        im = None
         for ax, title, frame in zip(axs, titles, frames):
-            im = ax.imshow(frame, origin="lower", cmap="magma", vmin=0.0, vmax=0.08)
+            im = ax.contourf(xx, yy, frame, levels=levels, cmap=self.CRPS_CMAP, extend="max")
             ax.set_title(title)
             ax.set_xticks([])
             ax.set_yticks([])
-            cax = make_axes_locatable(ax).append_axes("right", size="4%", pad=0.08)
-            fig.colorbar(im, cax=cax)
+        assert im is not None
+        fig.canvas.draw()
+        middle_bbox = axs[1].get_position()
+        subplot_width: float = middle_bbox.width
+        colorbar_width: float = 2.0 * subplot_width
+        colorbar_left: float = middle_bbox.x0 + 0.5 * subplot_width - 0.5 * colorbar_width
+        colorbar_bottom: float = middle_bbox.y0 - 0.10
+        cax = fig.add_axes((colorbar_left, colorbar_bottom, colorbar_width, 0.025))
+        fig.colorbar(im, cax=cax, orientation="horizontal")
 
-        fig.suptitle(f"CRPS Decomposition: {self.output_name}", fontsize=16)
-        fig.tight_layout()
+        fig.suptitle("CRPS Decomposition", fontsize=16, y=1.01)
         figure_path: Path = self.target_dir.joinpath(f"{self.output_name}_crps_decomposition.png")
         fig.savefig(figure_path, dpi=300, bbox_inches="tight")
         plt.close(fig)
@@ -491,12 +457,16 @@ class EnsembleCRPSDecompositionBuilder:
         groups: dict[str, list[Path]] = self._ensemble_groups
         for prefix in sorted(groups.keys()):
             self.build_one(prefix=prefix, member_paths=groups[prefix])
-        crps_map_paths: list[Path] = self.plot_all_crps_maps()
         stats_path, figure_path = self.plot_summary()
-        print(f"[fig4] Saved {len(crps_map_paths)} CRPS maps for {self.output_name}")
+        stats_object: dict[str, Any] = torch.load(stats_path, map_location="cpu")
+        print(
+            "[fig4] CRPS decomposition averages:\n"
+            f"error_term: {stats_object['avg_error_term']:.3f}\n"
+            f"spread_term: {stats_object['avg_spread_term']:.3f}\n"
+            f"crps: {stats_object['avg_crps']:.3f}\n"
+        )
         print(f"[fig4] Saved CRPS decomposition stats to: {stats_path}")
         print(f"[fig4] Saved CRPS decomposition figure to: {figure_path}")
-
 
 
 def main(

@@ -113,7 +113,7 @@ cnn:
   embedding_dim: 1024
   n_hidden_layers: 12
 
-  learning_rate: 1e-6
+  learning_rate: 1e-5
   train_batch_size: 4
   val_batch_size: 1
 
@@ -147,18 +147,18 @@ cnn:
   # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_large/"
 
   # Finetune
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_small/cnn3.pt"
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_small/cnn10.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_small/cnn1.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_small/cnn1.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_small/"
   # target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_small/"
 
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_mid/cnn9.pt"
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_mid/cnn10.pt"
-  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_mid/"
-  # target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_mid/"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_mid/cnn1.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_mid/cnn1.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_mid/"
+  target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_mid/"
 
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_large/cnn7.pt"
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_large/cnn10.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_large/cnn1.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_large/cnn1.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_large/"
   # target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_large/"
 
@@ -202,18 +202,18 @@ unet:
   # target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_large/"
 
   # Finetune
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_small/unet3.pt"
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_small/unet7.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_small/unet1.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_small/unet1.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_small/"
   # target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_small/"
 
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_mid/unet6.pt"
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_mid/unet10.pt"
-  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_mid/"
-  # target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_mid/"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_mid/unet1.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_mid/unet1.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_mid/"
+  target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_mid/"
 
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_large/unet15.pt"
-  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_large/unet10.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_large/unet1.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_large/unet1.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_large/"
   # target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_large/"
 
@@ -405,31 +405,45 @@ diffusion:
   transformer_maxlength: 28   # must be >= max(dataset.n_input_days, dataset.n_output_days)
   # Diffusion configurations
   noise_scheduler: "cosine" # "linear" | "cosine"
-  n_steps: 1000
+  n_steps: 400
   beta_min: 0.001  # linear only
   beta_max: 0.020  # linear only
   # Sampling
   eta: 1.0
   ensemble_size: 20
   # Training
+  snr_gamma: 5.0
   learning_rate: 1e-4
-  train_batch_size: 4
-  val_batch_size: 4
+  train_batch_size: 1
+  val_batch_size: 1
   n_epochs: 1000
   patience: 50
   tolerance: 0.
   save_frequency: 1
 
-  # # Trained on CESM2
-  # vae_wind_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_wind_16times/vaewind6.pt"
-  # vae_mass_checkpoint:  "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_mass_16times/vaemass11.pt"
-  # vae_thermal_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/vaethermal15.pt"
-  # vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/vaehydro3.pt"
-  # vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_precip_4times/vaeprecip6.pt"
+  # Trained on CESM2
+  vae_wind_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_wind_16times/vaewind6.pt"
+  vae_mass_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_mass_16times/vaemass11.pt"
+  vae_thermal_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/vaethermal15.pt"
+  vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/vaehydro3.pt"
+  vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_precip_4times/vaeprecip6.pt"
 
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/diffusion24.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear/diffusion4.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear/diffusion11.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps/diffusion4.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps_new/diffusion4.pt"
+  from_checkpoint: null
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/"
-  # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_eta000/"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear/"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine_400steps_new/"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_eta100/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_linear_eta100/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_v23_linear_eta100_400steps_new/"
+
+  # NOTE: train_cesm2: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps/diffusion4.pt"
+  # NOTE: finetune: should use "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps/diffusion7-best.pt" (cai nay bi train lon tren finetuned vae-precip)
 
   # # Trained on ERA5
   # vae_wind_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_wind_16times/vaewind34.pt"
@@ -443,14 +457,48 @@ diffusion:
   # target_path: "/scratch/zgp2ps/s2s_results/train_era5/diffusion_eta000/"
 
   # Finetune
-  vae_wind_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_wind_16times/vaewind6.pt"
-  vae_mass_checkpoint:  "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_mass_16times/vaemass11.pt"
-  vae_thermal_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/vaethermal15.pt"
-  vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/vaehydro3.pt"
-  vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/vae_precip_4times_rank32/vaeprecip24.pt"
+  # vae_wind_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_wind_16times/vaewind6.pt"
+  # vae_mass_checkpoint:  "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_mass_16times/vaemass11.pt"
+  # vae_thermal_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/vaethermal15.pt"
+  # vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/vaehydro3.pt"
+  # vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/vae_precip_4times_rank32/vaeprecip24.pt"
 
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/diffusion24.pt"
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_rank32/diffusion8.pt"
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_rank64/diffusion109.pt"
-  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_rank64/"
-  target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta100_rank64/"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_rank64/diffusion109.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_rank128/diffusion30.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_rank256/diffusion37.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_rank256/diffusion37.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_full/diffusion76.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_rank512/diffusion79.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear/diffusion3.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_linear_rank128/diffusion13.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps/diffusion6.pt"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps_new/diffusion4.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_linear_400steps_rank128_new/diffusion93.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine_200steps_new/diffusion26.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_200steps_rank256_new/diffusion96.pt"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps/diffusion7.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_rank64/"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_full/"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_rank256/"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_rank512/"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_linear_rank512/"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_linear_400steps_rank128_new/"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_200steps_rank128_new/"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_cosine_200steps_rank256_new/"
+
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_linear_400steps_rank128/"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_v23_linear_400steps_rank512/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta100_rank64/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta100_full/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta100_rank256/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta100_rank512/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_linear_eta100_rank128/"
+
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_linear_eta100_rank128_400steps/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_linear_400steps_rank128_new/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_linear_400steps_rank512_new/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_200steps_rank256_new/"

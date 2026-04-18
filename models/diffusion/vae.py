@@ -415,10 +415,7 @@ class _Finetunable:
                 or "lora_B" in name
                 or name.startswith(self._ALLOWED_FINETUNE_PREFIXES)
             )
-        print(
-            f"{self.name} backbone has been frozen for LoRA fine-tuning, "
-            "keeping decoder head, last decoder block, mu_head, and logvar_head trainable"
-        )
+        print(f"{self.name} backbone has been frozen for LoRA fine-tuning")
 
 
 class VAE_Precip(_Finetunable, VAE):
