@@ -415,15 +415,18 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
 
     #implement
     def _train_step(self, batch: DataBatch) -> None:
-        _, input_yearday_indices, _, condition, target = batch
+        _, input_yearday_indices, output_yearday_indices, condition, target = batch
         condition = condition.to(self.device, non_blocking=True)
         target = target.to(self.device, non_blocking=True)
         input_yearday_indices = input_yearday_indices.to(self.device, non_blocking=True)
+        output_yearday_indices = output_yearday_indices.to(self.device, non_blocking=True)
         # Reset gradients
         self.optimizer.zero_grad()
         # Forward propagation
         velocity_loss, velocity_mae = self._forward_pass(
-            target=target, condition=condition, condition_days=input_yearday_indices
+            target=target, condition=condition,
+            condition_days=input_yearday_indices,
+            target_days=output_yearday_indices,
         )
         # Back propagation
         velocity_loss.backward()
@@ -431,18 +434,25 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
 
     #implement
     def _eval_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor]:
-        _, input_yearday_indices, _, condition, target = batch
+        _, input_yearday_indices, output_yearday_indices, condition, target = batch
         condition = condition.to(self.device, non_blocking=True)
         target = target.to(self.device, non_blocking=True)
         input_yearday_indices = input_yearday_indices.to(self.device, non_blocking=True)
+        output_yearday_indices = output_yearday_indices.to(self.device, non_blocking=True)
         # Forward propagation
         velocity_loss, velocity_mae = self._forward_pass(
-            target=target, condition=condition, condition_days=input_yearday_indices
+            target=target, condition=condition,
+            condition_days=input_yearday_indices,
+            target_days=output_yearday_indices,
         )
         return velocity_loss, velocity_mae
 
     def _forward_pass(
-        self, condition: torch.Tensor, target: torch.Tensor, condition_days: torch.Tensor,
+        self,
+        condition: torch.Tensor,
+        target: torch.Tensor,
+        condition_days: torch.Tensor,
+        target_days: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # Encode (already @torch.no_grad())
         condition_mu, condition_logvar, target_latent = self.vae_encode(condition=condition, target=target)
@@ -457,13 +467,14 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         noisy_target, true_velocity = self.forward_process.add_noise(
             original_latent=target_latent, k=integer_step
         )
-        alpha_bar: torch.Tensor = self.forward_process.compute_alpha_bar(step=integer_step)
-        snr: torch.Tensor = (alpha_bar / (1.0 - alpha_bar).clamp(min=1e-8)).flatten(start_dim=1).mean(dim=1)
+        snr: torch.Tensor = self.forward_process.compute_snr(step=integer_step)
         # Predict gaussian using UNetDenoiser
         predicted_velocity: torch.Tensor = self.net(
             target=noisy_target,
             condition_mu=condition_mu, condition_logvar=condition_logvar,
-            integer_step=integer_step, condition_days=condition_days,
+            integer_step=integer_step,
+            condition_days=condition_days,
+            target_days=target_days,
         )
         # Loss
         velocity_loss, velocity_mae = self.loss_function(

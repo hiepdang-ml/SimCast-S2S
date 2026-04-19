@@ -424,10 +424,11 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         self.reverse_process: ReverseProcess = ReverseProcess(eta=eta, noise_scheduler=noise_scheduler)
 
     def _predict_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor]:
-        sampleinfos, condition_days, _, condition, groundtruth = batch
+        sampleinfos, condition_days, target_days, condition, groundtruth = batch
         condition = condition.to(device=self.device)
         groundtruth = groundtruth.to(device=self.device)
         condition_days = condition_days.to(device=self.device)
+        target_days = target_days.to(device=self.device)
         sampleinfo: SampleInfo = sampleinfos[0] # because batch_size=1
 
         # Encode
@@ -456,6 +457,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
                     condition_logvar=condition_logvar,
                     integer_step=integer_step,
                     condition_days=condition_days,
+                    target_days=target_days,
                 )
                 target_latent_k, target_latent_0 = self.reverse_process.sample(
                     target_k=target_latent_k, predicted_velocity=predicted_velocity, k=integer_step,

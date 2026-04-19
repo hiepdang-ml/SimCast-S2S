@@ -395,11 +395,11 @@ diffusion:
   mid_transformer_model_dims: [256, 256]
   up_transformer_model_dims: [256, 256]
   n_conv_layers_per_scaling_block: 6
-  n_transformer_encoder_layers_per_scaling_block: 6
-  n_transformer_decoder_layers_per_scaling_block: 6
+  n_transformer_encoder_layers_per_scaling_block: [1, 2]
+  n_transformer_decoder_layers_per_scaling_block: [1, 2]
   n_conv_layers_per_mid_block: 3
-  n_transformer_encoder_layers_per_mid_block: 6
-  n_transformer_decoder_layers_per_mid_block: 6
+  n_transformer_encoder_layers_per_mid_block: [4, 4]
+  n_transformer_decoder_layers_per_mid_block: [4, 4]
   transformer_feedforward_dim: 2048
   n_attention_heads: 4
   transformer_maxlength: 28   # must be >= max(dataset.n_input_days, dataset.n_output_days)
