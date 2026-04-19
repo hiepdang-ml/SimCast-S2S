@@ -440,7 +440,7 @@ diffusion:
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_eta100/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_linear_eta100/"
-  target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_v23_linear_eta100_400steps_new/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_v23_cosine_eta100_400steps_new/"
 
   # NOTE: train_cesm2: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps/diffusion4.pt"
   # NOTE: finetune: should use "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps/diffusion7-best.pt" (cai nay bi train lon tren finetuned vae-precip)
