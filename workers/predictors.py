@@ -432,7 +432,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         sampleinfo: SampleInfo = sampleinfos[0] # because batch_size=1
 
         # Encode
-        condition_mu, condition_logvar, target_latent = self.vae_encode(condition=condition, target=groundtruth)
+        condition_latent, target_latent = self.vae_encode(condition=condition, target=groundtruth)
         L: int = groundtruth.shape[1]
         groundtruth: torch.Tensor = groundtruth.mean(dim=1, keepdim=False).squeeze(dim=0)
 
@@ -453,8 +453,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
                 # Backward process
                 predicted_velocity: torch.Tensor = self.net(
                     target=target_latent_k,
-                    condition_mu=condition_mu,
-                    condition_logvar=condition_logvar,
+                    condition=condition_latent,
                     integer_step=integer_step,
                     condition_days=condition_days,
                     target_days=target_days,

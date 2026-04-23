@@ -4,7 +4,7 @@ from models.diffusion.vae import VAEEncoder
 class RequireVAEEncoders:
 
     @torch.no_grad()
-    def vae_encode(self, condition: torch.Tensor, target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def vae_encode(self, condition: torch.Tensor, target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # Encode condition
         wind_indices: list[int] = self.indices_by_context_group["wind"]
         wind_condition: torch.Tensor = condition[..., wind_indices]
@@ -23,16 +23,20 @@ class RequireVAEEncoders:
         hydro_mu, hydro_logvar = self._encode(self.hydro_encoder, hydro_condition)
         precip_mu, precip_logvar = self._encode(self.precip_encoder, precip_condition)
 
-        condition_mu: torch.Tensor = torch.cat(
-            [wind_mu, mass_mu, thermal_mu, hydro_mu, precip_mu], dim=2
-        )
-        condition_logvar: torch.Tensor = torch.cat(
-            [wind_logvar, mass_logvar, thermal_logvar, hydro_logvar, precip_logvar], dim=2
+        condition_latent: torch.Tensor = torch.cat(
+            [
+                VAEEncoder.reparameterize(wind_mu, wind_logvar, scale=1.0),
+                VAEEncoder.reparameterize(mass_mu, mass_logvar, scale=1.0),
+                VAEEncoder.reparameterize(thermal_mu, thermal_logvar, scale=1.0),
+                VAEEncoder.reparameterize(hydro_mu, hydro_logvar, scale=1.0),
+                VAEEncoder.reparameterize(precip_mu, precip_logvar, scale=1.0),
+            ],
+            dim=2,
         )
         # Encode target
         target_mu, target_logvar = self._encode(self.precip_encoder, target)
-        target_latent: torch.Tensor = VAEEncoder.reparameterize(target_mu, target_logvar, scale=0.5)
-        return condition_mu, condition_logvar, target_latent
+        target_latent: torch.Tensor = VAEEncoder.reparameterize(target_mu, target_logvar, scale=1.0)
+        return condition_latent, target_latent
 
     @staticmethod
     def _encode(encoder: VAEEncoder, input: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

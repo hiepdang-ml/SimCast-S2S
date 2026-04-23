@@ -163,40 +163,6 @@ class _ConvActConv(nn.Module):
         return output
 
 
-class _ConditionFuser(nn.Module):
-
-    def __init__(self, condition_dim: int):
-        super().__init__()
-        self.condition_dim: int = condition_dim
-        self.mu_projection: nn.Module = nn.Conv2d(
-            in_channels=condition_dim, out_channels=condition_dim, kernel_size=1,
-        )
-        self.logvar_projection: nn.Module = nn.Conv2d(
-            in_channels=condition_dim, out_channels=condition_dim, kernel_size=1,
-        )
-        self.gate_projection: nn.Module = nn.Conv2d(
-            in_channels=condition_dim * 2, out_channels=condition_dim, kernel_size=1,
-        )
-        self.activation: nn.Module = nn.GELU()
-
-    def forward(self, condition_mu: torch.Tensor, condition_logvar: torch.Tensor) -> torch.Tensor:
-        N, T, D, H, W = condition_mu.shape
-        assert condition_mu.shape == condition_logvar.shape
-        assert D == self.condition_dim
-
-        mu: torch.Tensor = condition_mu.flatten(0, 1)
-        logvar: torch.Tensor = condition_logvar.flatten(0, 1)
-        fused_input: torch.Tensor = torch.cat([mu, logvar], dim=1)
-        candidate: torch.Tensor = self.activation(
-            self.mu_projection(mu) + self.logvar_projection(logvar)
-        )
-        gate: torch.Tensor = torch.sigmoid(self.gate_projection(fused_input))
-        output: torch.Tensor = gate * candidate + (1.0 - gate) * mu
-        output = output.reshape(N, T, D, H, W)
-        assert output.shape == condition_mu.shape == condition_logvar.shape
-        return output
-
-
 class _TransformerFeedForward(nn.Module):
 
     def __init__(self, model_dim: int, feedforward_dim: int):
@@ -664,8 +630,6 @@ class _ScalingBlock(nn.Module):
         self.transformer_maxlength: int = transformer_maxlength
         self.type: Literal["up", "down", "mid"] = type
 
-        # Condition
-        self.condition_fuser: nn.Module = _ConditionFuser(condition_dim=condition_dim)
         # Target
         self.target_conv1_layers: nn.ModuleList = nn.ModuleList([
             _ConvActConv(input_dim=input_dim if i == 0 else output_dim, output_dim=output_dim)
@@ -716,13 +680,12 @@ class _ScalingBlock(nn.Module):
     def forward(
         self,
         target: torch.Tensor,
-        condition_mu: torch.Tensor, condition_logvar: torch.Tensor,
+        condition: torch.Tensor,
         step: torch.Tensor,
         condition_days: torch.Tensor,
         target_days: torch.Tensor,
     ) -> torch.Tensor:
-        assert condition_mu.shape == condition_logvar.shape
-        condition_N, condition_L, condition_D, condition_H, condition_W = condition_mu.shape
+        condition_N, condition_L, condition_D, condition_H, condition_W = condition.shape
         assert condition_D == self.condition_dim
         target_N, target_T, target_D, target_H, target_W = target.shape
         assert target_D == self.input_dim
@@ -733,10 +696,6 @@ class _ScalingBlock(nn.Module):
         assert target_N == condition_N == step_N == condition_days_N == target_days_N
         assert condition_days_L == condition_L
         assert target_days_L == target_T
-
-        condition: torch.Tensor = self.condition_fuser(
-            condition_mu=condition_mu, condition_logvar=condition_logvar
-        )
         if (condition_H, condition_W) != (target_H, target_W):
             condition_flat: torch.Tensor = condition.flatten(0, 1)
             condition_flat = F.interpolate(condition_flat, size=(target_H, target_W), mode="bilinear")
@@ -1020,14 +979,13 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
     def forward(
         self,
         target: torch.Tensor,
-        condition_mu: torch.Tensor, condition_logvar: torch.Tensor,
+        condition: torch.Tensor,
         integer_step: torch.Tensor,
         condition_days: torch.Tensor,
         target_days: torch.Tensor,
     ) -> torch.Tensor:
         target_N, target_T, target_D, target_H, target_W = target.shape
-        condition_N, condition_L, condition_D, condition_H, condition_W = condition_mu.shape
-        assert condition_mu.shape == condition_logvar.shape
+        condition_N, condition_L, condition_D, condition_H, condition_W = condition.shape
         step_N, step_L = integer_step.shape
         condition_day_N, condition_day_L = condition_days.shape
         target_day_N, target_day_L = target_days.shape
@@ -1052,7 +1010,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
             down_outputs.append(
                 self.down_blocks[i](
                     target=down_input,
-                    condition_mu=condition_mu, condition_logvar=condition_logvar,
+                    condition=condition,
                     step=integer_step, condition_days=condition_days, target_days=target_days,
                 )
             )
@@ -1062,7 +1020,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         for i in range(self.n_mid_blocks):
             mid_output = self.mid_blocks[i](
                 target=mid_output,
-                condition_mu=condition_mu, condition_logvar=condition_logvar,
+                condition=condition,
                 step=integer_step, condition_days=condition_days, target_days=target_days,
             )
 
@@ -1081,7 +1039,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
             )
             up_output = self.up_blocks[i](
                 target=concat,
-                condition_mu=condition_mu, condition_logvar=condition_logvar,
+                condition=condition,
                 step=integer_step, condition_days=condition_days, target_days=target_days,
             )
 
