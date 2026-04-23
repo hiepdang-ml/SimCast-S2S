@@ -31,7 +31,7 @@ class RequireVAEEncoders:
         )
         # Encode target
         target_mu, target_logvar = self._encode(self.precip_encoder, target)
-        target_latent: torch.Tensor = VAEEncoder.reparameterize(target_mu, target_logvar, scale=0.)
+        target_latent: torch.Tensor = VAEEncoder.reparameterize(target_mu, target_logvar, scale=0.5)
         return condition_mu, condition_logvar, target_latent
 
     @staticmethod

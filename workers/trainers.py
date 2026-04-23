@@ -338,7 +338,6 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         thermal_encoder: VAEEncoder, hydro_encoder: VAEEncoder,
         precip_encoder: VAEEncoder,
         noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler, lr: float,
-        snr_gamma: float,
         train_dataset: CESM2 | ERA5, val_dataset: CESM2 | ERA5,
         train_batch_size: int, val_batch_size: int,
         local_rank: int,
@@ -349,7 +348,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
             local_rank=local_rank,
         )
         self.denoiser: UNetDenoiser = denoiser
-        self.loss_function = DiffusionLoss(snr_gamma=snr_gamma)
+        self.loss_function = DiffusionLoss()
 
         # NOTE: no need to wrap VAEEncoder(s) with DDP because no backprop
         # Freeze wind_encoder
@@ -467,7 +466,6 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         noisy_target, true_velocity = self.forward_process.add_noise(
             original_latent=target_latent, k=integer_step
         )
-        snr: torch.Tensor = self.forward_process.compute_snr(step=integer_step)
         # Predict gaussian using UNetDenoiser
         predicted_velocity: torch.Tensor = self.net(
             target=noisy_target,
@@ -478,6 +476,6 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         )
         # Loss
         velocity_loss, velocity_mae = self.loss_function(
-            velocity_hat=predicted_velocity, velocity_true=true_velocity, snr=snr
+            velocity_hat=predicted_velocity, velocity_true=true_velocity,
         )
         return velocity_loss, velocity_mae

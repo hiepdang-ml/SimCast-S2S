@@ -331,9 +331,6 @@ class DiffusionConfig(BaseConfig):
         self.beta_min: float = float(self._config["beta_min"])
         self.beta_max: float = float(self._config["beta_max"])
         self.n_steps: int = self._config["n_steps"]
-        self.snr_gamma: float = float(self._config["snr_gamma"])
-        if self.snr_gamma <= 0:
-            raise ValueError(f"diffusion.snr_gamma must be > 0, got {self.snr_gamma}")
         self.eta: float = float(self._config["eta"])
         self.ensemble_size: int = int(self._config["ensemble_size"])
 
@@ -367,7 +364,6 @@ class DiffusionConfig(BaseConfig):
             "beta_min": self.beta_min,
             "beta_max": self.beta_max,
             "n_steps": self.n_steps,
-            "snr_gamma": self.snr_gamma,
             "eta": self.eta,
             "ensemble_size": self.ensemble_size,
             "learning_rate": self.learning_rate,

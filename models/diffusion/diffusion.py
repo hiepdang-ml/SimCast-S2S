@@ -1,5 +1,4 @@
 from typing import Literal, cast
-from functools import cached_property
 
 import torch
 import torch.nn as nn
@@ -9,11 +8,7 @@ from models.adaptation.lora import LoRALinear
 
 
 class _BaseNoiseScheduler:
-
-    @cached_property
-    def snr(self) -> torch.Tensor:
-        # NOTE: k=0 has alpha_bar=1, so clamp the denominator to keep SNR finite.
-        return self.alpha_bar_schedule / (1 - self.alpha_bar_schedule).clamp(min=1e-8)
+    pass
 
 
 class LinearNoiseScheduler(_BaseNoiseScheduler, nn.Module):
@@ -1123,14 +1118,6 @@ class _DiffusionProcess:
         assert beta.shape == (step_N, 1)
         beta = beta[:, :, None, None, None]
         return beta
-
-    def compute_snr(self, step: torch.Tensor) -> torch.Tensor:
-        step_N, _ = step.shape  # (batch_size, 1)
-        assert torch.all(step.long() >= 0)
-        assert torch.all(step.long() <= self.noise_scheduler.n_steps)
-        snr: torch.Tensor = self.noise_scheduler.snr.to(step.device)[step.long()]
-        assert snr.shape == (step_N, 1)
-        return snr.flatten()
 
     # reverse process
     def compute_tilde_beta(self, alpha_bar_prev: torch.Tensor, alpha_bar: torch.Tensor) -> torch.Tensor:

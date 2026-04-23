@@ -31,23 +31,12 @@ class VAELoss(nn.Module):
 
 class DiffusionLoss(nn.Module):
 
-    def __init__(self, snr_gamma: float):
-        super().__init__()
-        assert snr_gamma > 0
-        self.snr_gamma: float = snr_gamma
-
     def forward(
         self,
         velocity_hat: torch.Tensor,
         velocity_true: torch.Tensor,
-        snr: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         assert velocity_hat.shape == velocity_true.shape
         velocity_mae: torch.Tensor = F.l1_loss(input=velocity_hat, target=velocity_true, reduction="mean")
-        per_sample_loss: torch.Tensor = F.mse_loss(
-            input=velocity_hat, target=velocity_true, reduction="none"
-        ).flatten(start_dim=1, end_dim=-1).mean(dim=1)
-        weights: torch.Tensor = torch.minimum(snr.flatten(), torch.full_like(snr.flatten(), self.snr_gamma))
-        weights = weights / (snr.flatten() + 1.0).clamp(min=1e-8)
-        velocity_loss: torch.Tensor = (per_sample_loss * weights).sum() / weights.sum().clamp(min=1e-8)
+        velocity_loss: torch.Tensor = F.mse_loss(input=velocity_hat, target=velocity_true, reduction="mean")
         return velocity_loss, velocity_mae
