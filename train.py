@@ -542,6 +542,7 @@ def main(
             hydro_encoder=hydro_encoder, precip_encoder=precip_encoder,
             noise_scheduler=noise_scheduler,
             lr=diffusion_config.learning_rate,
+            condition_dropout_prob=diffusion_config.condition_dropout_prob,
             train_dataset=train_dataset,
             val_dataset=val_dataset,
             train_batch_size=diffusion_config.train_batch_size,

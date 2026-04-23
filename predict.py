@@ -229,6 +229,7 @@ def main(
             precip_encoder=precip_vae.encoder, precip_decoder=precip_vae.decoder,
             noise_scheduler=noise_scheduler,
             eta=model_config.eta,
+            guidance_scale=model_config.guidance_scale,
             ensemble_size=model_config.ensemble_size,
             dataset=test_dataset,
             landmask_path=test_metadata.landmask_path.as_posix(),

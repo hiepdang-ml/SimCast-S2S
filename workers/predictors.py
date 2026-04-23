@@ -362,6 +362,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         precip_decoder: VAEDecoder,
         noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler,
         eta: float,
+        guidance_scale: float,
         dataset: CESM2 | ERA5,
         landmask_path: str,
         target_path: str,
@@ -419,8 +420,10 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         self.noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler = noise_scheduler
         self.n_denoising_steps: int = noise_scheduler.n_steps
         self.eta: float = eta
+        self.guidance_scale: float = guidance_scale
         self.ensemble_size: int = ensemble_size
         assert ensemble_size > 0
+        assert 0.0 <= self.guidance_scale <= 1.0
         self.reverse_process: ReverseProcess = ReverseProcess(eta=eta, noise_scheduler=noise_scheduler)
 
     def _predict_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor]:
@@ -433,6 +436,8 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
 
         # Encode
         condition_latent, target_latent = self.vae_encode(condition=condition, target=groundtruth)
+        null_condition_latent: torch.Tensor = torch.zeros_like(condition_latent)
+        null_condition_days: torch.Tensor = torch.zeros_like(condition_days)
         L: int = groundtruth.shape[1]
         groundtruth: torch.Tensor = groundtruth.mean(dim=1, keepdim=False).squeeze(dim=0)
 
@@ -451,13 +456,35 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
                     torch.ones((1, 1), device=target_latent.device, dtype=torch.long) * k
                 )
                 # Backward process
-                predicted_velocity: torch.Tensor = self.net(
+                predicted_velocity_cond: torch.Tensor = self.net(
                     target=target_latent_k,
                     condition=condition_latent,
                     integer_step=integer_step,
                     condition_days=condition_days,
                     target_days=target_days,
                 )
+                if self.guidance_scale == 1.0:
+                    predicted_velocity: torch.Tensor = predicted_velocity_cond
+                elif self.guidance_scale == 0.0:
+                    predicted_velocity = self.net(
+                        target=target_latent_k,
+                        condition=null_condition_latent,
+                        integer_step=integer_step,
+                        condition_days=null_condition_days,
+                        target_days=target_days,
+                    )
+                else:
+                    predicted_velocity_uncond: torch.Tensor = self.net(
+                        target=target_latent_k,
+                        condition=null_condition_latent,
+                        integer_step=integer_step,
+                        condition_days=null_condition_days,
+                        target_days=target_days,
+                    )
+                    predicted_velocity = (
+                        self.guidance_scale * predicted_velocity_cond
+                        + (1.0 - self.guidance_scale) * predicted_velocity_uncond
+                    )
                 target_latent_k, target_latent_0 = self.reverse_process.sample(
                     target_k=target_latent_k, predicted_velocity=predicted_velocity, k=integer_step,
                 )

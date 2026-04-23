@@ -338,6 +338,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         thermal_encoder: VAEEncoder, hydro_encoder: VAEEncoder,
         precip_encoder: VAEEncoder,
         noise_scheduler: LinearNoiseScheduler | CosineNoiseScheduler, lr: float,
+        condition_dropout_prob: float,
         train_dataset: CESM2 | ERA5, val_dataset: CESM2 | ERA5,
         train_batch_size: int, val_batch_size: int,
         local_rank: int,
@@ -349,6 +350,8 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         )
         self.denoiser: UNetDenoiser = denoiser
         self.loss_function = DiffusionLoss()
+        self.condition_dropout_prob: float = condition_dropout_prob
+        assert 0.0 <= self.condition_dropout_prob <= 1.0
 
         # NOTE: no need to wrap VAEEncoder(s) with DDP because no backprop
         # Freeze wind_encoder
@@ -455,6 +458,13 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # Encode (already @torch.no_grad())
         condition_latent, target_latent = self.vae_encode(condition=condition, target=target)
+        if self.condition_dropout_prob > 0.0 and self.net.training:
+            keep_mask: torch.Tensor = (
+                torch.rand((condition_latent.shape[0], 1, 1, 1, 1), device=condition_latent.device)
+                >= self.condition_dropout_prob
+            )
+            condition_latent = condition_latent * keep_mask
+            condition_days = condition_days * keep_mask[:, 0, 0, 0, 0].to(dtype=condition_days.dtype)[:, None]
 
         # Generate step
         batch_size: int = target_latent.shape[0]

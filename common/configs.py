@@ -333,7 +333,8 @@ class DiffusionConfig(BaseConfig):
         self.n_steps: int = self._config["n_steps"]
         self.eta: float = float(self._config["eta"])
         self.ensemble_size: int = int(self._config["ensemble_size"])
-
+        self.condition_dropout_prob: float = float(self._config["condition_dropout_prob"])
+        self.guidance_scale: float = float(self._config["guidance_scale"])
         self.learning_rate: float = float(self._config["learning_rate"])
         self.vae_wind_checkpoint: Path = Path(self._config["vae_wind_checkpoint"])
         self.vae_mass_checkpoint: Path = Path(self._config["vae_mass_checkpoint"])
@@ -366,6 +367,8 @@ class DiffusionConfig(BaseConfig):
             "n_steps": self.n_steps,
             "eta": self.eta,
             "ensemble_size": self.ensemble_size,
+            "condition_dropout_prob": self.condition_dropout_prob,
+            "guidance_scale": self.guidance_scale,
             "learning_rate": self.learning_rate,
             "train_batch_size": self.train_batch_size,
             "val_batch_size": self.val_batch_size,
