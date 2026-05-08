@@ -457,6 +457,7 @@ class _Transformer(nn.Module):
         )
         self.kv_pos_embedding = nn.Parameter(torch.randn(1, maxlength, kv_dim) * 0.02)
         self.q_pos_embedding = nn.Parameter(torch.randn(1, maxlength, q_dim) * 0.02)
+        self.null_kv_embedding = nn.Parameter(torch.randn(1, 1, kv_dim) * 0.02)
         self.kv_day_embedding = _SinusoidEmbedding(embedding_dim=kv_dim)
         self.q_day_embedding = _SinusoidEmbedding(embedding_dim=q_dim)
 
@@ -466,6 +467,7 @@ class _Transformer(nn.Module):
         tgt: torch.Tensor,
         src_days: torch.Tensor,
         tgt_days: torch.Tensor,
+        drop_mask: torch.Tensor,
     ) -> torch.Tensor:
         src_N, src_L, src_D = src.shape
         tgt_N, tgt_L, tgt_D = tgt.shape
@@ -477,7 +479,11 @@ class _Transformer(nn.Module):
         assert src_L == src_day_L
         assert tgt_L == tgt_day_L
         assert src_L <= self.maxlength and tgt_L <= self.maxlength
+        assert drop_mask.shape == (src_N,)
         src = src + self.kv_pos_embedding[:, :src_L, :] + self.kv_day_embedding(src_days)
+        dropped = drop_mask.to(device=src.device, dtype=torch.bool)[:, None, None]
+        null_src = self.null_kv_embedding.expand(src_N, src_L, self.kv_dim)
+        src = torch.where(condition=dropped, input=null_src, other=src)
         tgt = tgt + self.q_pos_embedding[:, :tgt_L, :] + self.q_day_embedding(tgt_days)
         memory: torch.Tensor = self.encoder(kv=src)
         output: torch.Tensor = self.decoder(q=tgt, kv=memory)
@@ -684,6 +690,7 @@ class _ScalingBlock(nn.Module):
         step: torch.Tensor,
         condition_days: torch.Tensor,
         target_days: torch.Tensor,
+        drop_mask: torch.Tensor,
     ) -> torch.Tensor:
         condition_N, condition_L, condition_D, condition_H, condition_W = condition.shape
         assert condition_D == self.condition_dim
@@ -696,6 +703,7 @@ class _ScalingBlock(nn.Module):
         assert target_N == condition_N == step_N == condition_days_N == target_days_N
         assert condition_days_L == condition_L
         assert target_days_L == target_T
+        assert drop_mask.shape == (target_N,)
         if (condition_H, condition_W) != (target_H, target_W):
             condition_flat: torch.Tensor = condition.flatten(0, 1)
             condition_flat = F.interpolate(condition_flat, size=(target_H, target_W), mode="bilinear")
@@ -726,9 +734,13 @@ class _ScalingBlock(nn.Module):
         expanded_target_days = target_days[:, None, None, :].expand(
             target_N, target_H, target_W, target_T
         ).reshape(target_N * target_H * target_W, target_T)
+        expanded_condition_dropped = drop_mask[:, None, None].expand(
+            target_N, target_H, target_W
+        ).reshape(target_N * target_H * target_W)
         conditioned_target: torch.Tensor = self.transfomer(
             src=condition, tgt=target,
             src_days=expanded_condition_days, tgt_days=expanded_target_days,
+            drop_mask=expanded_condition_dropped,
         )
         assert conditioned_target.shape == target.shape == (target_N * target_H * target_W, target_T, self.output_dim)
         weight: torch.Tensor = torch.sigmoid(self.cond_weights[:, :target_T, :])
@@ -983,6 +995,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         integer_step: torch.Tensor,
         condition_days: torch.Tensor,
         target_days: torch.Tensor,
+        dropped_mask: torch.Tensor,
     ) -> torch.Tensor:
         target_N, target_T, target_D, target_H, target_W = target.shape
         condition_N, condition_L, condition_D, condition_H, condition_W = condition.shape
@@ -996,6 +1009,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         assert condition_D == self.condition_dim
         assert (condition_H, condition_W) == (target_H, target_W)
         assert step_L == 1
+        assert dropped_mask.shape == (target_N,)
 
         # Check if too many scaling blocks
         _min_dim: float = min(target_H, target_W) / (2 ** self.n_scaling_blocks)
@@ -1012,6 +1026,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
                     target=down_input,
                     condition=condition,
                     step=integer_step, condition_days=condition_days, target_days=target_days,
+                    dropped_mask=dropped_mask,
                 )
             )
             down_input = down_outputs[-1]
@@ -1022,6 +1037,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
                 target=mid_output,
                 condition=condition,
                 step=integer_step, condition_days=condition_days, target_days=target_days,
+                dropped_mask=dropped_mask,
             )
 
         up_output: torch.Tensor = mid_output
@@ -1041,6 +1057,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
                 target=concat,
                 condition=condition,
                 step=integer_step, condition_days=condition_days, target_days=target_days,
+                dropped_mask=dropped_mask,
             )
 
         assert len(down_outputs) == 0, f"down_outputs must exhaust, getting {len(down_outputs)} items left"

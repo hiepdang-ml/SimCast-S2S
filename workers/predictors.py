@@ -436,8 +436,8 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
 
         # Encode
         condition_latent, target_latent = self.vae_encode(condition=condition, target=groundtruth)
-        null_condition_latent: torch.Tensor = torch.zeros_like(condition_latent)
-        null_condition_days: torch.Tensor = torch.zeros_like(condition_days)
+        condition_kept: torch.Tensor = torch.zeros((1,), device=target_latent.device, dtype=torch.bool)
+        condition_dropped: torch.Tensor = torch.ones((1,), device=target_latent.device, dtype=torch.bool)
         L: int = groundtruth.shape[1]
         groundtruth: torch.Tensor = groundtruth.mean(dim=1, keepdim=False).squeeze(dim=0)
 
@@ -462,24 +462,27 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
                     integer_step=integer_step,
                     condition_days=condition_days,
                     target_days=target_days,
+                    condition_dropped=condition_kept,
                 )
                 if self.guidance_scale == 1.0:
                     predicted_velocity: torch.Tensor = predicted_velocity_cond
                 elif self.guidance_scale == 0.0:
                     predicted_velocity = self.net(
                         target=target_latent_k,
-                        condition=null_condition_latent,
+                        condition=condition_latent,
                         integer_step=integer_step,
-                        condition_days=null_condition_days,
+                        condition_days=condition_days,
                         target_days=target_days,
+                        condition_dropped=condition_dropped,
                     )
                 else:
                     predicted_velocity_uncond: torch.Tensor = self.net(
                         target=target_latent_k,
-                        condition=null_condition_latent,
+                        condition=condition_latent,
                         integer_step=integer_step,
-                        condition_days=null_condition_days,
+                        condition_days=condition_days,
                         target_days=target_days,
+                        condition_dropped=condition_dropped,
                     )
                     predicted_velocity = (
                         self.guidance_scale * predicted_velocity_cond

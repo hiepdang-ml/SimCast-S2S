@@ -458,16 +458,20 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # Encode (already @torch.no_grad())
         condition_latent, target_latent = self.vae_encode(condition=condition, target=target)
+        batch_size: int = target_latent.shape[0]
+
+        condition_dropped: torch.Tensor
         if self.condition_dropout_prob > 0.0 and self.net.training:
-            keep_mask: torch.Tensor = (
-                torch.rand((condition_latent.shape[0], 1, 1, 1, 1), device=condition_latent.device)
-                >= self.condition_dropout_prob
+            condition_dropped = torch.rand(
+                (batch_size,), device=target_latent.device
             )
-            condition_latent = condition_latent * keep_mask
-            condition_days = condition_days * keep_mask[:, 0, 0, 0, 0].to(dtype=condition_days.dtype)[:, None]
+            condition_dropped = condition_dropped < self.condition_dropout_prob
+        else:
+            condition_dropped = torch.zeros(
+                (batch_size,), device=target_latent.device, dtype=torch.bool
+            )
 
         # Generate step
-        batch_size: int = target_latent.shape[0]
         # Diffusion step must range from 1 to K
         integer_step: torch.Tensor = torch.randint(
             low=1, high=self.n_denoising_steps + 1, size=(batch_size, 1), device=target_latent.device,
@@ -483,6 +487,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
             integer_step=integer_step,
             condition_days=condition_days,
             target_days=target_days,
+            condition_dropped=condition_dropped,
         )
         # Loss
         velocity_loss, velocity_mae = self.loss_function(

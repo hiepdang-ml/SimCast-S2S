@@ -120,8 +120,8 @@ class _UpscalingBlock(nn.Module):
 
 class VAEEncoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
 
-    REPARAM_LOGVAR_MIN: float = -30.0
-    REPARAM_LOGVAR_MAX: float = 20.0
+    REPARAM_LOGVAR_MIN: float = -10.0
+    REPARAM_LOGVAR_MAX: float = 10.0
 
     def __init__(
         self,
@@ -237,11 +237,7 @@ class VAEEncoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
     @staticmethod
     def reparameterize(mu: torch.Tensor, logvar: torch.Tensor, scale: float = 1.) -> torch.Tensor:
         assert mu.shape == logvar.shape
-        safe_logvar = torch.clamp(
-            logvar,
-            min=VAEEncoder.REPARAM_LOGVAR_MIN,
-            max=VAEEncoder.REPARAM_LOGVAR_MAX,
-        )
+        safe_logvar = torch.clamp(logvar, min=-10., max=10.) # avoid overflow
         std: torch.Tensor = torch.exp(0.5 * safe_logvar)
         eps: torch.Tensor = torch.randn_like(std)
         return mu + scale * eps * std
