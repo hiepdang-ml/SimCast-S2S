@@ -460,14 +460,14 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         condition_latent, target_latent = self.vae_encode(condition=condition, target=target)
         batch_size: int = target_latent.shape[0]
 
-        condition_dropped: torch.Tensor
+        condition_mask: torch.Tensor
         if self.condition_dropout_prob > 0.0 and self.net.training:
-            condition_dropped = torch.rand(
+            condition_mask = torch.rand(
                 (batch_size,), device=target_latent.device
             )
-            condition_dropped = condition_dropped < self.condition_dropout_prob
+            condition_mask = condition_mask >= self.condition_dropout_prob
         else:
-            condition_dropped = torch.zeros(
+            condition_mask = torch.ones(
                 (batch_size,), device=target_latent.device, dtype=torch.bool
             )
 
@@ -487,7 +487,7 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
             integer_step=integer_step,
             condition_days=condition_days,
             target_days=target_days,
-            condition_dropped=condition_dropped,
+            condition_mask=condition_mask,
         )
         # Loss
         velocity_loss, velocity_mae = self.loss_function(
