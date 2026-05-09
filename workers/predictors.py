@@ -423,7 +423,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         self.guidance_scale: float = guidance_scale
         self.ensemble_size: int = ensemble_size
         assert ensemble_size > 0
-        assert 0.0 <= self.guidance_scale <= 1.0
+        assert self.guidance_scale >= 0.
         self.reverse_process: ReverseProcess = ReverseProcess(eta=eta, noise_scheduler=noise_scheduler)
 
     def _predict_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor]:
