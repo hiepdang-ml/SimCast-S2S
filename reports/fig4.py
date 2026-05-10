@@ -26,10 +26,12 @@ class EnsembleQuantileBuilder:
         source_dir: Path,
         target_dir: Path,
         output_name: str,
+        spread_scale: float,
     ) -> None:
         self.source_dir: Path = source_dir
         self.target_dir: Path = target_dir
         self.output_name: str = output_name
+        self.spread_scale: float = spread_scale
         self.target_dir.mkdir(parents=True, exist_ok=True)
 
     @cached_property
@@ -49,6 +51,15 @@ class EnsembleQuantileBuilder:
         for prefix in groups:
             groups[prefix].sort(key=lambda x: x.name)
         return groups
+
+    @staticmethod
+    def inflate_member_spread(member_predictions: torch.Tensor, spread_scale: float) -> torch.Tensor:
+        if spread_scale <= 0:
+            raise ValueError(f"spread_scale must be positive, got {spread_scale}")
+        if spread_scale == 1.0:
+            return member_predictions
+        ensemble_mean = member_predictions.mean(dim=0, keepdim=True)
+        return ensemble_mean + spread_scale * (member_predictions - ensemble_mean)
 
     @staticmethod
     def compute_quantile_map(
@@ -137,6 +148,10 @@ class EnsembleQuantileBuilder:
 
         assert groundtruth is not None
         prediction_stack: torch.Tensor = torch.stack(predictions, dim=0)
+        prediction_stack = self.inflate_member_spread(
+            member_predictions=prediction_stack,
+            spread_scale=self.spread_scale,
+        )
         resized_groundtruth: torch.Tensor = self.resize_groundtruth(
             groundtruth=groundtruth,
             target_shape=tuple(prediction_stack.shape[1:]), # pyright: ignore
@@ -155,6 +170,7 @@ class EnsembleQuantileBuilder:
             "in_enddate": obj["in_enddate"],
             "out_startdate": obj["out_startdate"],
             "out_enddate": obj["out_enddate"],
+            "spread_scale": self.spread_scale,
         }
         output_path: Path = self.target_dir.joinpath(f"{prefix}_quantile.pt")
         torch.save(obj=result_object, f=output_path)
@@ -297,10 +313,12 @@ class EnsembleCRPSDecompositionBuilder:
         source_dir: Path,
         target_dir: Path,
         output_name: str,
+        spread_scale: float,
     ) -> None:
         self.source_dir: Path = source_dir
         self.target_dir: Path = target_dir
         self.output_name: str = output_name
+        self.spread_scale: float = spread_scale
         self.target_dir.mkdir(parents=True, exist_ok=True)
 
     @cached_property
@@ -352,6 +370,10 @@ class EnsembleCRPSDecompositionBuilder:
         assert last_object is not None
         assert groundtruth is not None
         prediction_stack: torch.Tensor = torch.stack(predictions, dim=0)
+        prediction_stack = EnsembleQuantileBuilder.inflate_member_spread(
+            member_predictions=prediction_stack,
+            spread_scale=self.spread_scale,
+        )
         resized_groundtruth: torch.Tensor = EnsembleQuantileBuilder.resize_groundtruth(
             groundtruth=groundtruth,
             target_shape=tuple(prediction_stack.shape[1:]),   # pyright: ignore
@@ -375,6 +397,7 @@ class EnsembleCRPSDecompositionBuilder:
             "in_enddate": last_object["in_enddate"],
             "out_startdate": last_object["out_startdate"],
             "out_enddate": last_object["out_enddate"],
+            "spread_scale": self.spread_scale,
         }
         output_path: Path = self.target_dir.joinpath(f"{prefix}_crps.pt")
         torch.save(result_object, output_path)
@@ -472,6 +495,7 @@ class EnsembleCRPSDecompositionBuilder:
 def main(
     model: Literal["diffusion", "ecmwf-s2s"],
     dataset: Literal["cesm2", "era5"],
+    spread_scale: float,
 ) -> None:
     if model == "diffusion":
         config: DiffusionConfig = DiffusionConfig()
@@ -479,18 +503,22 @@ def main(
         config: ECMWFS2SConfig = ECMWFS2SConfig()
     metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
     source_dir: Path = config.target_path.joinpath(f"{dataset}/tensors")
-    target_dir: Path = config.target_path.joinpath(f"{dataset}/quantiles")
+    spread_tag: str = f"spread{spread_scale:g}".replace(".", "p")
+    target_dirname: str = "quantiles" if spread_scale == 1.0 else f"quantiles_{spread_tag}"
+    target_dir: Path = config.target_path.joinpath(dataset, target_dirname)
     for output_name in metadata.output_vars:
         quantile_builder = EnsembleQuantileBuilder(
             source_dir=source_dir,
             target_dir=target_dir,
             output_name=output_name,
+            spread_scale=spread_scale,
         )
         quantile_builder.run()
         crps_builder = EnsembleCRPSDecompositionBuilder(
             source_dir=source_dir,
             target_dir=target_dir,
             output_name=output_name,
+            spread_scale=spread_scale,
         )
         crps_builder.run()
 
@@ -499,5 +527,6 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--model", type=str, choices=["diffusion", "ecmwf-s2s"], required=True)
     parser.add_argument("--dataset", type=str, choices=["cesm2", "era5"], required=True)
+    parser.add_argument("--spread-scale", type=float, default=1.0)
     args: Namespace = parser.parse_args()
-    main(model=args.model, dataset=args.dataset)
+    main(model=args.model, dataset=args.dataset, spread_scale=args.spread_scale)

@@ -278,7 +278,11 @@ class VAEPredictor(_AbstractPredictor):
         groundtruths: list[torch.Tensor] = []
         for date_idx in range(x.shape[1]):
             true_x: torch.Tensor = x[:, date_idx: date_idx+1, :, :, :]
-            reconstructed_x, mu, logvar = self.net(true_x)
+            vae_output = self.net(true_x)
+            if len(vae_output) == 4:
+                reconstructed_x, reconstruction_logvar, mu, logvar = vae_output
+            else:
+                reconstructed_x, mu, logvar = vae_output
             mu_mean: torch.Tensor = mu.mean()
             sigma_mean: torch.Tensor = logvar.exp().sqrt().mean()
             # Compute metrics
@@ -485,7 +489,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
             assert target_latent_k.isclose(target_latent_0).all()
             member_latents.append(target_latent_0.squeeze(dim=0))
             # Decode target back to physical space
-            prediction: torch.Tensor = self.precip_decoder(target_latent_0.flatten(0, 1))
+            prediction, prediction_logvar = self.precip_decoder(target_latent_0.flatten(0, 1))
             assert prediction.shape == (L, 1, self.H, self.W, self.out_features)
             prediction = prediction.squeeze(dim=1)
             prediction: torch.Tensor = prediction.mean(dim=0, keepdim=False)
@@ -556,10 +560,10 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         ensemble_std: torch.Tensor = stack.std(dim=0, unbiased=spread_unbiased, keepdim=False)
         latent_ensemble_var: torch.Tensor = latent_stack.var(dim=0, unbiased=spread_unbiased, keepdim=False)
         latent_ensemble_std: torch.Tensor = latent_stack.std(dim=0, unbiased=spread_unbiased, keepdim=False)
-        latent_ensemble_std_mean: float = float(latent_ensemble_std.mean().item())
-        latent_ensemble_var_mean: float = float(latent_ensemble_var.mean().item())
-        decoded_ensemble_std_mean: float = float(ensemble_std.mean().item())
-        decoded_ensemble_var_mean: float = float(ensemble_var.mean().item())
+        latent_ensemble_std_mean: float = latent_ensemble_std.mean().item()
+        latent_ensemble_var_mean: float = latent_ensemble_var.mean().item()
+        decoded_ensemble_std_mean: float = ensemble_std.mean().item()
+        decoded_ensemble_var_mean: float = ensemble_var.mean().item()
         ensemble_q001: torch.Tensor = stack.quantile(q=0.01, dim=0, keepdim=False)
         ensemble_q005: torch.Tensor = stack.quantile(q=0.05, dim=0, keepdim=False)
         ensemble_q010: torch.Tensor = stack.quantile(q=0.10, dim=0, keepdim=False)

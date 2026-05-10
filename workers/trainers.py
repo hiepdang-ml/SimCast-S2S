@@ -12,10 +12,10 @@ from tqdm import tqdm
 from datapipeline.utils import DataBatch
 from datapipeline.dataset import CESM2, ERA5
 from common.utils import Accumulator, EarlyStopping, Timer, Logger, CheckpointSaver, ParamCounter
-from common.losses import VAELoss, DiffusionLoss
+from common.losses import VAELoss, GaussianVAELoss, DiffusionLoss
 from models.benchmarks import CNN, UNet, ViT
 from models.diffusion import (
-    VAE, VAEEncoder, UNetDenoiser, LinearNoiseScheduler, ForwardProcess,
+    VAE, VAE_Precip, VAEEncoder, UNetDenoiser, LinearNoiseScheduler, ForwardProcess,
 )
 from models.diffusion.diffusion import CosineNoiseScheduler
 from .common import RequireVAEEncoders
@@ -233,7 +233,11 @@ class VAETrainer(_AbstractTrainer):
             local_rank=local_rank,
         )
         self.lambda_: float = lambda_
-        self.loss_function: nn.Module = VAELoss(lambda_=self.lambda_)
+        self.loss_function: nn.Module
+        if  isinstance(net, VAE_Precip):
+            self.loss_function = GaussianVAELoss(lambda_=self.lambda_)
+        else:
+            self.loss_function = VAELoss(lambda_=self.lambda_)
 
     #implement
     @torch.no_grad()
@@ -280,11 +284,20 @@ class VAETrainer(_AbstractTrainer):
             # Forward pass
             self.optimizer.zero_grad()
             true_x: torch.Tensor = x[:, day: day+1, :, :, :]
-            reconstructed_x, mu, logvar = self.net(true_x)
+            vae_output: list[torch.Tensor] = list(self.net(true_x))
+            if len(vae_output) == 4:    # Decoded stochastically by GaussianVAEDecoder
+                reconstructed_x, reconstruction_logvar, mu, logvar = vae_output
+                assert isinstance(self.loss_function, GaussianVAELoss)
+                reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae, mu, sigma = self.loss_function(
+                    x_hat=reconstructed_x, x_logvar=reconstruction_logvar, true_x=true_x, mu=mu, logvar=logvar,
+                )
+            else:   # Decoded deterministically by VAEDecoder
+                reconstructed_x, mu, logvar = vae_output
+                assert isinstance(self.loss_function, VAELoss)
+                reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae, mu, sigma = self.loss_function(
+                    x_hat=reconstructed_x, true_x=true_x, mu=mu, logvar=logvar,
+                )
             # Backward pass
-            reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae, mu, sigma = self.loss_function(
-                x_hat=reconstructed_x, true_x=true_x, mu=mu, logvar=logvar,
-            )
             negative_elbo.backward()
             self.optimizer.step()
 
@@ -306,11 +319,20 @@ class VAETrainer(_AbstractTrainer):
         for day in range(x.shape[1]):
             # Forward pass
             true_x: torch.Tensor = x[:, day: day+1, :, :, :]
-            reconstructed_x, mu, logvar = self.net(true_x)
+            vae_output: list[torch.Tensor] = list(self.net(true_x))
+            if len(vae_output) == 4:
+                reconstructed_x, reconstruction_logvar, mu, logvar = vae_output
+                assert isinstance(self.loss_function, GaussianVAELoss)
+                reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae, mu, sigma  = self.loss_function(
+                    x_hat=reconstructed_x, x_logvar=reconstruction_logvar, true_x=true_x, mu=mu, logvar=logvar,
+                )
+            else:
+                reconstructed_x, mu, logvar = vae_output
+                assert isinstance(self.loss_function, VAELoss)
+                reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae, mu, sigma  = self.loss_function(
+                    x_hat=reconstructed_x, true_x=true_x, mu=mu, logvar=logvar,
+                )
             # Compute evaluation metrics
-            reconstruction_loss, kl_divergence, negative_elbo, reconstruction_mae, mu, sigma  = self.loss_function(
-                x_hat=reconstructed_x, true_x=true_x, mu=mu, logvar=logvar,
-            )
             reconstruction_loss_sum += reconstruction_loss
             kl_divergence_sum += kl_divergence
             negative_elbo_sum += negative_elbo

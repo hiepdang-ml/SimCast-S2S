@@ -38,6 +38,7 @@ class AccMapFigureBuilder:
         ecmwf_root: Path,
         target_dir: Path,
         postprocess: str,
+        spread_scale: float,
     ) -> None:
         if not diffusion_root.exists():
             raise FileNotFoundError(f"diffusion root directory does not exist: {diffusion_root}")
@@ -50,6 +51,9 @@ class AccMapFigureBuilder:
         self.target_dir: Path = target_dir
         self.output_path: Path = self.target_dir.joinpath("fig10b.png")
         self.postprocess: str = postprocess
+        self.spread_scale: float = spread_scale
+        if self.spread_scale <= 0:
+            raise ValueError(f"spread_scale must be positive, got {self.spread_scale}")
         self.diffusion_dataset: str = "cesm2"
         self.ecmwf_dataset: str = "era5"
 
@@ -101,9 +105,19 @@ class AccMapFigureBuilder:
         print(f"acc.mean(): {acc.mean()}")
         return torch.where(denominator > 0, acc, torch.full_like(acc, torch.nan))
 
-    def _apply_postprocess(self, predictions: torch.Tensor, groundtruths: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def _apply_postprocess(
+        self,
+        predictions: torch.Tensor,
+        groundtruths: torch.Tensor,
+        spread_scale: float,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         if self.postprocess == "none":
-            return predictions, groundtruths
+            adjusted_predictions = predictions
+            if spread_scale != 1.0:
+                pred_mean = predictions.mean(dim=0)
+                adjusted_predictions = pred_mean + spread_scale * (predictions - pred_mean)
+                print(f"[fig10b] spread_scale={spread_scale} samples={predictions.shape[0]}")
+            return adjusted_predictions, groundtruths
 
         calibration_predictions = predictions
         calibration_groundtruths = groundtruths
@@ -120,7 +134,14 @@ class AccMapFigureBuilder:
             scale[valid] = truth_std[valid] / pred_std[valid]
             adjusted_predictions = (adjusted_predictions - truth_mean) * scale + truth_mean
 
-        print(f"[fig10b] postprocess={self.postprocess} samples={predictions.shape[0]}")
+        if spread_scale != 1.0:
+            pred_mean = adjusted_predictions.mean(dim=0)
+            adjusted_predictions = pred_mean + spread_scale * (adjusted_predictions - pred_mean)
+
+        print(
+            f"[fig10b] postprocess={self.postprocess} "
+            f"spread_scale={spread_scale} samples={predictions.shape[0]}"
+        )
         return adjusted_predictions, groundtruths
 
     def collect(self) -> dict[str, torch.Tensor]:
@@ -132,8 +153,16 @@ class AccMapFigureBuilder:
             root=self.ecmwf_root,
             dataset=self.ecmwf_dataset,
         )
-        diffusion_predictions, diffusion_groundtruths = self._apply_postprocess(diffusion_predictions, diffusion_groundtruths)
-        ecmwf_predictions, ecmwf_groundtruths = self._apply_postprocess(ecmwf_predictions, ecmwf_groundtruths)
+        diffusion_predictions, diffusion_groundtruths = self._apply_postprocess(
+            diffusion_predictions,
+            diffusion_groundtruths,
+            spread_scale=self.spread_scale,
+        )
+        ecmwf_predictions, ecmwf_groundtruths = self._apply_postprocess(
+            ecmwf_predictions,
+            ecmwf_groundtruths,
+            spread_scale=1.0,
+        )
         print(f"diffusion_predictions.shape: {tuple(diffusion_predictions.shape)}")
         print("diffusion")
         diffusion_acc = self._acc_map(predictions=diffusion_predictions, groundtruths=diffusion_groundtruths)
@@ -201,12 +230,14 @@ class AccMapFigureBuilder:
 def main() -> None:
     parser = ArgumentParser()
     parser.add_argument("--postprocess", choices=["none", "bias", "bias_var"], default="none")
+    parser.add_argument("--spread-scale", type=float, default=1.0)
     args: Namespace = parser.parse_args()
     builder = AccMapFigureBuilder(
         diffusion_root=diffusion_ROOT,
         ecmwf_root=ECMWF_ROOT,
         target_dir=TARGET_ROOT,
         postprocess=args.postprocess,
+        spread_scale=args.spread_scale,
     )
     output_path = builder.run()
     print(f"[fig10b] Saved: {output_path}")

@@ -1,3 +1,4 @@
+import copy
 from typing import Type, cast
 import torch
 import torch.nn as nn
@@ -237,8 +238,8 @@ class VAEEncoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
     @staticmethod
     def reparameterize(mu: torch.Tensor, logvar: torch.Tensor, scale: float = 1.) -> torch.Tensor:
         assert mu.shape == logvar.shape
-        safe_logvar = torch.clamp(logvar, min=-10., max=10.) # avoid overflow
-        std: torch.Tensor = torch.exp(0.5 * safe_logvar)
+        logvar = torch.clamp(logvar, min=-10., max=10.) # avoid overflow
+        std: torch.Tensor = torch.exp(0.5 * logvar)
         eps: torch.Tensor = torch.randn_like(std)
         return mu + scale * eps * std
 
@@ -315,7 +316,7 @@ class VAEDecoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
 
         self.head = nn.Sequential(*layers)
 
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
+    def _decode_features(self, z: torch.Tensor) -> torch.Tensor:
         batch_size: int = z.shape[0]
         assert z.shape == (batch_size, self.latent_dim, z.shape[2], z.shape[3])
         x: torch.Tensor = self.preprocessing(z) + z
@@ -331,11 +332,46 @@ class VAEDecoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
             del residual
 
         assert x.shape == (batch_size, self.hidden_dim, 192, 288)
-        x = self.head(x)
+        return x
+
+    def _format_output(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size: int = x.shape[0]
         assert x.shape == (batch_size, self.pixel_dim, 192, 288)
         x = x.reshape(batch_size, self.n_days, self.n_features, 192, 288).permute(0, 1, 3, 4, 2)
         assert x.shape == (batch_size, self.n_days, 192, 288, self.n_features)
         return x
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        features = self._decode_features(z)
+        return self._format_output(self.head(features))
+
+
+class GaussianVAEDecoder(VAEDecoder):
+
+    def __init__(
+        self,
+        n_days: int, n_features: int, latent_dim: int, hidden_dim: int,
+        n_upscaling_blocks: int, n_convstack_layers: int,
+        n_convhead_layers: int,
+    ) -> None:
+        super().__init__(
+            n_days=n_days,
+            n_features=n_features,
+            latent_dim=latent_dim,
+            hidden_dim=hidden_dim,
+            n_upscaling_blocks=n_upscaling_blocks,
+            n_convstack_layers=n_convstack_layers,
+            n_convhead_layers=n_convhead_layers,
+        )
+        self.logvar_head = copy.deepcopy(self.head)
+
+    def forward(self, z: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        features = self._decode_features(z)
+        output_mean = self._format_output(self.head(features))
+        output_logvar = self._format_output(self.logvar_head(features))
+        output_logvar = torch.clamp(output_logvar, min=-10., max=10.)
+        assert output_mean.shape == output_logvar.shape
+        return output_mean, output_logvar
 
 
 class VAE(_Freezable, NamedModel, nn.Module):
@@ -426,6 +462,7 @@ class VAE_Precip(_Finetunable, VAE):
 
     _ALLOWED_FINETUNE_PREFIXES: tuple[str, ...] = (
         "decoder.head.",
+        "decoder.logvar_head.",
         "encoder.mu_head.",
         "encoder.logvar_head.",
     )
@@ -447,6 +484,12 @@ class VAE_Precip(_Finetunable, VAE):
             n_convstack_layers=n_convstack_layers,
             n_convhead_layers=n_convhead_layers,
         )
+        self.decoder = GaussianVAEDecoder(
+            n_days=n_days, n_features=n_features, latent_dim=latent_dim, hidden_dim=hidden_dim,
+            n_upscaling_blocks=n_scaling_blocks, n_convstack_layers=n_convstack_layers,
+            n_convhead_layers=n_convhead_layers,
+        )
+        self.decoder.apply(VAE._init_weights)
         self.n_lora_conv_layers: int = 0
         self.n_lora_tconv_layers: int = 0
         if self.is_finetuning:
@@ -482,3 +525,12 @@ class VAE_Precip(_Finetunable, VAE):
     def enable_lora_conv2d(self, rank: int) -> tuple[int, int]:
         assert rank > 0
         return VAE_Precip._replace_conv2d_with_lora(module=self, rank=rank)
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        _batch_size: int = x.shape[0]
+        mu: torch.Tensor; logvar: torch.Tensor  # noqa
+        mu, logvar = self.encoder(x)
+        z: torch.Tensor = VAEEncoder.reparameterize(mu=mu, logvar=logvar)
+        reconstructed_x, reconstruction_logvar = self.decoder(z)
+        assert reconstructed_x.shape == reconstruction_logvar.shape == x.shape
+        return reconstructed_x, reconstruction_logvar, mu, logvar
