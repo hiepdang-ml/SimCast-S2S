@@ -352,6 +352,11 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         self.loss_function = DiffusionLoss()
         self.condition_dropout_prob: float = condition_dropout_prob
         assert 0.0 <= self.condition_dropout_prob <= 1.0
+        if condition_dropout_prob == 0:
+            raise ValueError(
+                f"condition_dropout_prob must be nonzero to learn null token, "
+                f"get condition_dropout_prob={condition_dropout_prob}"
+            )
 
         # NOTE: no need to wrap VAEEncoder(s) with DDP because no backprop
         # Freeze wind_encoder
@@ -461,15 +466,8 @@ class DiffusionTrainer(RequireVAEEncoders, _AbstractTrainer):
         batch_size: int = target_latent.shape[0]
 
         condition_mask: torch.Tensor
-        if self.condition_dropout_prob > 0.0 and self.net.training:
-            condition_mask = torch.rand(
-                (batch_size,), device=target_latent.device
-            )
-            condition_mask = condition_mask >= self.condition_dropout_prob
-        else:
-            condition_mask = torch.ones(
-                (batch_size,), device=target_latent.device, dtype=torch.bool
-            )
+        condition_mask = torch.rand((batch_size,), device=target_latent.device)
+        condition_mask = condition_mask >= self.condition_dropout_prob
 
         # Generate step
         # Diffusion step must range from 1 to K

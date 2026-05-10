@@ -481,9 +481,9 @@ class _Transformer(nn.Module):
         assert src_L <= self.maxlength and tgt_L <= self.maxlength
         assert condition_mask.shape == (src_N,)
         src = src + self.kv_pos_embedding[:, :src_L, :] + self.kv_day_embedding(src_days)
-        keep_condition = condition_mask.to(device=src.device, dtype=torch.bool)[:, None, None]
         null_src = self.null_kv_embedding.expand(src_N, src_L, self.kv_dim)
-        src = torch.where(condition=keep_condition, input=src, other=null_src)
+        assert condition_mask.dtype == torch.bool
+        src = torch.where(condition=condition_mask[:, None, None], input=src, other=null_src)
         tgt = tgt + self.q_pos_embedding[:, :tgt_L, :] + self.q_day_embedding(tgt_days)
         memory: torch.Tensor = self.encoder(kv=src)
         output: torch.Tensor = self.decoder(q=tgt, kv=memory)
@@ -1010,6 +1010,7 @@ class UNetDenoiser(_Finetunable, NamedModel, nn.Module):
         assert (condition_H, condition_W) == (target_H, target_W)
         assert step_L == 1
         assert condition_mask.shape == (target_N,)
+        assert condition_mask.dtype == torch.bool
 
         # Check if too many scaling blocks
         _min_dim: float = min(target_H, target_W) / (2 ** self.n_scaling_blocks)
