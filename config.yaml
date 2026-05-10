@@ -418,9 +418,9 @@ diffusion:
   # Sampling
   eta: 1.0
   ensemble_size: 20
-  guidance_scale: 0.
+  guidance_scale: 2.
   # Training
-  condition_dropout_prob: 0.
+  condition_dropout_prob: 0.2
   learning_rate: 1e-4
   train_batch_size: 4
   val_batch_size: 4
@@ -441,14 +441,14 @@ diffusion:
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear/diffusion11.pt"
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps/diffusion4.pt"
   # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps_new/diffusion4.pt"
-  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine_400steps_new/diffusion5.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine_400steps_new/diffusion27.pt"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine/"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear/"
   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_cosine_400steps_new/"
   # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_eta100/"
   # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_linear_eta100/"
-  target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_v23_cosine_eta100_400steps_guidancescale000/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_v23_cosine_eta100_400steps_guidancescale200/"
 
   # NOTE: train_cesm2: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps/diffusion4.pt"
   # NOTE: finetune: should use "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion_v23_linear_400steps/diffusion7-best.pt" (cai nay bi train lon tren finetuned vae-precip)

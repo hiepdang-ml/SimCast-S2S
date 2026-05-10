@@ -8,7 +8,7 @@ import torch
 from matplotlib.colors import LinearSegmentedColormap
 
 
-DDPM_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta100_rank64/")
+diffusion_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/train_cesm2/diffusion_v23_cosine_eta100_400steps_guidancescale200/")
 ECMWF_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/ecmwfs2s/")
 TARGET_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/")
 
@@ -34,23 +34,24 @@ class AccMapFigureBuilder:
 
     def __init__(
         self,
-        ddpm_root: Path,
+        diffusion_root: Path,
         ecmwf_root: Path,
         target_dir: Path,
         postprocess: str,
     ) -> None:
-        if not ddpm_root.exists():
-            raise FileNotFoundError(f"DDPM root directory does not exist: {ddpm_root}")
+        if not diffusion_root.exists():
+            raise FileNotFoundError(f"diffusion root directory does not exist: {diffusion_root}")
         if not ecmwf_root.exists():
             raise FileNotFoundError(f"ECMWF root directory does not exist: {ecmwf_root}")
         if postprocess not in ("none", "bias", "bias_var"):
             raise ValueError(f"Unsupported postprocess mode: {postprocess}")
-        self.dataset: str = "era5"
-        self.ddpm_root: Path = ddpm_root
+        self.diffusion_root: Path = diffusion_root
         self.ecmwf_root: Path = ecmwf_root
         self.target_dir: Path = target_dir
         self.output_path: Path = self.target_dir.joinpath("fig10b.png")
         self.postprocess: str = postprocess
+        self.diffusion_dataset: str = "cesm2"
+        self.ecmwf_dataset: str = "era5"
 
     @staticmethod
     def _sample_key(payload: dict[str, Any]) -> tuple[str, str]:
@@ -59,8 +60,8 @@ class AccMapFigureBuilder:
             str(payload["out_enddate"]),
         )
 
-    def _load_aggregate_payloads(self, root: Path) -> list[dict[str, Any]]:
-        tensor_dir: Path = root.joinpath(self.dataset, "tensors")
+    def _load_aggregate_payloads(self, root: Path, dataset: str) -> list[dict[str, Any]]:
+        tensor_dir: Path = root.joinpath(dataset, "tensors")
         if not tensor_dir.exists():
             raise FileNotFoundError(f"Missing tensor directory: {tensor_dir}")
         payloads: list[dict[str, Any]] = []
@@ -70,8 +71,8 @@ class AccMapFigureBuilder:
             raise FileNotFoundError(f"No aggregate tensor files found in: {tensor_dir}")
         return payloads
 
-    def _load_aggregate_samples(self, root: Path) -> tuple[torch.Tensor, torch.Tensor]:
-        payloads = self._load_aggregate_payloads(root=root)
+    def _load_aggregate_samples(self, root: Path, dataset: str) -> tuple[torch.Tensor, torch.Tensor]:
+        payloads = self._load_aggregate_payloads(root=root, dataset=dataset)
         predictions: list[torch.Tensor] = []
         groundtruths: list[torch.Tensor] = []
         for payload in payloads:
@@ -114,7 +115,7 @@ class AccMapFigureBuilder:
         if self.postprocess == "bias_var":
             pred_std = calibration_predictions.std(dim=0, unbiased=False)
             truth_std = calibration_groundtruths.std(dim=0, unbiased=False)
-            scale = torch.ones_like(pred_std)
+            scale = torch.ones_like(pred_std) * 2
             valid = pred_std > 0
             scale[valid] = truth_std[valid] / pred_std[valid]
             adjusted_predictions = (adjusted_predictions - truth_mean) * scale + truth_mean
@@ -123,19 +124,25 @@ class AccMapFigureBuilder:
         return adjusted_predictions, groundtruths
 
     def collect(self) -> dict[str, torch.Tensor]:
-        ddpm_predictions, ddpm_groundtruths = self._load_aggregate_samples(root=self.ddpm_root)
-        ecmwf_predictions, ecmwf_groundtruths = self._load_aggregate_samples(root=self.ecmwf_root)
-        ddpm_predictions, ddpm_groundtruths = self._apply_postprocess(ddpm_predictions, ddpm_groundtruths)
+        diffusion_predictions, diffusion_groundtruths = self._load_aggregate_samples(
+            root=self.diffusion_root,
+            dataset=self.diffusion_dataset,
+        )
+        ecmwf_predictions, ecmwf_groundtruths = self._load_aggregate_samples(
+            root=self.ecmwf_root,
+            dataset=self.ecmwf_dataset,
+        )
+        diffusion_predictions, diffusion_groundtruths = self._apply_postprocess(diffusion_predictions, diffusion_groundtruths)
         ecmwf_predictions, ecmwf_groundtruths = self._apply_postprocess(ecmwf_predictions, ecmwf_groundtruths)
-        print(f"ddpm_predictions.shape: {tuple(ddpm_predictions.shape)}")
-        print("DDPM")
-        ddpm_acc = self._acc_map(predictions=ddpm_predictions, groundtruths=ddpm_groundtruths)
+        print(f"diffusion_predictions.shape: {tuple(diffusion_predictions.shape)}")
+        print("diffusion")
+        diffusion_acc = self._acc_map(predictions=diffusion_predictions, groundtruths=diffusion_groundtruths)
         print("ECMWFS2S")
         ecmwf_acc = self._acc_map(predictions=ecmwf_predictions, groundtruths=ecmwf_groundtruths)
         return {
             "acc_ecmwf": ecmwf_acc,
-            "acc_ddpm": ddpm_acc,
-            "acc_diff": ddpm_acc - ecmwf_acc,
+            "acc_diffusion": diffusion_acc,
+            "acc_diff": diffusion_acc - ecmwf_acc,
         }
 
     @staticmethod
@@ -157,8 +164,8 @@ class AccMapFigureBuilder:
         axs = [fig.add_subplot(gs[0, idx]) for idx in range(3)]
         cax1 = fig.add_subplot(gs[1, :2])
         cax2 = fig.add_subplot(gs[1, 2])
-        titles = ["ECMWF", "DDPM", "DDPM - ECMWF"]
-        keys = ("acc_ecmwf", "acc_ddpm", "acc_diff")
+        titles = ["ECMWF", "Diffusion", "Diffusion - ECMWF"]
+        keys = ("acc_ecmwf", "acc_diffusion", "acc_diff")
         data_levels = np.linspace(self.DATA_VMIN, self.DATA_VMAX, 17)
         diff_levels = np.linspace(self.DIFF_VMIN, self.DIFF_VMAX, 17)
 
@@ -196,7 +203,7 @@ def main() -> None:
     parser.add_argument("--postprocess", choices=["none", "bias", "bias_var"], default="none")
     args: Namespace = parser.parse_args()
     builder = AccMapFigureBuilder(
-        ddpm_root=DDPM_ROOT,
+        diffusion_root=diffusion_ROOT,
         ecmwf_root=ECMWF_ROOT,
         target_dir=TARGET_ROOT,
         postprocess=args.postprocess,

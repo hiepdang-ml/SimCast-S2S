@@ -442,6 +442,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
         groundtruth: torch.Tensor = groundtruth.mean(dim=1, keepdim=False).squeeze(dim=0)
 
         member_predictions: list[torch.Tensor] = []
+        member_latents: list[torch.Tensor] = []
         for member_idx in range(self.ensemble_size):
             # Generate gaussian
             gaussian: torch.Tensor = torch.randn_like(target_latent)
@@ -482,6 +483,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
 
             # At k=0 (last denoising step), target_latent_k = target_latent_0
             assert target_latent_k.isclose(target_latent_0).all()
+            member_latents.append(target_latent_0.squeeze(dim=0))
             # Decode target back to physical space
             prediction: torch.Tensor = self.precip_decoder(target_latent_0.flatten(0, 1))
             assert prediction.shape == (L, 1, self.H, self.W, self.out_features)
@@ -547,9 +549,17 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
                 print({k: v for k, v in result_object.items() if isinstance(v, (str, float, int, tuple))})
 
         stack: torch.Tensor = torch.stack(member_predictions, dim=0)
+        latent_stack: torch.Tensor = torch.stack(member_latents, dim=0)
+        spread_unbiased: bool = self.ensemble_size > 1
         ensemble_mean: torch.Tensor = stack.mean(dim=0, keepdim=False)
-        ensemble_var: torch.Tensor = stack.var(dim=0, unbiased=True, keepdim=False)
-        ensemble_std: torch.Tensor = stack.std(dim=0, unbiased=True, keepdim=False)
+        ensemble_var: torch.Tensor = stack.var(dim=0, unbiased=spread_unbiased, keepdim=False)
+        ensemble_std: torch.Tensor = stack.std(dim=0, unbiased=spread_unbiased, keepdim=False)
+        latent_ensemble_var: torch.Tensor = latent_stack.var(dim=0, unbiased=spread_unbiased, keepdim=False)
+        latent_ensemble_std: torch.Tensor = latent_stack.std(dim=0, unbiased=spread_unbiased, keepdim=False)
+        latent_ensemble_std_mean: float = float(latent_ensemble_std.mean().item())
+        latent_ensemble_var_mean: float = float(latent_ensemble_var.mean().item())
+        decoded_ensemble_std_mean: float = float(ensemble_std.mean().item())
+        decoded_ensemble_var_mean: float = float(ensemble_var.mean().item())
         ensemble_q001: torch.Tensor = stack.quantile(q=0.01, dim=0, keepdim=False)
         ensemble_q005: torch.Tensor = stack.quantile(q=0.05, dim=0, keepdim=False)
         ensemble_q010: torch.Tensor = stack.quantile(q=0.10, dim=0, keepdim=False)
@@ -605,6 +615,10 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
                 "ensemble_mean": ensemble_mean_frame,
                 "ensemble_std": ensemble_std_frame,
                 "ensemble_var": ensemble_var_frame,
+                "latent_ensemble_std_mean": latent_ensemble_std_mean,
+                "latent_ensemble_var_mean": latent_ensemble_var_mean,
+                "decoded_ensemble_std_mean": decoded_ensemble_std_mean,
+                "decoded_ensemble_var_mean": decoded_ensemble_var_mean,
                 "ensemble_q001": ensemble_q001_frame,
                 "ensemble_q005": ensemble_q005_frame,
                 "ensemble_q010": ensemble_q010_frame,
