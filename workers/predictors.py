@@ -279,9 +279,14 @@ class VAEPredictor(_AbstractPredictor):
         for date_idx in range(x.shape[1]):
             true_x: torch.Tensor = x[:, date_idx: date_idx+1, :, :, :]
             vae_output = self.net(true_x)
-            if len(vae_output) == 4:
-                reconstructed_x, reconstruction_logvar, mu, logvar = vae_output
-            else:
+            if len(vae_output) == 4: # stochastically decoded with GaussianVAEDecoder
+                reconstruction_mean, reconstruction_logvar, mu, logvar = vae_output
+                reconstruction_sigma = torch.exp(0.5 * reconstruction_logvar)
+                reconstructed_x = (
+                    reconstruction_mean
+                    + torch.randn_like(reconstruction_mean) * reconstruction_sigma
+                )
+            else: # deterministically decoded with VAEDecoder
                 reconstructed_x, mu, logvar = vae_output
             mu_mean: torch.Tensor = mu.mean()
             sigma_mean: torch.Tensor = logvar.exp().sqrt().mean()
