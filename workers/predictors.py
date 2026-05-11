@@ -278,16 +278,7 @@ class VAEPredictor(_AbstractPredictor):
         groundtruths: list[torch.Tensor] = []
         for date_idx in range(x.shape[1]):
             true_x: torch.Tensor = x[:, date_idx: date_idx+1, :, :, :]
-            vae_output = self.net(true_x)
-            if len(vae_output) == 4: # stochastically decoded with GaussianVAEDecoder
-                reconstruction_mean, reconstruction_logvar, mu, logvar = vae_output
-                reconstruction_sigma = torch.exp(0.5 * reconstruction_logvar)
-                reconstructed_x = (
-                    reconstruction_mean
-                    + torch.randn_like(reconstruction_mean) * reconstruction_sigma
-                )
-            else: # deterministically decoded with VAEDecoder
-                reconstructed_x, mu, logvar = vae_output
+            reconstructed_x, mu, logvar = self.net(true_x)
             mu_mean: torch.Tensor = mu.mean()
             sigma_mean: torch.Tensor = logvar.exp().sqrt().mean()
             # Compute metrics
@@ -494,7 +485,7 @@ class DiffusionPredictor(RequireVAEEncoders, _AbstractPredictor):
             assert target_latent_k.isclose(target_latent_0).all()
             member_latents.append(target_latent_0.squeeze(dim=0))
             # Decode target back to physical space
-            prediction, prediction_logvar = self.precip_decoder(target_latent_0.flatten(0, 1))
+            prediction: torch.Tensor = self.precip_decoder(target_latent_0.flatten(0, 1))
             assert prediction.shape == (L, 1, self.H, self.W, self.out_features)
             prediction = prediction.squeeze(dim=1)
             prediction: torch.Tensor = prediction.mean(dim=0, keepdim=False)

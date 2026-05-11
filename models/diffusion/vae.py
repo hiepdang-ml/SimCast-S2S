@@ -1,4 +1,3 @@
-import copy
 from typing import Type, cast
 import torch
 import torch.nn as nn
@@ -346,34 +345,6 @@ class VAEDecoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
         return self._format_output(self.head(features))
 
 
-class GaussianVAEDecoder(VAEDecoder):
-
-    def __init__(
-        self,
-        n_days: int, n_features: int, latent_dim: int, hidden_dim: int,
-        n_upscaling_blocks: int, n_convstack_layers: int,
-        n_convhead_layers: int,
-    ) -> None:
-        super().__init__(
-            n_days=n_days,
-            n_features=n_features,
-            latent_dim=latent_dim,
-            hidden_dim=hidden_dim,
-            n_upscaling_blocks=n_upscaling_blocks,
-            n_convstack_layers=n_convstack_layers,
-            n_convhead_layers=n_convhead_layers,
-        )
-        self.logvar_head = copy.deepcopy(self.head)
-
-    def forward(self, z: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        features = self._decode_features(z)
-        output_mean = self._format_output(self.head(features))
-        output_logvar = self._format_output(self.logvar_head(features))
-        output_logvar = torch.clamp(output_logvar, min=-10., max=10.)
-        assert output_mean.shape == output_logvar.shape
-        return output_mean, output_logvar
-
-
 class VAE(_Freezable, NamedModel, nn.Module):
 
     def __init__(
@@ -462,7 +433,6 @@ class VAE_Precip(_Finetunable, VAE):
 
     _ALLOWED_FINETUNE_PREFIXES: tuple[str, ...] = (
         "decoder.head.",
-        "decoder.logvar_head.",
         "encoder.mu_head.",
         "encoder.logvar_head.",
     )
@@ -484,12 +454,6 @@ class VAE_Precip(_Finetunable, VAE):
             n_convstack_layers=n_convstack_layers,
             n_convhead_layers=n_convhead_layers,
         )
-        self.decoder = GaussianVAEDecoder(
-            n_days=n_days, n_features=n_features, latent_dim=latent_dim, hidden_dim=hidden_dim,
-            n_upscaling_blocks=n_scaling_blocks, n_convstack_layers=n_convstack_layers,
-            n_convhead_layers=n_convhead_layers,
-        )
-        self.decoder.apply(VAE._init_weights)
         self.n_lora_conv_layers: int = 0
         self.n_lora_tconv_layers: int = 0
         if self.is_finetuning:
@@ -525,12 +489,3 @@ class VAE_Precip(_Finetunable, VAE):
     def enable_lora_conv2d(self, rank: int) -> tuple[int, int]:
         assert rank > 0
         return VAE_Precip._replace_conv2d_with_lora(module=self, rank=rank)
-
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        _batch_size: int = x.shape[0]
-        mu: torch.Tensor; logvar: torch.Tensor  # noqa
-        mu, logvar = self.encoder(x)
-        z: torch.Tensor = VAEEncoder.reparameterize(mu=mu, logvar=logvar)
-        reconstructed_x, reconstruction_logvar = self.decoder(z)
-        assert reconstructed_x.shape == reconstruction_logvar.shape == x.shape
-        return reconstructed_x, reconstruction_logvar, mu, logvar
