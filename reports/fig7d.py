@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -46,7 +46,7 @@ class ThresholdBrierSkillScoreFigureBuilder:
         for model_name, root, _ in self.MODEL_SPECS:
             if not root.exists():
                 raise FileNotFoundError(f"{model_name} root directory does not exist: {root}")
-        self.dataset: str = "era5"
+        self.dataset: Literal["cesm2", "era5"] = "era5"
         self.target_dir: Path = target_dir
         self.output_path: Path = self.target_dir.joinpath("fig7d.png")
 

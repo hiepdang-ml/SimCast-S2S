@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
@@ -52,7 +52,7 @@ class RankedProbabilitySkillScoreMapFigureBuilder:
             raise FileNotFoundError(f"SimCast-S2S root directory does not exist: {simcast_root}")
         if not ecmwf_root.exists():
             raise FileNotFoundError(f"ECMWF-S2S root directory does not exist: {ecmwf_root}")
-        self.dataset: str = "era5"
+        self.dataset: Literal["cesm2", "era5"] = "era5"
         self.simcast_root: Path = simcast_root
         self.ecmwf_root: Path = ecmwf_root
         self.target_dir: Path = target_dir
@@ -412,7 +412,7 @@ class RankedProbabilitySkillScoreMapFigureBuilder:
             hspace=0.0,
             wspace=0.08,
         )
-        central_longitude = float((longitudes.min() + longitudes.max()) / 2.0)
+        central_longitude: int = int((longitudes.min() + longitudes.max()) / 2)
         projection = ccrs.Robinson(central_longitude=central_longitude)
         data_crs = ccrs.PlateCarree()
         axs = np.array(
@@ -428,7 +428,7 @@ class RankedProbabilitySkillScoreMapFigureBuilder:
         for cax, width_scale in ((cax1, 0.96), (cax2, 0.9)):
             pos = cax.get_position()
             new_width = pos.width * width_scale
-            cax.set_position([pos.x0 + (pos.width - new_width) / 2.0, pos.y0, new_width, pos.height])
+            cax.set_position((pos.x0 + (pos.width - new_width) / 2.0, pos.y0, new_width, pos.height))
 
         keys = ("ecmwf", "simcast", "diff")
         data_levels = np.linspace(self.DATA_VMIN, self.DATA_VMAX, 65)

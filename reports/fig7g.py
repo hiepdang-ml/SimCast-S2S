@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
@@ -56,7 +56,7 @@ class BrierSkillScoreMapFigureBuilder:
             raise FileNotFoundError(f"SimCast-S2S root directory does not exist: {simcast_root}")
         if not ecmwf_root.exists():
             raise FileNotFoundError(f"ECMWF-S2S root directory does not exist: {ecmwf_root}")
-        self.dataset: str = "era5"
+        self.dataset: Literal["cesm2", "era5"] = "era5"
         self.simcast_root: Path = simcast_root
         self.ecmwf_root: Path = ecmwf_root
         self.target_dir: Path = target_dir
@@ -389,7 +389,7 @@ class BrierSkillScoreMapFigureBuilder:
             hspace=0.00,
             wspace=0.08,
         )
-        central_longitude = float((longitudes.min() + longitudes.max()) / 2.0)
+        central_longitude = int((longitudes.min() + longitudes.max()) / 2)
         projection = ccrs.Robinson(central_longitude=central_longitude)
         data_crs = ccrs.PlateCarree()
         axs = np.array(
