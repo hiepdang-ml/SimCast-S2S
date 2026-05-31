@@ -151,14 +151,18 @@ class PredictionPlotter(_BasePlotter):
         self.add_landmask(axs=axs, landmask=landmask, coords=coordinates, data_crs=data_crs)
 
         top: float
+        hspace: float
         if nrows == 4:
-            top = 0.88
+            top = 0.90
+            hspace = 0.00
         elif nrows == 3:
             top = 0.85
+            hspace = 0.10
         else:
             top = 0.65
+            hspace = 0.10
 
-        fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=top, hspace=0.10)
+        fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=top, hspace=hspace)
         fig.suptitle(title, fontsize=12)
         fig.savefig(self.dirpath.joinpath(filename), bbox_inches="tight", dpi=500)
         plt.close(fig)
