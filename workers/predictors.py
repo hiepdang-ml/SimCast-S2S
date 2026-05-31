@@ -722,6 +722,7 @@ class Visualizer:
             title=title,
             filename=filename.replace(".pt", ".png"),
             vlim=0.04,
+            use_cartopy_projection=True,
         )
 
     def plot_vae_prediction(self, filename: str) -> None:
@@ -759,6 +760,7 @@ class Visualizer:
             title=title,
             filename=filename.replace(".pt", ".png"),
             vlim=None,
+            use_cartopy_projection=True,
         )
 
     def plot_diffusion_prediction(self, filename: str) -> None:
@@ -807,4 +809,5 @@ class Visualizer:
             title=title,
             filename=filename.replace(".pt", ".png"),
             vlim=0.04,
+            use_cartopy_projection=True,
         )

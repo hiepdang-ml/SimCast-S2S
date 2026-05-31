@@ -116,7 +116,7 @@ class PredictionPlotter(_BasePlotter):
         projection: ccrs.Robinson | None = None
         data_crs: ccrs.PlateCarree | None = None
         if use_cartopy_projection:
-            longitudes: int = coordinates[1]
+            longitudes: torch.Tensor = coordinates[1]
             central_longitude: int = int((longitudes.min() + longitudes.max()).item() / 2.0)
             projection = ccrs.Robinson(central_longitude=central_longitude)
             data_crs = ccrs.PlateCarree()
