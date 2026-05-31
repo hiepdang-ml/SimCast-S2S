@@ -60,7 +60,7 @@ class ECMWFReader:
         return da.interp(latitude=newlat, longitude=newlon, method="linear")
 
     @staticmethod
-    def sample_two_forecast_indices(da: xr.DataArray) -> list[int]:
+    def sample_forecast_indices(da: xr.DataArray) -> list[int]:
         valid_time: xr.DataArray = da.coords["valid_time"]
         assert valid_time.dims == ("time", "step")
         start_years: NDArray[np.int64] = valid_time.isel(step=0).dt.year.values.astype(np.int64)
@@ -69,16 +69,8 @@ class ECMWFReader:
         flag1: NDArray[np.bool_] = start_years == end_years
         flag2: NDArray[np.bool_] = init_years == start_years
         eligible_indices: list[int] = np.flatnonzero(flag1 & flag2).tolist()
-        if len(eligible_indices) < 2:
-            raise RuntimeError(
-                "Need at least 2 ECMWF-S2s forecast initializations whose output window stays "
-                f"within a single year, got {len(eligible_indices)}"
-            )
-
-        split_idx: int = len(eligible_indices) // 2
-        first_idx: int = random.choice(eligible_indices[:split_idx])
-        second_idx: int = random.choice(eligible_indices[split_idx:])
-        return [first_idx, second_idx]
+        indices: list[int] = random.sample(eligible_indices, k=min(len(eligible_indices), 2))
+        return indices
 
     def accumulated_tp_to_daily_totals(self, da: xr.DataArray) -> xr.DataArray:
         cumulative: xr.DataArray = da.sel(step=self.boundary_steps)
@@ -94,7 +86,10 @@ class ECMWFReader:
             ds: xr.Dataset = xr.open_dataset(filepath, engine="cfgrib")
             raw_tp: xr.DataArray = ds[self.VAR_NAME]
             output_window: xr.DataArray = raw_tp.sel(step=self.output_steps)
-            sampled_time_indices: list[int] = self.sample_two_forecast_indices(output_window)
+            sampled_time_indices: list[int] = self.sample_forecast_indices(output_window)
+            if len(sampled_time_indices) == 0:
+                # edge months may not have enough eligible indices -> skip
+                continue
             da: xr.DataArray = raw_tp.isel(time=sampled_time_indices)
             da = self.accumulated_tp_to_daily_totals(da)
             da = da / 1000.0 / 86400.0  # kg m^-2 -> m, then daily total -> m s^-1

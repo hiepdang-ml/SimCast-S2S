@@ -120,9 +120,6 @@ class _UpscalingBlock(nn.Module):
 
 class VAEEncoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
 
-    REPARAM_LOGVAR_MIN: float = -10.0
-    REPARAM_LOGVAR_MAX: float = 10.0
-
     def __init__(
         self,
         n_days: int, n_features: int, latent_dim: int, hidden_dim: int,

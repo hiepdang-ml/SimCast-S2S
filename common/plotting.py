@@ -1,4 +1,7 @@
 import pathlib
+from typing import Any
+
+import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -16,23 +19,54 @@ class _BasePlotter:
         coords: tuple[torch.Tensor, torch.Tensor],
         tropical_lats: tuple[float, float],
         title: str, cmap: str, vmin: float, vmax: float,
+        data_crs: Any | None = None,
     ) -> None:
         levels = np.linspace(vmin, vmax, 17)
         im = ax.contourf(
             coords[1], coords[0], data,
             levels=levels, cmap=cmap, vmin=vmin, vmax=vmax,
             extend="both",
+            transform=data_crs,
         )
         ax.set_title(title, fontsize=12)
-        ax.axhline(y=tropical_lats[0], color="black", linewidth=0.8, linestyle="--")
-        ax.axhline(y=tropical_lats[-1], color="black", linewidth=0.8, linestyle="--")
+        if data_crs is None:
+            ax.axhline(y=tropical_lats[0], color="black", linewidth=0.8, linestyle="--")
+            ax.axhline(y=tropical_lats[-1], color="black", linewidth=0.8, linestyle="--")
+        else:
+            longitudes = coords[1]
+            for latitude in tropical_lats:
+                ax.plot(
+                    longitudes,
+                    torch.full_like(longitudes, fill_value=latitude),
+                    color="black",
+                    linewidth=0.8,
+                    linestyle="--",
+                    transform=data_crs,
+                )
+            ax.set_global()
         cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.035, pad=0.04)
         cbar.ax.tick_params(labelsize=10)
         self._clean_axes(ax)
 
-    def add_landmask(self, axs, landmask: torch.Tensor, coords: tuple[torch.Tensor, torch.Tensor]) -> None:
+    def add_landmask(
+        self,
+        axs,
+        landmask: torch.Tensor,
+        coords: tuple[torch.Tensor, torch.Tensor],
+        data_crs: Any | None = None,
+    ) -> None:
         for ax in axs:
-            ax.contour(coords[1], coords[0], landmask, levels=[0.5], colors='black', linewidths=1)
+            ax.contour(
+                coords[1],
+                coords[0],
+                landmask,
+                levels=[0.5],
+                colors='black',
+                linewidths=1,
+                transform=data_crs,
+            )
+            if data_crs is not None:
+                ax.set_global()
             self._clean_axes(ax)
 
     @staticmethod
@@ -53,6 +87,7 @@ class PredictionPlotter(_BasePlotter):
         coordinates: tuple[torch.Tensor, torch.Tensor],
         title: str, filename: str,
         vlim: float | None,
+        use_cartopy_projection: bool = False,
     ) -> None:
 
         for frame in (groundtruth_frame, prediction_frame, error_frame, uncertainty_frame):
@@ -78,7 +113,19 @@ class PredictionPlotter(_BasePlotter):
         subplot_width: float = 5.6
         subplot_height: float = subplot_width * aspect_ratio
         nrows: int = len(plot_items)
-        fig, axs = plt.subplots(nrows, 1, figsize=(subplot_width, int((nrows + 0.6) * subplot_height)))
+        projection = None
+        data_crs = None
+        if use_cartopy_projection:
+            longitudes = coordinates[1]
+            central_longitude = float((longitudes.min() + longitudes.max()).item() / 2.0)
+            projection = ccrs.Robinson(central_longitude=central_longitude)
+            data_crs = ccrs.PlateCarree()
+        fig, axs = plt.subplots(
+            nrows,
+            1,
+            figsize=(subplot_width, int((nrows + 0.6) * subplot_height)),
+            subplot_kw={"projection": projection} if projection is not None else None,
+        )
         if nrows == 1:
             axs = [axs]
 
@@ -99,8 +146,9 @@ class PredictionPlotter(_BasePlotter):
                 ax=ax, data=frame, coords=coordinates, tropical_lats=tropical_lats,
                 title="" if nrows == 1 else subplot_title,
                 cmap=cmap, vmin=vmin, vmax=vmax,
+                data_crs=data_crs,
             )
-        self.add_landmask(axs=axs, landmask=landmask, coords=coordinates)
+        self.add_landmask(axs=axs, landmask=landmask, coords=coordinates, data_crs=data_crs)
 
         if nrows == 4:
             top: float = 0.89

@@ -8,19 +8,28 @@ import torch
 from matplotlib.patches import Patch
 
 
-DDIM_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta000_rank64/")
-DDPM_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta100_rank64/")
-ECMWF_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/ecmwfs2s/")
+SIMCAST_000_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta000_100steps_100members_guidancescale200")
+SIMCAST_050_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta050_100steps_100members_guidancescale200")
+SIMCAST_100_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta100_100steps_100members_guidancescale200")
+ECMWF_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/ecmwfs2s_28/")
 TARGET_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/")
+
+FORECAST_MODEL_SPECS: list[tuple[str, Path, Any, Any]] = [
+    (r"$\eta=0.00$", SIMCAST_000_ROOT, "#8ec1da", "#000000"),
+    (r"$\eta=0.50$", SIMCAST_050_ROOT, "#5b9fbd", "#000000"),
+    (r"$\eta=1.00$", SIMCAST_100_ROOT, "#3b6e8f", "#000000"),
+    ("ECMWF-S2S", ECMWF_ROOT, "#c44e52", "#000000"),
+]
+MODEL_SPECS: list[tuple[str, Any, Any]] = [
+    ("Observed", "#ffffff", "#000000"),
+    *[(model_name, fcolor, ecolor) for model_name, _, fcolor, ecolor in FORECAST_MODEL_SPECS],
+]
+
 
 class SpatialAutocorrelationFigureBuilder:
 
-    MODEL_SPECS: list[tuple[str, Any]] = [
-        ("Observed", "#ffffff", "#000000"),
-        ("DDIM", "#8ec1da", "#000000"),
-        ("DDPM", "#3b6e8f", "#000000"),
-        ("ECMWF-S2S", "#c44e52", "#000000"),
-    ]
+    FORECAST_MODEL_SPECS: list[tuple[str, Path, Any, Any]] = FORECAST_MODEL_SPECS
+    MODEL_SPECS: list[tuple[str, Any, Any]] = MODEL_SPECS
     DIRECTIONS: list[tuple[str, str]] = [
         ("horizontal", "(a) Horizontal"),
         ("vertical", "(b) Vertical"),
@@ -30,26 +39,17 @@ class SpatialAutocorrelationFigureBuilder:
 
     def __init__(
         self,
-        ddim_root: Path,
-        ddpm_root: Path,
-        ecmwf_root: Path,
         target_dir: Path,
         max_shift: int,
     ) -> None:
-        if not ddim_root.exists():
-            raise FileNotFoundError(f"DDIM root directory does not exist: {ddim_root}")
-        if not ddpm_root.exists():
-            raise FileNotFoundError(f"DDPM root directory does not exist: {ddpm_root}")
-        if not ecmwf_root.exists():
-            raise FileNotFoundError(f"ECMWF root directory does not exist: {ecmwf_root}")
+        for model_name, root, _, _ in self.FORECAST_MODEL_SPECS:
+            if not root.exists():
+                raise FileNotFoundError(f"{model_name} root directory does not exist: {root}")
         if max_shift <= 0:
             raise ValueError(f"max_shift must be > 0, got {max_shift}")
 
         # fig6.py only supports because ECMWF-S2S is ERA5-only
         self.dataset: str = "era5"
-        self.ddim_root: Path = ddim_root
-        self.ddpm_root: Path = ddpm_root
-        self.ecmwf_root: Path = ecmwf_root
         self.target_dir: Path = target_dir
         self.max_shift: int = max_shift
         self.output_path: Path = self.target_dir.joinpath("fig6.png")
@@ -100,9 +100,15 @@ class SpatialAutocorrelationFigureBuilder:
         return payloads
 
     def collect(self) -> dict[str, dict[str, list[list[float]]]]:
-        ddim_payloads = self._load_member_payloads(root=self.ddim_root)
-        ddpm_payloads = self._load_member_payloads(root=self.ddpm_root)
-        ecmwf_payloads = self._load_member_payloads(root=self.ecmwf_root)
+        payloads_by_model: dict[str, list[dict[str, Any]]] = {
+            model_name: self._load_member_payloads(root=root)
+            for model_name, root, _, _ in self.FORECAST_MODEL_SPECS
+        }
+        all_payloads: list[dict[str, Any]] = [
+            payload
+            for model_payloads in payloads_by_model.values()
+            for payload in model_payloads
+        ]
 
         correlations: dict[str, dict[str, list[list[float]]]] = {
             model_name: {direction: [] for direction, _ in self.DIRECTIONS}
@@ -113,7 +119,7 @@ class SpatialAutocorrelationFigureBuilder:
         for shift in range(1, self.max_shift + 1):
             for direction, _ in self.DIRECTIONS:
                 observed_values: list[float] = []
-                for payload in ddim_payloads + ddpm_payloads + ecmwf_payloads:
+                for payload in all_payloads:
                     key = self._sample_key(payload)
                     observed_key = (key, direction, shift)
                     if observed_key in observed_cache:
@@ -124,26 +130,13 @@ class SpatialAutocorrelationFigureBuilder:
                     observed_values.append(self._autocorrelation(left, right))
                 correlations["Observed"][direction].append(observed_values)
 
-                ddim_values: list[float] = []
-                for payload in ddim_payloads:
-                    prediction = torch.as_tensor(payload["prediction"], dtype=torch.float32)
-                    left, right = self._shifted_pair(prediction, direction=direction, shift=shift)
-                    ddim_values.append(self._autocorrelation(left, right))
-                correlations["DDIM"][direction].append(ddim_values)
-
-                ddpm_values: list[float] = []
-                for payload in ddpm_payloads:
-                    prediction = torch.as_tensor(payload["prediction"], dtype=torch.float32)
-                    left, right = self._shifted_pair(prediction, direction=direction, shift=shift)
-                    ddpm_values.append(self._autocorrelation(left, right))
-                correlations["DDPM"][direction].append(ddpm_values)
-
-                ecmwf_values: list[float] = []
-                for payload in ecmwf_payloads:
-                    prediction = torch.as_tensor(payload["prediction"], dtype=torch.float32)
-                    left, right = self._shifted_pair(prediction, direction=direction, shift=shift)
-                    ecmwf_values.append(self._autocorrelation(left, right))
-                correlations["ECMWF-S2S"][direction].append(ecmwf_values)
+                for model_name, model_payloads in payloads_by_model.items():
+                    model_values: list[float] = []
+                    for payload in model_payloads:
+                        prediction = torch.as_tensor(payload["prediction"], dtype=torch.float32)
+                        left, right = self._shifted_pair(prediction, direction=direction, shift=shift)
+                        model_values.append(self._autocorrelation(left, right))
+                    correlations[model_name][direction].append(model_values)
 
         return correlations
 
@@ -151,8 +144,8 @@ class SpatialAutocorrelationFigureBuilder:
         fig, axs = plt.subplots(2, 2, figsize=(10, 7), sharex=True, sharey=True)
         axes = axs.ravel().tolist()
         shifts = np.arange(1, self.max_shift + 1)
-        box_width = 0.18
-        offsets = [-1.5 * box_width, -0.5 * box_width, 0.5 * box_width, 1.5 * box_width]
+        box_width = min(0.14, 0.8 / (len(self.MODEL_SPECS) + 1))
+        offsets = (np.arange(len(self.MODEL_SPECS)) - (len(self.MODEL_SPECS) - 1) / 2.0) * box_width
 
         for ax, (direction, title) in zip(axes, self.DIRECTIONS):
             for offset, (model_name, fcolor, ecolor) in zip(offsets, self.MODEL_SPECS):
@@ -190,7 +183,7 @@ class SpatialAutocorrelationFigureBuilder:
             handles=legend_handles,
             loc="lower center",
             bbox_to_anchor=(0.5, 0.01),
-            ncol=4,
+            ncol=len(self.MODEL_SPECS),
             frameon=False,
             fontsize=12,
             title="Model",
@@ -211,9 +204,6 @@ class SpatialAutocorrelationFigureBuilder:
 def main(max_shift: int) -> None:
 
     builder = SpatialAutocorrelationFigureBuilder(
-        ddim_root=DDIM_ROOT,
-        ddpm_root=DDPM_ROOT,
-        ecmwf_root=ECMWF_ROOT,
         target_dir=TARGET_ROOT,
         max_shift=max_shift,
     )

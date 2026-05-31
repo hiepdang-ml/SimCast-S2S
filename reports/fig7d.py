@@ -4,19 +4,15 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from common.configs import MetaData
 from matplotlib.lines import Line2D
 
-ECMWF_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/ecmwfs2s/")
+SIMCAST_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta100_100steps_100members_guidancescale200")
+ECMWF_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/ecmwfs2s_28/")
 TARGET_ROOT: Path = Path("/scratch/zgp2ps/s2s_results/")
 
 
 class ThresholdBrierSkillScoreFigureBuilder:
-
-    COMPONENTS: list[tuple[str, str]] = [
-        ("bss", "Brier Skill Score"),
-        ("reliability", "Reliability"),
-        ("resolution", "Resolution"),
-    ]
 
     REGIONS: list[tuple[str, str]] = [
         ("global", "Global"),
@@ -25,43 +21,26 @@ class ThresholdBrierSkillScoreFigureBuilder:
     ]
 
     MODEL_SPECS: list[tuple[str, Path, Any]] = [
-        # (
-        #     "eta=0.00",
-        #     Path("/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta000_rank64/"),
-        #     "#8ec1da",
-        # ),
-        # (
-        #     "eta=0.20",
-        #     Path("/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta020_rank64/"),
-        #     "#7db1cb",
-        # ),
-        # (
-        #     "eta=0.40",
-        #     Path("/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta040_rank64/"),
-        #     "#6ca1bc",
-        # ),
-        # (
-        #     "eta=0.60",
-        #     Path("/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta060_rank64/"),
-        #     "#5b91ad",
-        # ),
-        # (
-        #     "eta=0.80",
-        #     Path("/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta080_rank64/"),
-        #     "#4b7f9e",
-        # ),
-        (
-            "eta=1.00",
-            Path("/scratch/zgp2ps/s2s_results/finetune/diffusion_v23_cosine_eta100_rank64/"),
-            "#3b6e8f",
-        ),
+        ("SimCast-S2S", SIMCAST_ROOT, "#3b6e8f"),
         ("ECMWF-S2S", ECMWF_ROOT, "#c44e52"),
     ]
     RIGHT_TAIL_PERCENTILES: np.ndarray = np.asarray(
         [90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0],
         dtype=np.float64
     )
+    LEFT_TAIL_PERCENTILES: np.ndarray = np.asarray(
+        [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+        dtype=np.float64,
+    )
+    TAIL_SPECS: list[tuple[str, str, str, np.ndarray]] = [
+        ("left", "Left tail", "lower", LEFT_TAIL_PERCENTILES),
+        ("right", "Right tail", "upper", RIGHT_TAIL_PERCENTILES),
+    ]
     TROPICAL_LAT_RANGE: tuple[float, float] = (-25.0, 25.0)
+    MAX_SIMCAST_GROUPS: int = 70
+    MIN_GROUNDTRUTH_VARIANCE: float = 0.
+    MIN_EVENT_COUNT: int = 10
+    MIN_NON_EVENT_COUNT: int = 10
 
     def __init__(self, target_dir: Path) -> None:
         for model_name, root, _ in self.MODEL_SPECS:
@@ -72,10 +51,9 @@ class ThresholdBrierSkillScoreFigureBuilder:
         self.output_path: Path = self.target_dir.joinpath("fig7d.png")
 
     @staticmethod
-    def _sample_key(payload: dict[str, Any]) -> tuple[str, str, str, str]:
+    def _sample_key(payload: dict[str, Any]) -> tuple[str, str, str]:
         return (
-            str(payload["in_startdate"]),
-            str(payload["in_enddate"]),
+            str(payload["output_name"]),
             str(payload["out_startdate"]),
             str(payload["out_enddate"]),
         )
@@ -93,33 +71,42 @@ class ThresholdBrierSkillScoreFigureBuilder:
             raise FileNotFoundError(f"No ensemble-member tensor files found in: {tensor_dir}")
         return payloads
 
-    def _collect_model_tensors(self, root: Path) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+    def _load_grouped_samples(self, root: Path) -> dict[tuple[str, str, str], tuple[torch.Tensor, torch.Tensor]]:
         payloads = self._load_member_payloads(root=root)
-        grouped: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+        grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
         for payload in payloads:
             grouped.setdefault(self._sample_key(payload), []).append(payload)
 
+        samples: dict[tuple[str, str, str], tuple[torch.Tensor, torch.Tensor]] = {}
+        for key, sample_payloads in grouped.items():
+            members = sorted(sample_payloads, key=lambda item: int(item["ensemble_member"]))
+            prediction_tensor = torch.stack(
+                [torch.as_tensor(item["prediction"], dtype=torch.float32) for item in members],
+                dim=0,
+            )
+            groundtruth = torch.as_tensor(members[0]["groundtruth"], dtype=torch.float32)
+            assert prediction_tensor.ndim == 3
+            assert groundtruth.shape == prediction_tensor.shape[1:]
+            samples[key] = (prediction_tensor, groundtruth)
+
+        if not samples:
+            raise ValueError(f"No grouped samples found under {root}")
+        return samples
+
+    def _load_model_tensors(self, root: Path, model_name: str) -> tuple[list[torch.Tensor], torch.Tensor]:
+        samples = self._load_grouped_samples(root=root)
+        selected_keys = sorted(samples)
+        if model_name == "SimCast-S2S":
+            selected_keys = selected_keys[: self.MAX_SIMCAST_GROUPS]
+        print(f"[fig7d] {model_name} groups: {len(selected_keys)}")
+
         prediction_list: list[torch.Tensor] = []
         groundtruth_list: list[torch.Tensor] = []
-        for sample_payloads in grouped.values():
-            sample_payloads = sorted(sample_payloads, key=lambda item: int(item["ensemble_member"]))
-            prediction_members = [
-                torch.as_tensor(item["prediction"], dtype=torch.float32)
-                for item in sample_payloads
-            ]
-            prediction_list.append(torch.stack(prediction_members, dim=0))
-            groundtruth_list.append(torch.as_tensor(sample_payloads[0]["groundtruth"], dtype=torch.float32))
-
-        if not prediction_list:
-            raise ValueError(f"No grouped samples found under {root}")
-        return prediction_list, groundtruth_list
-
-    @staticmethod
-    def _latitude_weights(height: int, width: int) -> torch.Tensor:
-        latitudes = torch.linspace(-90.0, 90.0, steps=height, dtype=torch.float32)
-        weights_1d = torch.cos(torch.deg2rad(latitudes)).clamp_min(0.0)
-        weights_2d = weights_1d.unsqueeze(dim=1).expand(height, width)
-        return weights_2d
+        for key in selected_keys:
+            prediction, groundtruth = samples[key]
+            prediction_list.append(prediction)
+            groundtruth_list.append(groundtruth)
+        return prediction_list, torch.stack(groundtruth_list, dim=0)
 
     @classmethod
     def _regional_slice(cls, values: torch.Tensor, region: str) -> torch.Tensor:
@@ -141,170 +128,178 @@ class ThresholdBrierSkillScoreFigureBuilder:
 
     @staticmethod
     def _event_indicator(values: torch.Tensor, threshold: torch.Tensor, tail: str) -> torch.Tensor:
-        if tail == "right":
+        if tail == "upper":
             return (values > threshold).to(dtype=torch.float32)
-        if tail == "left":
+        if tail == "lower":
             return (values < threshold).to(dtype=torch.float32)
         raise ValueError(f"Unsupported tail: {tail}")
 
-    @classmethod
-    def _weighted_percentile_threshold(
-        cls,
-        groundtruths: list[torch.Tensor],
-        percentile: float,
-    ) -> torch.Tensor:
-        flat_values: list[torch.Tensor] = []
-        flat_weights: list[torch.Tensor] = []
-        for groundtruth in groundtruths:
-            weights = cls._latitude_weights(height=groundtruth.shape[0], width=groundtruth.shape[1])
-            flat_values.append(groundtruth.reshape(-1))
-            flat_weights.append(weights.reshape(-1))
-        values = torch.cat(flat_values, dim=0)
-        weights = torch.cat(flat_weights, dim=0)
-        order = torch.argsort(values)
-        values_sorted = values[order]
-        weights_sorted = weights[order]
-        cumulative = torch.cumsum(weights_sorted, dim=0)
-        cutoff = (percentile / 100.0) * cumulative[-1]
-        idx = int(torch.searchsorted(cumulative, cutoff, right=False).item())
-        idx = min(max(idx, 0), values_sorted.shape[0] - 1)
-        threshold_value = values_sorted[idx]
-        return torch.as_tensor(threshold_value, dtype=torch.float32)
+    @staticmethod
+    def _climatology_probability(percentile: float, tail: str) -> float:
+        if tail == "upper":
+            return 1.0 - percentile / 100.0
+        if tail == "lower":
+            return percentile / 100.0
+        raise ValueError(f"Unsupported tail: {tail}")
 
     @classmethod
-    def _sample_brier_skill_scores(
+    def _minimum_event_count(cls, n_samples: int, percentile: float, tail: str) -> int:
+        if (tail == "lower" and percentile >= 10.0) or (tail == "upper" and percentile <= 90.0):
+            return cls.MIN_EVENT_COUNT
+        climatology_probability = cls._climatology_probability(percentile=percentile, tail=tail)
+        expected_event_count = int(round(float(n_samples) * climatology_probability))
+        return max(1, min(cls.MIN_EVENT_COUNT, expected_event_count))
+
+    @staticmethod
+    def _percentile_threshold_map(samples: torch.Tensor, percentile: float) -> torch.Tensor:
+        assert samples.ndim == 3
+        return torch.quantile(samples, q=percentile / 100.0, dim=0)
+
+    def _load_historical_output_climatology(self) -> torch.Tensor:
+        train_metadata = MetaData(dataset_name=self.dataset, tp="train")
+        output_name = train_metadata.output_vars[0]
+        tensor_dir = train_metadata.write_directory.joinpath("output", output_name)
+        if not tensor_dir.exists():
+            raise FileNotFoundError(f"Missing historical climatology tensor directory: {tensor_dir}")
+
+        climatology_samples: list[torch.Tensor] = []
+        for path in sorted(tensor_dir.glob("*.pt")):
+            _, output_tensor = torch.load(path, map_location="cpu", weights_only=False)
+            output_tensor = torch.as_tensor(output_tensor, dtype=torch.float32)
+            assert output_tensor.shape == (train_metadata.n_output_days, *train_metadata.resolution)
+            climatology_samples.append(output_tensor.mean(dim=0))
+
+        if not climatology_samples:
+            raise FileNotFoundError(f"No historical climatology output tensors found in: {tensor_dir}")
+        climatology = torch.stack(climatology_samples, dim=0)
+        print(f"[fig7d] Historical climatology samples: {climatology.shape[0]}")
+        return climatology
+
+    @classmethod
+    def _bss_components(
         cls,
         predictions: list[torch.Tensor],
-        groundtruths: list[torch.Tensor],
+        groundtruths: torch.Tensor,
         threshold: torch.Tensor,
         percentile: float,
         tail: str,
-        region: str,
-    ) -> np.ndarray:
-        if len(predictions) != len(groundtruths):
-            raise ValueError("predictions and groundtruths must have the same number of samples")
-
-        sample_weights = [cls._latitude_weights(height=groundtruth.shape[0], width=groundtruth.shape[1]) for groundtruth in groundtruths]
-        climatology = 1.0 - percentile / 100.0 if tail == "right" else percentile / 100.0
-        scores: list[float] = []
-        for prediction_members, groundtruth, weights in zip(predictions, groundtruths, sample_weights):
-            event_probability = cls._event_indicator(prediction_members, threshold=threshold, tail=tail).mean(dim=0)
-            event_observation = cls._event_indicator(groundtruth, threshold=threshold, tail=tail)
-            event_probability = cls._regional_slice(event_probability, region=region)
-            event_observation = cls._regional_slice(event_observation, region=region)
-            weights = cls._regional_slice(weights, region=region)
-            brier_score = torch.sum(((event_probability - event_observation) ** 2) * weights) / torch.sum(weights)
-            reference_score = torch.sum(((climatology - event_observation) ** 2) * weights) / torch.sum(weights)
-            scores.append(float((1.0 - brier_score / reference_score).item()))
-        return np.asarray(scores, dtype=np.float64)
-
-    @classmethod
-    def _sample_brier_decomposition(
-        cls,
-        predictions: list[torch.Tensor],
-        groundtruths: list[torch.Tensor],
-        threshold: torch.Tensor,
-        tail: str,
-        region: str,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        if len(predictions) != len(groundtruths):
-            raise ValueError("predictions and groundtruths must have the same number of samples")
-
-        sample_weights = [cls._latitude_weights(height=groundtruth.shape[0], width=groundtruth.shape[1]) for groundtruth in groundtruths]
-        reliability_scores: list[float] = []
-        resolution_scores: list[float] = []
-        for prediction_members, groundtruth, weights in zip(predictions, groundtruths, sample_weights):
-            n_members = prediction_members.shape[0]
-            event_probability = cls._event_indicator(prediction_members, threshold=threshold, tail=tail).mean(dim=0)
-            event_observation = cls._event_indicator(groundtruth, threshold=threshold, tail=tail)
-            event_probability = cls._regional_slice(event_probability, region=region).reshape(-1)
-            event_observation = cls._regional_slice(event_observation, region=region).reshape(-1)
-            weights = cls._regional_slice(weights, region=region).reshape(-1)
-
-            total_weight = torch.sum(weights)
-            climatology = torch.sum(weights * event_observation) / total_weight
-            probability_bins = torch.round(event_probability * n_members).to(dtype=torch.int64)
-            reliability = torch.tensor(0.0, dtype=torch.float32)
-            resolution = torch.tensor(0.0, dtype=torch.float32)
-            for bin_idx in torch.unique(probability_bins, sorted=True):
-                bin_mask = probability_bins == bin_idx
-                bin_weight = torch.sum(weights[bin_mask])
-                if float(bin_weight.item()) == 0.0:
-                    continue
-                forecast_probability = bin_idx.to(dtype=torch.float32) / float(n_members)
-                observed_frequency = torch.sum(weights[bin_mask] * event_observation[bin_mask]) / bin_weight
-                reliability = reliability + (bin_weight / total_weight) * (forecast_probability - observed_frequency) ** 2
-                resolution = resolution + (bin_weight / total_weight) * (observed_frequency - climatology) ** 2
-
-            reliability_scores.append(float(reliability.item()))
-            resolution_scores.append(float(resolution.item()))
-
-        return (
-            np.asarray(reliability_scores, dtype=np.float64),
-            np.asarray(resolution_scores, dtype=np.float64),
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        assert len(predictions) == groundtruths.shape[0]
+        event_probability = torch.stack(
+            [cls._event_indicator(prediction, threshold=threshold, tail=tail).mean(dim=0) for prediction in predictions],
+            dim=0,
         )
+        event_observation = cls._event_indicator(groundtruths, threshold=threshold, tail=tail)
+        climatology_probability = cls._climatology_probability(percentile=percentile, tail=tail)
+        brier_score = (event_probability - event_observation) ** 2
+        reference_score = (climatology_probability - event_observation) ** 2
+        event_count = event_observation.sum(dim=0)
+        non_event_count = event_observation.shape[0] - event_count
+        min_event_count = cls._minimum_event_count(
+            n_samples=event_observation.shape[0],
+            percentile=percentile,
+            tail=tail,
+        )
+        valid_cells = (
+            (groundtruths.var(dim=0, unbiased=False) > cls.MIN_GROUNDTRUTH_VARIANCE)
+            & (event_count >= min_event_count)
+            & (non_event_count >= cls.MIN_NON_EVENT_COUNT)
+            & (reference_score.mean(dim=0) > 0)
+        )
+        return brier_score, reference_score, valid_cells
+
+    @staticmethod
+    def _bss_from_components(score: torch.Tensor, reference_score: torch.Tensor, valid_cells: torch.Tensor) -> torch.Tensor:
+        mean_score = score.mean(dim=0)
+        mean_reference_score = reference_score.mean(dim=0)
+        skill = 1.0 - mean_score / mean_reference_score
+        return torch.where(valid_cells, skill, torch.zeros_like(skill))
+
+    @classmethod
+    def _regional_mean(cls, values: torch.Tensor, region: str) -> float:
+        return float(cls._regional_slice(values, region=region).mean().item())
 
     def collect(self) -> dict[str, dict[str, dict[str, np.ndarray]]]:
         scores: dict[str, dict[str, dict[str, np.ndarray]]] = {
-            region: {"bss": {}, "reliability": {}, "resolution": {}}
-            for region, _ in self.REGIONS
+            tail_key: {region: {} for region, _ in self.REGIONS}
+            for tail_key, _, _, _ in self.TAIL_SPECS
+        }
+        historical_climatology = self._load_historical_output_climatology()
+        thresholds = {
+            float(percentile): self._percentile_threshold_map(
+                samples=historical_climatology,
+                percentile=float(percentile),
+            )
+            for percentile in np.concatenate([self.LEFT_TAIL_PERCENTILES, self.RIGHT_TAIL_PERCENTILES]).tolist()
         }
         for model_name, root, _ in self.MODEL_SPECS:
-            predictions, groundtruths = self._collect_model_tensors(root=root)
-            for region, _ in self.REGIONS:
-                mean_bss_scores: list[float] = []
-                mean_reliability_scores: list[float] = []
-                mean_resolution_scores: list[float] = []
-                for percentile in self.RIGHT_TAIL_PERCENTILES.tolist():
-                    threshold = self._weighted_percentile_threshold(
-                        groundtruths=groundtruths,
+            predictions, groundtruths = self._load_model_tensors(root=root, model_name=model_name)
+            total_cell_count = int(groundtruths.shape[-2] * groundtruths.shape[-1])
+            low_variance_count = int(
+                (groundtruths.var(dim=0, unbiased=False) <= self.MIN_GROUNDTRUTH_VARIANCE).sum().item()
+            )
+            print(f"[fig7d] {model_name} masked low-variance cells: {low_variance_count}/{total_cell_count}")
+            for tail_key, _, tail, percentiles in self.TAIL_SPECS:
+                region_scores: dict[str, list[float]] = {region: [] for region, _ in self.REGIONS}
+                for region, _ in self.REGIONS:
+                    region_scores[region] = []
+                for percentile in percentiles.tolist():
+                    threshold = thresholds[float(percentile)]
+                    event_observation = self._event_indicator(groundtruths, threshold=threshold, tail=tail)
+                    min_event_count = self._minimum_event_count(
+                        n_samples=event_observation.shape[0],
                         percentile=float(percentile),
+                        tail=tail,
                     )
-                    sample_scores = self._sample_brier_skill_scores(
+                    event_mask = (
+                        (event_observation.sum(dim=0) < min_event_count)
+                        | ((event_observation.shape[0] - event_observation.sum(dim=0)) < self.MIN_NON_EVENT_COUNT)
+                    )
+                    print(
+                        f"[fig7d] {tail_key} p{percentile:.0f} {model_name} "
+                        f"masked rare-event cells (min events={min_event_count}): "
+                        f"{int(event_mask.sum().item())}/{total_cell_count}"
+                    )
+                    score, reference_score, valid_cells = self._bss_components(
                         predictions=predictions,
                         groundtruths=groundtruths,
                         threshold=threshold,
                         percentile=float(percentile),
-                        tail="right",
-                        region=region,
+                        tail=tail,
                     )
-                    reliability_scores, resolution_scores = self._sample_brier_decomposition(
-                        predictions=predictions,
-                        groundtruths=groundtruths,
-                        threshold=threshold,
-                        tail="right",
-                        region=region,
+                    bss_map = self._bss_from_components(
+                        score=score,
+                        reference_score=reference_score,
+                        valid_cells=valid_cells,
                     )
-                    mean_bss_scores.append(float(np.nanmean(sample_scores)))
-                    mean_reliability_scores.append(float(np.nanmean(reliability_scores)))
-                    mean_resolution_scores.append(float(np.nanmean(resolution_scores)))
-                scores[region]["bss"][model_name] = np.asarray(mean_bss_scores, dtype=np.float64)
-                scores[region]["reliability"][model_name] = np.asarray(mean_reliability_scores, dtype=np.float64)
-                scores[region]["resolution"][model_name] = np.asarray(mean_resolution_scores, dtype=np.float64)
+                    for region, _ in self.REGIONS:
+                        region_scores[region].append(self._regional_mean(values=bss_map, region=region))
+                for region, _ in self.REGIONS:
+                    scores[tail_key][region][model_name] = np.asarray(region_scores[region], dtype=np.float64)
         return scores
 
     def plot(self, scores: dict[str, dict[str, dict[str, np.ndarray]]]) -> Path:
-        fig = plt.figure(figsize=(13.0, 10.4))
-        gs = fig.add_gridspec(nrows=4, ncols=3, height_ratios=[1.0, 1.0, 1.0, 0.18], hspace=0.3, wspace=0.05)
+        fig = plt.figure(figsize=(13.0, 7.2))
+        gs = fig.add_gridspec(nrows=3, ncols=3, height_ratios=[1.0, 1.0, 0.18], hspace=0.3, wspace=0.05)
         axs: list[list[Any]] = []
-        for row_idx in range(3):
+        for row_idx in range(2):
             row_axes: list[Any] = [fig.add_subplot(gs[row_idx, 0])]
             for col_idx in range(3):
                 if col_idx == 0:
                     continue
                 row_axes.append(fig.add_subplot(gs[row_idx, col_idx], sharey=row_axes[0]))
             axs.append(row_axes)
-        legend_ax = fig.add_subplot(gs[3, :])
+        legend_ax = fig.add_subplot(gs[2, :])
         legend_handles: list[Any] | None = None
-        for row_idx, (component_key, component_label) in enumerate(self.COMPONENTS):
+        for row_idx, (tail_key, tail_label, _, percentiles) in enumerate(self.TAIL_SPECS):
             for col_idx, (region, region_label) in enumerate(self.REGIONS):
                 ax = axs[row_idx][col_idx]
                 subplot_label = chr(ord("a") + row_idx * 3 + col_idx)
                 current_handles: list[Any] = []
                 for model_name, _, color in self.MODEL_SPECS:
                     line, = ax.plot(
-                        self.RIGHT_TAIL_PERCENTILES,
-                        scores[region][component_key][model_name],
+                        percentiles,
+                        scores[tail_key][region][model_name],
                         marker="s",
                         markersize=3,
                         linewidth=1.5,
@@ -314,19 +309,18 @@ class ThresholdBrierSkillScoreFigureBuilder:
                     current_handles.append(line)
                 if legend_handles is None:
                     legend_handles = current_handles
-                if component_key == "bss":
-                    ax.axhline(0.0, linestyle="--", color="0.4", linewidth=1.2)
+                ax.axhline(0.0, linestyle="--", color="0.4", linewidth=1.2)
                 ax.set_title(f"({subplot_label}) {region_label}", fontsize=14, loc="left", pad=8.0)
-                ax.set_xticks(self.RIGHT_TAIL_PERCENTILES.tolist())
-                ax.set_xticklabels([f"{percentile:.0f}" for percentile in self.RIGHT_TAIL_PERCENTILES.tolist()])
-                if row_idx == len(self.COMPONENTS) - 1:
-                    ax.set_xlabel("Percentile Threshold", fontsize=13)
+                ax.set_xticks(percentiles.tolist())
+                ax.set_xticklabels([f"{percentile:.0f}" for percentile in percentiles.tolist()])
+                if tail_key == "left":
+                    ax.set_xlabel("Lower Percentile Threshold", fontsize=13)
                 else:
-                    ax.tick_params(axis="x", labelbottom=False)
+                    ax.set_xlabel("Upper Percentile Threshold", fontsize=13)
                 ax.grid(True, linestyle="-", alpha=0.3, linewidth=0.3)
                 ax.tick_params(axis="both", labelsize=12)
                 if col_idx == 0:
-                    ax.set_ylabel(component_label, fontsize=14)
+                    ax.set_ylabel(f"{tail_label}\nBrier Skill Score", fontsize=14)
                 else:
                     ax.tick_params(axis="y", labelleft=False)
 
