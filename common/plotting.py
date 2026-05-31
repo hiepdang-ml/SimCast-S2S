@@ -44,7 +44,7 @@ class _BasePlotter:
                     transform=data_crs,
                 )
             ax.set_global()
-        cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.035, pad=0.04)
+        cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.025, pad=0.04)
         cbar.ax.tick_params(labelsize=10)
         self._clean_axes(ax)
 
@@ -123,7 +123,7 @@ class PredictionPlotter(_BasePlotter):
         fig, axs = plt.subplots(
             nrows,
             1,
-            figsize=(subplot_width, int((nrows + 0.6) * subplot_height)),
+            figsize=(subplot_width, int((nrows + 0.2) * subplot_height)),
             subplot_kw={"projection": projection} if projection is not None else None,
         )
         if nrows == 1:
@@ -150,16 +150,15 @@ class PredictionPlotter(_BasePlotter):
             )
         self.add_landmask(axs=axs, landmask=landmask, coords=coordinates, data_crs=data_crs)
 
+        top: float
         if nrows == 4:
-            top: float = 0.89
+            top = 0.88
         elif nrows == 3:
-            top: float = 0.87
-        elif nrows == 2:
-            top: float = 0.82
+            top = 0.85
         else:
-            top: float = 0.75
+            top = 0.65
 
-        fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=top, hspace=0.14)
+        fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=top, hspace=0.10)
         fig.suptitle(title, fontsize=12)
         fig.savefig(self.dirpath.joinpath(filename), bbox_inches="tight", dpi=500)
         plt.close(fig)

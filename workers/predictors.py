@@ -17,7 +17,7 @@ from datapipeline.dataset import ERA5
 from datapipeline.readers import ERA5_LandmaskReader, ERA5_CoordinatesReader
 from datapipeline.utils import DataBatch, SampleInfo
 from common.metrics import ErrorMap, MAEMap, GeographicalRsquaredMap, GeographicalMAE, GeographicalMSE
-from common.plotting import MetricPlotter, PredictionPlotter
+from common.plotting import PredictionPlotter
 from common.utils import TorchDictIO, ParamCounter
 from common.configs import MetaData
 from models.benchmarks import CNN, UNet, ViT
@@ -85,7 +85,6 @@ class _AbstractPredictor(ABC):
         self.error_map: ErrorMap = ErrorMap(n_features=self.out_features)
         self.torchio: TorchDictIO = TorchDictIO(dirpath=target_path)
         self.prediction_plotter: PredictionPlotter = PredictionPlotter(dirpath=target_path)
-        self.metric_plotter: MetricPlotter = MetricPlotter(dirpath=target_path)
         if isinstance(dataset, CESM2):
             self.landmask_reader = CESM2_LandmaskReader()
             self.coordinates_reader = CESM2_CoordinatesReader()
@@ -123,36 +122,6 @@ class _AbstractPredictor(ABC):
                 merged["predictions"].extend(shard["predictions"])
                 merged["groundtruths"].extend(shard["groundtruths"])
             records = merged
-
-        # TODO: should save the tensors only and build a different command to plot from results saved by TorchDictIO
-        # # Compute aggregate metrics (rank 0 only)
-        # rsquared_frame, global_rsquared, tropical_rsquared, extratropical_rsquared = self.rsquared_map(
-        #     predictions=records["predictions"], groundtruths=records["groundtruths"],
-        # )
-        # assert rsquared_frame.shape == (self.H, self.W, self.out_features)
-
-        # mae_frame, global_mae, tropical_mae, extratropical_mae = self.mae_map(
-        #     predictions=records["predictions"], groundtruths=records["groundtruths"],
-        # )
-        # assert mae_frame.shape == (self.H, self.W, self.out_features)
-
-        # # Plot aggregate metrics
-        # for idx, output_name in enumerate(self.output_names):
-        #     self.metric_plotter.plot(
-        #         mae_frame=mae_frame[..., idx],
-        #         global_mae=global_mae,
-        #         tropical_mae=tropical_mae,
-        #         extratropical_mae=extratropical_mae,
-        #         rsquared_frame=rsquared_frame[..., idx],
-        #         global_rsquared=global_rsquared,
-        #         tropical_rsquared=tropical_rsquared,
-        #         extratropical_rsquared=extratropical_rsquared,
-        #         landmask=self.landmask_reader.tensor,
-        #         tropical_lats=self.tropical_lats,
-        #         coordinates=self.coordinates_reader.tensors,
-        #         title=f"{output_name}: {self.dataset.metadata.start_year} - {self.dataset.metadata.end_year}",
-        #         filename=f"{self.model_name.upper()}_{output_name}_metrics.png",
-        #     )
 
     @abstractmethod
     def _predict_step(self, batch: DataBatch) -> tuple[torch.Tensor, torch.Tensor]:
