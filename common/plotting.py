@@ -123,7 +123,7 @@ class PredictionPlotter(_BasePlotter):
         fig, axs = plt.subplots(
             nrows,
             1,
-            figsize=(subplot_width, int((nrows + 0.2) * subplot_height)),
+            figsize=(subplot_width, int((nrows + 0.1) * subplot_height)),
             subplot_kw={"projection": projection} if projection is not None else None,
         )
         if nrows == 1:
@@ -160,66 +160,6 @@ class PredictionPlotter(_BasePlotter):
 
         fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=top, hspace=0.10)
         fig.suptitle(title, fontsize=12)
-        fig.savefig(self.dirpath.joinpath(filename), bbox_inches="tight", dpi=500)
-        plt.close(fig)
-
-
-class MetricPlotter(_BasePlotter):
-
-    def plot(
-        self,
-        mae_frame: torch.Tensor,
-        global_mae: torch.Tensor,
-        tropical_mae: torch.Tensor,
-        extratropical_mae: torch.Tensor,
-        rsquared_frame: torch.Tensor,
-        global_rsquared: torch.Tensor,
-        tropical_rsquared: torch.Tensor,
-        extratropical_rsquared: torch.Tensor,
-        landmask: torch.Tensor,
-        tropical_lats: tuple[float, float],
-        coordinates: tuple[torch.Tensor, torch.Tensor],
-        title: str,
-        filename: str,
-    ) -> None:
-
-        assert mae_frame.shape == rsquared_frame.shape == landmask.shape
-
-        mae_frame = mae_frame.cpu()
-        rsquared_frame = rsquared_frame.cpu()
-        landmask = landmask.cpu()
-
-        H: int = rsquared_frame.shape[0]
-        W: int = rsquared_frame.shape[1]
-        aspect_ratio: float = H / W
-        figwidth: float = 5.8
-
-        fig, axs = plt.subplots(2, 1, figsize=(figwidth, 2 * figwidth * aspect_ratio))
-        sub_title: str = (
-            f"MAE Map\n"
-            f"Global: {global_mae.item():.3f} - "
-            f"Tropic: {tropical_mae.item():.3f} - "
-            f"Extratropic: {extratropical_mae.item():.3f}"
-        )
-        self.plot_layer(
-            ax=axs[0], data=mae_frame, coords=coordinates,
-            tropical_lats=tropical_lats, title=sub_title, cmap="Oranges", vmin=0., vmax=0.05,
-        )
-        sub_title: str = (
-            f"R-squared Map\n"
-            f"Global: {global_rsquared.item():.3f} - "
-            f"Tropic: {tropical_rsquared.item():.3f} - "
-            f"Extratropic: {extratropical_rsquared.item():.3f}"
-        )
-        self.plot_layer(
-            ax=axs[1], data=rsquared_frame, coords=coordinates,
-            tropical_lats=tropical_lats, title=sub_title, cmap="Blues", vmin=0., vmax=0.6,
-        )
-        self.add_landmask(axs=axs, landmask=landmask, coords=coordinates)
-
-        fig.subplots_adjust(left=0.01, right=0.97, bottom=0.05, top=0.88, hspace=0.18)
-        fig.suptitle(title, fontsize=12)
-
         fig.savefig(self.dirpath.joinpath(filename), bbox_inches="tight", dpi=500)
         plt.close(fig)
 
