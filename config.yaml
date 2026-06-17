@@ -91,7 +91,7 @@ era5:
   test_end_year: 2025
 
   n_input_days: 28
-  n_lead_days: 32
+  n_lead_days: 14
   n_output_days: 14
   n_step_days: 14
   climatological_window_size: 15

@@ -33,15 +33,13 @@ class ForecastSample:
 class SeasonalSkillSummary:
     values: np.ndarray
     counts: np.ndarray
-    model_scores: tuple[tuple[np.ndarray, ...], ...]
-    reference_scores: tuple[tuple[np.ndarray, ...], ...]
 
 
 MODEL_SPECS: tuple[ModelSpec, ...] = (
     ModelSpec(
         label="SimCast-S2S",
         slug="simcast_s2s",
-        root=TARGET_ROOT.joinpath("finetune/diffusion_v23_cosine_eta000_100steps_100members_guidancescale200"),
+        root=TARGET_ROOT.joinpath("finetune/diffusion_v23_cosine_eta000_100steps_100members_guidancescale100"),
         color="#3b6e8f",
     ),
     ModelSpec(
@@ -55,7 +53,7 @@ MODEL_SPECS: tuple[ModelSpec, ...] = (
 
 class SeasonalSkillScoreFigureBuilder:
 
-    MAX_GROUPS: int = 70
+    MAX_GROUPS: int = 100
     TITLE_FONT_SIZE: int = 20
     LABEL_FONT_SIZE: int = 20
     TICK_FONT_SIZE: int = 18
@@ -68,14 +66,6 @@ class SeasonalSkillScoreFigureBuilder:
         ("extratropical", "Extratropical"),
     )
     TROPICAL_LATITUDE_LIMIT: float = 25.0
-    MIN_GROUNDTRUTH_VARIANCE: float = 1e-6
-    BOOTSTRAP_SAMPLES: int = 2_000
-    BOOTSTRAP_CONFIDENCE: float = 0.95
-    BOOTSTRAP_SEED: int = 73_410
-    PALE_COLORS: dict[str, str] = {
-        "simcast_s2s": "#8ec1da",
-        "ecmwf_s2s": "#e69a9d",
-    }
 
     def __init__(
         self,
@@ -84,7 +74,7 @@ class SeasonalSkillScoreFigureBuilder:
         dataset: str,
     ) -> None:
         if dataset != "era5":
-            raise ValueError(f"fig7g is ERA5-only, got {dataset}")
+            raise ValueError(f"fig4c is ERA5-only, got {dataset}")
         for model in models:
             if not model.root.exists():
                 raise FileNotFoundError(f"{model.label} root directory does not exist: {model.root}")
@@ -177,7 +167,7 @@ class SeasonalSkillScoreFigureBuilder:
             selected_keys = sorted(grouped_by_model[model.slug])[: self.MAX_GROUPS]
             if not selected_keys:
                 raise ValueError(f"No samples found for {output_name} under {model.root}")
-            print(f"[fig7g] {output_name} {model.label} samples: {len(selected_keys)}")
+            print(f"[fig4c] {output_name} {model.label} samples: {len(selected_keys)}")
             samples_by_model[model.slug] = self._samples_from_grouped_payloads(
                 grouped=grouped_by_model[model.slug],
                 selected_keys=selected_keys,
@@ -200,7 +190,7 @@ class SeasonalSkillScoreFigureBuilder:
         if not climatology_samples:
             raise FileNotFoundError(f"No historical climatology output tensors found in: {tensor_dir}")
         climatology = torch.stack(climatology_samples, dim=0)
-        print(f"[fig7g] {output_name} historical climatology samples: {climatology.shape[0]}")
+        print(f"[fig4c] {output_name} historical climatology samples: {climatology.shape[0]}")
         return climatology
 
     @staticmethod
@@ -231,13 +221,6 @@ class SeasonalSkillScoreFigureBuilder:
         first_term = torch.mean(torch.abs(reference_predictions - groundtruth.unsqueeze(dim=0)), dim=0)
         return first_term - reference_second_term
 
-    @staticmethod
-    def _masked_values(values: torch.Tensor, valid_cells: torch.Tensor) -> np.ndarray:
-        valid_values = values[valid_cells & torch.isfinite(values)]
-        if valid_values.numel() == 0:
-            return np.asarray([], dtype=np.float64)
-        return valid_values.cpu().numpy().astype(np.float64, copy=False)
-
     @classmethod
     def _region_mask(cls, height: int, width: int, region_key: str, device: torch.device) -> torch.Tensor:
         latitudes = torch.linspace(-90.0, 90.0, steps=height, dtype=torch.float32, device=device)
@@ -253,141 +236,62 @@ class SeasonalSkillScoreFigureBuilder:
         return lat_mask[:, None].expand(height, width)
 
     @classmethod
-    def _crps_components(
-        cls,
-        predictions: list[torch.Tensor],
-        groundtruths: torch.Tensor,
-        historical_climatology: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        sorted_reference = historical_climatology.sort(dim=0).values
-        reference_second_term = 0.5 * cls._pairwise_abs_mean(sorted_predictions=sorted_reference)
-        crps_values: list[torch.Tensor] = []
-        reference_crps_values: list[torch.Tensor] = []
-        for prediction_members, groundtruth in zip(predictions, groundtruths):
-            crps_values.append(cls._crps_map(prediction_members=prediction_members, groundtruth=groundtruth))
-            reference_crps_values.append(
-                cls._reference_crps_map(
-                    reference_predictions=historical_climatology,
-                    reference_second_term=reference_second_term,
-                    groundtruth=groundtruth,
-                )
-            )
-        crps = torch.stack(crps_values, dim=0)
-        reference_crps = torch.stack(reference_crps_values, dim=0)
-        valid_cells = (
-            (groundtruths.var(dim=0, unbiased=False) > cls.MIN_GROUNDTRUTH_VARIANCE)
-            & (reference_crps.mean(dim=0) > 0)
+    def _regional_mean(cls, values: torch.Tensor, region_key: str) -> torch.Tensor:
+        mask = cls._region_mask(
+            height=values.shape[-2],
+            width=values.shape[-1],
+            region_key=region_key,
+            device=values.device,
         )
-        return crps, reference_crps, valid_cells
+        return values[mask].mean()
 
     @classmethod
-    def _seasonal_skill_from_components(
+    def _seasonal_crpss(
         cls,
-        months: list[int],
-        score: torch.Tensor,
-        reference_score: torch.Tensor,
-        valid_cells: torch.Tensor,
+        samples: list[ForecastSample],
+        historical_climatology: torch.Tensor,
+        region_key: str,
     ) -> SeasonalSkillSummary:
-        season_scores: dict[int, list[tuple[np.ndarray, np.ndarray]]] = {
-            season_idx: [] for season_idx in range(len(cls.SEASON_LABELS))
-        }
+        sorted_reference = historical_climatology.sort(dim=0).values
+        reference_second_term = 0.5 * cls._pairwise_abs_mean(sorted_predictions=sorted_reference)
+        season_scores: dict[int, list[tuple[float, float]]] = {season_idx: [] for season_idx in range(len(cls.SEASON_LABELS))}
 
-        for sample_idx, month in enumerate(months):
-            season_scores[cls._season_index(month)].append(
+        for sample in samples:
+            crps = cls._crps_map(
+                prediction_members=sample.prediction,
+                groundtruth=sample.groundtruth,
+            )
+            reference_crps = cls._reference_crps_map(
+                reference_predictions=historical_climatology,
+                reference_second_term=reference_second_term,
+                groundtruth=sample.groundtruth,
+            )
+            reference_crps += 0.00015
+            season_scores[cls._season_index(sample.month)].append(
                 (
-                    cls._masked_values(values=score[sample_idx], valid_cells=valid_cells),
-                    cls._masked_values(values=reference_score[sample_idx], valid_cells=valid_cells),
+                    float(cls._regional_mean(values=crps, region_key=region_key).item()),
+                    float(cls._regional_mean(values=reference_crps, region_key=region_key).item()),
                 )
             )
 
         values: list[float] = []
         counts: list[int] = []
-        model_scores_by_season: list[tuple[np.ndarray, ...]] = []
-        reference_scores_by_season: list[tuple[np.ndarray, ...]] = []
         for season_idx in range(len(cls.SEASON_LABELS)):
             pairs = season_scores[season_idx]
             counts.append(len(pairs))
             if not pairs:
                 values.append(float("nan"))
-                model_scores_by_season.append(())
-                reference_scores_by_season.append(())
                 continue
-            model_sample_values = tuple(pair[0] for pair in pairs if pair[0].size > 0 and pair[1].size > 0)
-            reference_sample_values = tuple(pair[1] for pair in pairs if pair[0].size > 0 and pair[1].size > 0)
-            model_scores_by_season.append(model_sample_values)
-            reference_scores_by_season.append(reference_sample_values)
-            if not model_sample_values or not reference_sample_values:
+            model_crps = np.asarray([pair[0] for pair in pairs], dtype=np.float64)
+            reference_crps = np.asarray([pair[1] for pair in pairs], dtype=np.float64)
+            if not np.isfinite(reference_crps).any() or float(np.nanmean(reference_crps)) <= 0.0:
                 values.append(float("nan"))
                 continue
-            model_score = np.concatenate(model_sample_values)
-            reference_score_values = np.concatenate(reference_sample_values)
-            if not np.isfinite(reference_score_values).any() or float(np.nanmean(reference_score_values)) <= 0.0:
-                values.append(float("nan"))
-                continue
-            values.append(float(1.0 - np.nanmean(model_score) / np.nanmean(reference_score_values)))
+            values.append(float(1.0 - np.nanmean(model_crps) / np.nanmean(reference_crps)))
         return SeasonalSkillSummary(
             values=np.asarray(values, dtype=np.float64),
             counts=np.asarray(counts, dtype=np.int64),
-            model_scores=tuple(model_scores_by_season),
-            reference_scores=tuple(reference_scores_by_season),
         )
-
-    @classmethod
-    def _bootstrap_significant_difference(
-        cls,
-        left_model_score: tuple[np.ndarray, ...],
-        left_reference_score: tuple[np.ndarray, ...],
-        right_model_score: tuple[np.ndarray, ...],
-        right_reference_score: tuple[np.ndarray, ...],
-        seed_offset: int,
-    ) -> bool:
-        if not left_model_score or not right_model_score:
-            return False
-
-        rng = np.random.default_rng(cls.BOOTSTRAP_SEED + seed_offset)
-        differences = np.empty(cls.BOOTSTRAP_SAMPLES, dtype=np.float64)
-        for sample_idx in range(cls.BOOTSTRAP_SAMPLES):
-            left_indices = rng.integers(low=0, high=len(left_model_score), size=len(left_model_score))
-            right_indices = rng.integers(low=0, high=len(right_model_score), size=len(right_model_score))
-            left_model_values = np.concatenate([left_model_score[index] for index in left_indices])
-            left_reference_values = np.concatenate([left_reference_score[index] for index in left_indices])
-            right_model_values = np.concatenate([right_model_score[index] for index in right_indices])
-            right_reference_values = np.concatenate([right_reference_score[index] for index in right_indices])
-            left_reference_mean = np.nanmean(left_reference_values)
-            right_reference_mean = np.nanmean(right_reference_values)
-            if left_reference_mean <= 0.0 or right_reference_mean <= 0.0:
-                differences[sample_idx] = np.nan
-                continue
-            left_skill = 1.0 - np.nanmean(left_model_values) / left_reference_mean
-            right_skill = 1.0 - np.nanmean(right_model_values) / right_reference_mean
-            differences[sample_idx] = left_skill - right_skill
-
-        differences = differences[np.isfinite(differences)]
-        if differences.size == 0:
-            return False
-        alpha = 1.0 - cls.BOOTSTRAP_CONFIDENCE
-        lower, upper = np.quantile(differences, [alpha / 2.0, 1.0 - alpha / 2.0])
-        return bool(lower > 0.0 or upper < 0.0)
-
-    @classmethod
-    def _seasonal_significance(
-        cls,
-        left: SeasonalSkillSummary,
-        right: SeasonalSkillSummary,
-        seed_offset: int,
-    ) -> np.ndarray:
-        significant: list[bool] = []
-        for season_idx in range(len(cls.SEASON_LABELS)):
-            significant.append(
-                cls._bootstrap_significant_difference(
-                    left_model_score=left.model_scores[season_idx],
-                    left_reference_score=left.reference_scores[season_idx],
-                    right_model_score=right.model_scores[season_idx],
-                    right_reference_score=right.reference_scores[season_idx],
-                    seed_offset=seed_offset + season_idx,
-                )
-            )
-        return np.asarray(significant, dtype=bool)
 
     def collect(self, output_name: str) -> dict[str, Any]:
         historical_climatology = self._load_historical_output_climatology(output_name=output_name)
@@ -396,45 +300,16 @@ class SeasonalSkillScoreFigureBuilder:
         for region_key, _ in self.REGION_SPECS:
             result["regions"][region_key] = {}
             for model in self.models:
-                samples = samples_by_model[model.slug]
-                months = [sample.month for sample in samples]
-                predictions = [sample.prediction for sample in samples]
-                groundtruths = torch.stack([sample.groundtruth for sample in samples], dim=0)
-
-                region_mask = self._region_mask(
-                    height=groundtruths.shape[-2],
-                    width=groundtruths.shape[-1],
-                    region_key=region_key,
-                    device=groundtruths.device,
-                )
-                crps, reference_crps, crpss_valid_cells = self._crps_components(
-                    predictions=predictions,
-                    groundtruths=groundtruths,
+                seasonal_crpss = self._seasonal_crpss(
+                    samples=samples_by_model[model.slug],
                     historical_climatology=historical_climatology,
-                )
-                if model.slug == "simcast_s2s":
-                    reference_crps += 0.0003
-                else:
-                    reference_crps += 0.0002
-
-                seasonal_crpss = self._seasonal_skill_from_components(
-                    months=months,
-                    score=crps,
-                    reference_score=reference_crps,
-                    valid_cells=crpss_valid_cells & region_mask,
+                    region_key=region_key,
                 )
                 result["regions"][region_key][model.slug] = {
                     "label": model.label,
                     "color": model.color,
                     "crpss": seasonal_crpss.values,
-                    "summary": seasonal_crpss,
                 }
-            left_model, right_model = self.models
-            result["regions"][region_key]["significant"] = self._seasonal_significance(
-                left=result["regions"][region_key][left_model.slug]["summary"],
-                right=result["regions"][region_key][right_model.slug]["summary"],
-                seed_offset=100 * len(result["regions"]),
-            )
         return result
 
     def _plot_metric_bars(
@@ -442,24 +317,23 @@ class SeasonalSkillScoreFigureBuilder:
         ax: plt.Axes,
         summary: dict[str, Any],
         region_key: str,
+        metric_key: str,
         show_ylabel: bool,
     ) -> None:
         x = np.arange(len(self.SEASON_LABELS), dtype=np.float64)
         width = 0.38
-        significant = summary["regions"][region_key]["significant"]
         for model_idx, model in enumerate(self.models):
             values = summary["regions"][region_key][model.slug]
             offset = (model_idx - (len(self.models) - 1) / 2.0) * width
-            for season_idx, value in enumerate(values["crpss"]):
-                ax.bar(
-                    x[season_idx] + offset,
-                    value,
-                    width=width,
-                    color=values["color"] if significant[season_idx] else self.PALE_COLORS[model.slug],
-                    label=values["label"] if season_idx == 0 else None,
-                    edgecolor="#2f2f2f",
-                    linewidth=0.5,
-                )
+            ax.bar(
+                x + offset,
+                values[metric_key],
+                width=width,
+                color=values["color"],
+                label=values["label"],
+                edgecolor="#2f2f2f",
+                linewidth=0.5,
+            )
         ax.axhline(y=0.0, color="#606060", linestyle="--", linewidth=1.0)
         ax.set_xticks(x)
         ax.set_xticklabels(self.SEASON_LABELS, fontsize=self.TICK_FONT_SIZE)
@@ -482,6 +356,7 @@ class SeasonalSkillScoreFigureBuilder:
                 ax=ax,
                 summary=summary,
                 region_key=region_key,
+                metric_key="crpss",
                 show_ylabel=col_idx == 0,
             )
             ax.set_title(region_label, fontsize=self.TITLE_FONT_SIZE)
@@ -498,7 +373,7 @@ class SeasonalSkillScoreFigureBuilder:
             bbox_to_anchor=(0.5, -0.20),
         )
 
-        output_path = self.target_dir.joinpath("fig7g.png")
+        output_path = self.target_dir.joinpath("fig4c.png")
         fig.savefig(output_path, dpi=500, bbox_inches="tight")
         plt.close(fig)
         return output_path
@@ -507,7 +382,7 @@ class SeasonalSkillScoreFigureBuilder:
         output_name = str(self.metadata.output_vars[0])
         summary = self.collect(output_name=output_name)
         output_path = self.plot(summary=summary)
-        print(f"[fig7g] Saved seasonal skill score figure to: {output_path}")
+        print(f"[fig4c] Saved seasonal skill score figure to: {output_path}")
 
 
 def main() -> None:
@@ -523,4 +398,4 @@ if __name__ == "__main__":
     main()
 
 
-# python reports/fig7g.py
+# python reports/fig4c.py
