@@ -679,8 +679,8 @@ class Visualizer:
         if result_object["ensemble_stat"] == "member":
             ensemble_label = f"Ensemble Member: {result_object['ensemble_member']}/{result_object['ensemble_size']}"
             prediction_frame = cast(torch.Tensor, result_object["prediction"])
-            groundtruth_frame = None
-            error_frame = None
+            groundtruth_frame = cast(torch.Tensor, result_object["groundtruth"])
+            error_frame = cast(torch.Tensor, result_object["error_map"])
             uncertainty_frame = None
         else:
             ensemble_label = "Ensemble Mean"
