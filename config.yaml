@@ -1,0 +1,399 @@
+cesm2:
+
+  raw_root: "/standard/mamalakislab_storage/shared/cesm2/data/"
+  landmask_root: "/standard/mamalakislab_storage/shared/cesm2/landmask/"
+  # fixed configs
+  input_vars: [
+    "U200", "V200", "U500", "V500", "OMEGA500", "U850", "V850",
+    "Z200", "Z500", "Z850", "PSL",
+    "TS", "T200", "T500", "T850", "FLUT",
+    "TMQ", "Q200", "Q500", "Q850",
+    "PRECT",
+  ] # order matters
+  output_vars: ["PRECT"]
+  resolution: [192, 288]
+  # NOTE: `sim_ids` can be selected individually for exportdata.py
+  sim_ids: [
+    # Configuration: BHISTsmbb
+    "1011.001", "1031.002", "1051.003", "1071.004", "1091.005", "1111.006", "1131.007", "1151.008", "1171.009", "1191.010",
+  ]
+  # modifiable configs:
+  train_start_year: 1950
+  train_end_year: 2000
+  val_start_year: 2001
+  val_end_year: 2010
+  test_start_year: 2011
+  test_end_year: 2014
+
+  n_input_days: 84
+  n_lead_days: 14
+  n_output_days: 28
+  n_step_days: 14
+
+  train_write_directory: "/scratch/zgp2ps/cesm2/tensors/train/"
+  val_write_directory: "/scratch/zgp2ps/cesm2/tensors/val/"
+  test_write_directory: "/scratch/zgp2ps/cesm2/tensors/test/"
+  detrender_state_directory: "/scratch/zgp2ps/cesm2/tensors/detrender/"
+  climatology_state_directory: "/scratch/zgp2ps/cesm2/tensors/climatology/"
+
+
+era5:
+
+  raw_root: "/standard/mamalakislab_storage/shared/era5/raw/"
+  array_root: "/standard/mamalakislab_storage/shared/era5/arrays/"
+  landmask_root: "/standard/mamalakislab_storage/shared/era5/raw/landmask/"
+  # fixed configs
+  input_vars: [
+    "u200", "v200", "u500", "v500", "w500", "u850", "v850",
+    "z200", "z500", "z850", "msl",
+    "skt", "t200", "t500", "t850", "avgtnlwrf",
+    "tcwv", "q200", "q500", "q850",
+    "tp",
+  ] # order matters
+  output_vars: ["tp"]
+  resolution: [192, 288]
+  sim_ids: ["reanalysis"]
+  # modifiable configs:
+  train_start_year: 1940
+  train_end_year: 2010
+  val_start_year: 2011
+  val_end_year: 2020
+  test_start_year: 2021
+  test_end_year: 2025
+
+  n_input_days: 84
+  n_lead_days: 14
+  n_output_days: 28
+  n_step_days: 7
+
+  train_write_directory: "/scratch/zgp2ps/era5/tensors/train/"
+  val_write_directory: "/scratch/zgp2ps/era5/tensors/val/"
+  test_write_directory: "/scratch/zgp2ps/era5/tensors/test/"
+  detrender_state_directory: "/scratch/zgp2ps/era5/tensors/detrender/"
+  climatology_state_directory: "/scratch/zgp2ps/era5/tensors/climatology/"
+
+
+cnn:
+
+  in_features: 21
+  out_features: 1
+  embedding_dim: 1024
+  n_hidden_layers: 12
+
+  learning_rate: 1e-5
+  train_batch_size: 4
+  val_batch_size: 1
+
+  n_epochs: 1000
+  patience: 10
+  tolerance: 0.
+  save_frequency: 1
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_small/cnn3.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_small/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/cnn_small/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_mid/cnn9.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_mid/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/cnn_mid/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_large/cnn7.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_large/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/cnn_large/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_small/cnn37.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_small/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_small/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_mid/cnn44.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_mid/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_mid/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_large/cnn12.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/cnn_large/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/cnn_large/"
+
+  # Finetune
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_small/cnn1.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_small/cnn1.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_small/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_small/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_mid/cnn1.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_mid/cnn1.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_mid/"
+  target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_mid/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/cnn_large/cnn1.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_large/cnn1.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/cnn_large/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/cnn_large/"
+
+
+unet:
+
+  in_features: 21
+  out_features: 1
+  embedding_dim: 512
+
+  learning_rate: 1e-5
+  train_batch_size: 4
+  val_batch_size: 4
+  n_epochs: 1000
+  patience: 10
+  tolerance: 0.
+  save_frequency: 1
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_small/unet3.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_small/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/unet_small/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_mid/unet6.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_mid/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/unet_mid/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_large/unet15.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_large/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/unet_large/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_small/unet21.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_small/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_small/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_mid/unet55.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_mid/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_mid/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_large/unet20.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/unet_large/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/unet_large/"
+
+  # Finetune
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_small/unet1.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_small/unet1.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_small/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_small/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_mid/unet1.pt"
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_mid/unet1.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_mid/"
+  target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_mid/"
+
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/unet_large/unet1.pt"
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_large/unet1.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/unet_large/"
+  # target_path: "/scratch/zgp2ps/s2s_results/finetune/unet_large/"
+
+
+ecmwf-s2s:
+
+  groundtruth_path: "/standard/mamalakislab_storage/shared/era5/arrays/"
+  prediction_path: /standard/mamalakislab_storage/shared/ecmwfs2s/
+  target_path: "/scratch/zgp2ps/s2s_results/ecmwfs2s/"
+
+
+vae-wind:
+
+  latent_dim: 28
+  hidden_dim: 128
+  n_scaling_blocks: 3
+  n_convstack_layers: 8
+  n_convhead_layers: 4
+
+  lambda: 0.8
+  learning_rate: 1e-4
+  train_batch_size: 32
+  val_batch_size: 32
+  n_epochs: 1000
+  patience: 10
+  tolerance: 0.
+  save_frequency: 1
+
+  # Train CESM2
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_wind_16times/vaewind10.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_wind_16times/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/vae_wind_16times/"
+
+  # # Train ERA5
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_wind_16times/vaewind10.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_wind_16times/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/vae_wind_16times/"
+
+
+vae-mass:
+
+  latent_dim: 16
+  hidden_dim: 128
+  n_scaling_blocks: 3
+  n_convstack_layers: 8
+  n_convhead_layers: 4
+
+  lambda: 0.8
+  learning_rate: 1e-4
+  train_batch_size: 32
+  val_batch_size: 32
+  n_epochs: 1000
+  patience: 10
+  tolerance: 0.
+  save_frequency: 1
+
+  # Train CESM2
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_mass_16times/vaemass11.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_mass_16times/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/vae_mass_16times/"
+
+  # # Train ERA5
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_mass_16times/vaemass39.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_mass_16times/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/vae_mass_16times/"
+
+
+
+vae-thermal:
+
+  latent_dim: 20
+  hidden_dim: 128
+  n_scaling_blocks: 3
+  n_convstack_layers: 8
+  n_convhead_layers: 4
+
+  lambda: 0.8
+  learning_rate: 1e-4
+  train_batch_size: 32
+  val_batch_size: 32
+  n_epochs: 1000
+  patience: 10
+  tolerance: 0.
+  save_frequency: 1
+
+  # Train CESM2
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/vaethermal8.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/vae_thermal_16times/"
+
+  # # Train ERA5
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_thermal_16times/vaethermal38.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_thermal_16times/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/vae_thermal_16times/"
+
+
+vae-hydro:
+
+  latent_dim: 16
+  hidden_dim: 128
+  n_scaling_blocks: 3
+  n_convstack_layers: 8
+  n_convhead_layers: 4
+
+  lambda: 0.8
+  learning_rate: 1e-4
+  train_batch_size: 32
+  val_batch_size: 32
+  n_epochs: 1000
+  patience: 10
+  tolerance: 0.
+  save_frequency: 1
+
+  # Train CESM2
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/vaehydro5.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/"
+  target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/vae_hydro_16times/"
+
+  # # Train ERA5
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_hydro_16times/vaehydro8.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_hydro_16times/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/vae_hydro_16times/"
+
+vae-precip:
+
+  latent_dim: 16
+  hidden_dim: 64
+  n_scaling_blocks: 3
+  n_convstack_layers: 8
+  n_convhead_layers: 4
+
+  lambda: 0.9
+  learning_rate: 1e-5
+  train_batch_size: 32
+  val_batch_size: 32
+  n_epochs: 1000
+  patience: 5
+  tolerance: 0.
+  save_frequency: 1
+
+  # # Train CESM2
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_precip_4times/vaeprecip20.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_precip_4times/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/vae_precip_4times/"
+
+  # # Train ERA5
+  # from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_precip_4times/vaeprecip8.pt"
+  # saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_era5/vae_precip_4times/"
+  # target_path: "/scratch/zgp2ps/s2s_results/train_era5/vae_precip_4times/"
+
+  # Finetune
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_precip_4times/vaeprecip20.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/vae_precip_4times_lora16/"
+  target_path: "/scratch/zgp2ps/s2s_results/finetune/vae_precip_4times/"
+
+
+
+diffusion:
+
+  target_dim: 16  # fixed, vae-precip.latent_dim
+  condition_dim: 96  # fixed, vae-wind.latent_dim + vae-mass.latent_dim + vae-thermal.latent_dim + vae-hydro.latent_dim + vae-precip.latent_dim
+  # Denoiser configurations
+  down_out_dims: [128, 256]
+  mid_out_dims: [256, 256]
+  up_out_dims: [256, 128]   # effective dim before transformer: up_out_dims[-1]
+  down_transformer_model_dims: [128, 128]
+  mid_transformer_model_dims: [128, 128]
+  up_transformer_model_dims: [128, 128]
+  n_conv_layers_per_scaling_block: 6
+  n_transformer_encoder_layers_per_scaling_block: [1, 2]
+  n_transformer_decoder_layers_per_scaling_block: [1, 2]
+  n_conv_layers_per_mid_block: 3
+  n_transformer_encoder_layers_per_mid_block: [4, 4]
+  n_transformer_decoder_layers_per_mid_block: [4, 4]
+  transformer_feedforward_dim: 2048
+  n_attention_heads: 4
+  transformer_maxlength: 84   # must be >= max(dataset.n_input_days, dataset.n_output_days)
+  # Scheduler configs
+  train_steps: 1000
+  cosine_offset: 0.008  # standard, should not change
+  # Sampling
+  eta: 0.
+  inference_steps: 200
+  ensemble_size: 100
+  guidance_scale: 1.
+  # Training
+  condition_dropout_prob: 0.2
+  learning_rate: 1e-5
+  train_batch_size: 8
+  val_batch_size: 8
+  n_epochs: 1000
+  patience: 50
+  tolerance: 0.
+  save_frequency: 1
+
+#   # Trained on CESM2
+#   vae_wind_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_wind_16times/vaewind10.pt"
+#   vae_mass_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_mass_16times/vaemass11.pt"
+#   vae_thermal_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/vaethermal8.pt"
+#   vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/vaehydro5.pt"
+#   vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_precip_4times/vaeprecip20.pt"
+#
+#   from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion/diffusion22.pt"
+#   saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/diffusion/"
+#   target_path: "/scratch/zgp2ps/s2s_results/train_cesm2/diffusion/"
+
+  # Finetune
+  vae_wind_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_wind_16times/vaewind10.pt"
+  vae_mass_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_mass_16times/vaemass11.pt"
+  vae_thermal_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_thermal_16times/vaethermal8.pt"
+  vae_hydro_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/train_cesm2/vae_hydro_16times/vaehydro5.pt"
+  vae_precip_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/vae_precip_4times_lora16/vaeprecip32.pt"
+
+  from_checkpoint: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_lora16/diffusion14.pt"
+  saved_checkpoint_directory: "/scratch/zgp2ps/s2s_checkpoints/finetune/diffusion_lora16/"
+  target_path: "/scratch/zgp2ps/s2s_results/finetune/diffusion_lora16/eta00_guide10_nsteps200/"
