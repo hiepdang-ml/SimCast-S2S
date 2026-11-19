@@ -6,8 +6,8 @@ import torch.distributed as dist
 from datapipeline.dataset import CESM2, ERA5, MetaData
 from common.utils import CheckpointLoader
 from workers import BaselinePredictor, VAEPredictor, SimCastS2SPredictor
-from common.configs import CNNConfig, UnetConfig, VAEConfig, DiffusionConfig
-from models.baselines import CNN, UNet
+from common.configs import CNNConfig, UnetConfig, ClimatologyConfig, VAEConfig, DiffusionConfig
+from models.baselines import CNN, UNet, Climatology
 from models.simcasts2s import (
     VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, Denoiser,
     build_noise_scheduler,
@@ -16,7 +16,7 @@ from models.simcasts2s import (
 
 def main(
     model: Literal[
-        "cnn", "unet",
+        "cnn", "unet", "climatology",
         "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip",
         "simcast-s2s",
     ],
@@ -28,7 +28,7 @@ def main(
     # Dataset
     test_metadata: MetaData
     test_dataset: CESM2 | ERA5
-    model_config: CNNConfig | UnetConfig | VAEConfig | DiffusionConfig
+    model_config: CNNConfig | UnetConfig | ClimatologyConfig | VAEConfig | DiffusionConfig
     net: torch.nn.Module
     test_metadata = MetaData(dataset_name=dataset, tp="test")
     if dataset == "cesm2":
@@ -37,7 +37,22 @@ def main(
         test_dataset = ERA5(metadata=test_metadata)
 
     # Model
-    if model.lower() == "cnn":
+    if model.lower() == "climatology":
+        model_config = ClimatologyConfig()
+        net = Climatology(
+            n_input_days=test_metadata.n_input_days,
+            n_output_days=test_metadata.n_output_days,
+            in_features=len(test_metadata.input_vars),
+            out_features=len(test_metadata.output_vars),
+        )
+        BaselinePredictor(
+            net=net, dataset=test_dataset,
+            landmask_path=test_metadata.landmask_path.as_posix(),
+            target_path=model_config.target_path.joinpath(f"{dataset}/tensors/").as_posix(),
+            local_rank=local_rank, batch_size=batch_size,
+        ).predict()
+
+    elif model.lower() == "cnn":
         model_config = CNNConfig()
         assert model_config.from_checkpoint is not None
         checkpoint_loader = CheckpointLoader(checkpoint_path=model_config.from_checkpoint.as_posix())
@@ -212,7 +227,6 @@ def main(
             noise_scheduler=noise_scheduler,
             inference_steps=model_config.inference_steps,
             eta=model_config.eta,
-            guidance_scale=model_config.guidance_scale,
             ensemble_size=model_config.ensemble_size,
             dataset=test_dataset,
             landmask_path=test_metadata.landmask_path.as_posix(),
@@ -246,7 +260,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model",
         type=str, choices=[
-            "cnn", "unet",
+            "cnn", "unet", "climatology",
             "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip",
             "simcast-s2s"
         ],

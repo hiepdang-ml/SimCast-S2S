@@ -30,16 +30,22 @@ class RequireVAEEncoders:
         hydro_mu, hydro_logvar = self._encode(self.hydro_encoder, hydro_condition)
         precip_mu, precip_logvar = self._encode(self.precip_encoder, precip_condition)
 
-        condition_latent: torch.Tensor = torch.cat(
+        condition_mu: torch.Tensor = torch.cat(
+            [wind_mu, mass_mu, thermal_mu, hydro_mu, precip_mu], dim=2,
+        )
+        condition_std: torch.Tensor = torch.cat(
             [
-                VAEEncoder.reparameterize(wind_mu, wind_logvar, scale=1.0),
-                VAEEncoder.reparameterize(mass_mu, mass_logvar, scale=1.0),
-                VAEEncoder.reparameterize(thermal_mu, thermal_logvar, scale=1.0),
-                VAEEncoder.reparameterize(hydro_mu, hydro_logvar, scale=1.0),
-                VAEEncoder.reparameterize(precip_mu, precip_logvar, scale=1.0),
+                VAEEncoder.posterior_std(wind_logvar),
+                VAEEncoder.posterior_std(mass_logvar),
+                VAEEncoder.posterior_std(thermal_logvar),
+                VAEEncoder.posterior_std(hydro_logvar),
+                VAEEncoder.posterior_std(precip_logvar),
             ],
             dim=2,
         )
+        # Deterministic conditioning: all posterior means, followed by all
+        # posterior standard deviations, in context-group order.
+        condition_latent = torch.cat([condition_mu, condition_std], dim=2)
         # Encode target
         target_mu, target_logvar = self._encode(self.precip_encoder, target)
         target_latent: torch.Tensor = VAEEncoder.reparameterize(target_mu, target_logvar, scale=1.0)

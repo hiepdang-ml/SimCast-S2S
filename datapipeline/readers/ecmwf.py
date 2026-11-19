@@ -93,6 +93,7 @@ class ECMWFReader:
             da = da / 1000.0 / 86400.0  # kg m^-2 -> m, then daily total -> m s^-1
             da = ERA5Utilities.fliplatitude(da)
             monthly_outputs.append(self.resize(da, self.target_resolution))
+            print(f"Read: {filepath}")
         return xr.concat(objs=monthly_outputs, dim="time")
 
 
@@ -542,15 +543,17 @@ def main() -> None:
     model_config: ECMWFS2SConfig = ECMWFS2SConfig()
     ecmwf_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
     era5_metadata: MetaData = MetaData(dataset_name=dataset, tp="train")
-    self = ECMWFGenerator(
-        groundtruth_path=model_config.groundtruth_path,
-        prediction_path=model_config.prediction_path,
-        metadata=ecmwf_metadata,
-        train_metadata=era5_metadata,
-        from_year=args.fromyear,
-        to_year=args.toyear,
-    )
-    self.generate(target_dir=model_config.target_path.joinpath(f"{dataset}/tensors/"))
+    # To save memory:
+    for year in range(args.fromyear, args.toyear + 1, 1):
+        generator = ECMWFGenerator(
+            groundtruth_path=model_config.groundtruth_path,
+            prediction_path=model_config.prediction_path,
+            metadata=ecmwf_metadata,
+            train_metadata=era5_metadata,
+            from_year=year,
+            to_year=year,
+        )
+        generator.generate(target_dir=model_config.target_path.joinpath(f"{dataset}/tensors/"))
 
 
 if __name__ == "__main__":

@@ -43,7 +43,7 @@ class LoRAConv2d(nn.Conv2d):
         if base.groups != 1:
             raise RuntimeError(
                 f"{self.__class__.__name__} is only able to wrap "
-                f"Conv2d with groups=1, getting groups={self.groups}"
+                f"Conv2d with groups=1, getting groups={base.groups}"
             )
         assert base.groups == 1
         kernel_size = cast(tuple[int, int], base.kernel_size)
@@ -84,7 +84,7 @@ class LoRAConv2d(nn.Conv2d):
         # Conv2d LoRA via equivalent delta kernel: B @ A -> reshape to weight shape
         delta_w: torch.Tensor = (self.lora_B @ self.lora_A).reshape_as(self.weight)
         lora_out: torch.Tensor = self._conv_forward(input, delta_w, None)
-        return base_out + lora_out
+        return base_out + lora_out.to(base_out.dtype)
 
 
 class LoRATConv2d(nn.ConvTranspose2d):

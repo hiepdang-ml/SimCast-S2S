@@ -447,6 +447,15 @@ def main(
         checkpoint_loader = CheckpointLoader(checkpoint_path=diffusion_config.vae_precip_checkpoint.as_posix())
         precip_encoder: VAEEncoder = checkpoint_loader.load_as(VAE_Precip, scope=globals()).encoder
 
+        condition_encoders = (wind_encoder, mass_encoder, thermal_encoder, hydro_encoder, precip_encoder)
+        expected_condition_dim = 2 * sum(encoder.latent_dim for encoder in condition_encoders)
+        if diffusion_config.condition_dim != expected_condition_dim:
+            raise ValueError(
+                f"Diffusion condition_dim must contain concatenated posterior "
+                f"mu and std channels: expected {expected_condition_dim}, "
+                f"got {diffusion_config.condition_dim}"
+            )
+
         # Denoiser
         if (checkpoint_path := diffusion_config.from_checkpoint) is not None:
             print(f"Training Denoiser from {checkpoint_path}")
@@ -499,7 +508,6 @@ def main(
             hydro_encoder=hydro_encoder, precip_encoder=precip_encoder,
             noise_scheduler=noise_scheduler,
             lr=diffusion_config.learning_rate,
-            condition_dropout_prob=diffusion_config.condition_dropout_prob,
             train_dataset=train_dataset,
             val_dataset=val_dataset,
             train_batch_size=diffusion_config.train_batch_size,

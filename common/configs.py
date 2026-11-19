@@ -204,6 +204,17 @@ class UnetConfig(BaseConfig):
             "target_path": self.target_path.as_posix(),
         }
 
+class ClimatologyConfig:
+
+    def __init__(self) -> None:
+        with open("./config.yaml", mode="r") as file:
+            self._config: dict[str, Any] = yaml.safe_load(file)["climatology"]
+        self.target_path: Path = Path(self._config["target_path"])
+
+    def to_dict(self) -> dict[str, str]:
+        return {"target_path": self.target_path.as_posix()}
+
+
 class ECMWFS2SConfig:
 
     def __init__(self) -> None:
@@ -295,8 +306,6 @@ class DiffusionConfig(BaseConfig):
         self.cosine_offset: float = float(self._config.get("cosine_offset", 0.008))
         self.eta: float = float(self._config["eta"])
         self.ensemble_size: int = int(self._config["ensemble_size"])
-        self.condition_dropout_prob: float = float(self._config["condition_dropout_prob"])
-        self.guidance_scale: float = float(self._config["guidance_scale"])
         self.learning_rate: float = float(self._config["learning_rate"])
         self.vae_wind_checkpoint: Path = Path(self._config["vae_wind_checkpoint"])
         self.vae_mass_checkpoint: Path = Path(self._config["vae_mass_checkpoint"])
@@ -335,8 +344,6 @@ class DiffusionConfig(BaseConfig):
             "cosine_offset": self.cosine_offset,
             "eta": self.eta,
             "ensemble_size": self.ensemble_size,
-            "condition_dropout_prob": self.condition_dropout_prob,
-            "guidance_scale": self.guidance_scale,
             "learning_rate": self.learning_rate,
             "train_batch_size": self.train_batch_size,
             "val_batch_size": self.val_batch_size,

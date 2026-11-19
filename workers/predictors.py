@@ -19,7 +19,7 @@ from common.metrics import ErrorMap, MAEMap, GeographicalRsquaredMap, Geographic
 from common.plotting import PredictionPlotter
 from common.utils import TorchDictIO, ParamCounter
 from common.configs import MetaData
-from models.baselines import CNN, UNet
+from models.baselines import CNN, UNet, Climatology
 from models.simcasts2s import (
     VAE, VAEEncoder, VAEDecoder, Denoiser,
     CosineNoiseScheduler, ReverseProcess
@@ -30,7 +30,7 @@ from .common import RequireVAEEncoders
 class _AbstractPredictor(ABC):
 
     def __init__(
-        self, net: CNN | UNet | VAE | Denoiser,
+        self, net: CNN | UNet | Climatology | VAE | Denoiser,
         dataset: CESM2 | ERA5,
         landmask_path: str,
         target_path: str, local_rank: int,
@@ -39,7 +39,7 @@ class _AbstractPredictor(ABC):
         if batch_size <= 0:
             raise ValueError("Prediction batch_size must be positive")
         self.batch_size: int = batch_size
-        self.base_net: CNN | UNet | VAE | Denoiser = net
+        self.base_net: CNN | UNet | Climatology | VAE | Denoiser = net
         self.dataset: CESM2 | ERA5 = dataset
         self.landmask_path: Path = Path(landmask_path)
         self.target_path: Path = Path(target_path)
@@ -48,10 +48,14 @@ class _AbstractPredictor(ABC):
 
         self.device: torch.device = torch.device(f"cuda:{self.local_rank}")
         self.indices_by_context_group: dict[str, list[int]] = dataset.indices_by_context_group
-        self.net: DistributedDataParallel = DistributedDataParallel(
-            module=net.to(self.device), device_ids=[self.local_rank],
-            output_device=self.local_rank, broadcast_buffers=False,
-        )
+        self.net: torch.nn.Module
+        if isinstance(net, Climatology):
+            self.net = net.to(self.device)
+        else:
+            self.net = DistributedDataParallel(
+                module=net.to(self.device), device_ids=[self.local_rank],
+                output_device=self.local_rank, broadcast_buffers=False,
+            )
         if local_rank == 0:
             self.param_counter = ParamCounter(self.net)
             print(self.param_counter.summary())
@@ -70,7 +74,7 @@ class _AbstractPredictor(ABC):
         )
 
         self.out_features: int
-        if isinstance(self.base_net, (CNN, UNet)):
+        if isinstance(self.base_net, (CNN, UNet, Climatology)):
             self.out_features = self.base_net.out_features
         elif isinstance(self.base_net, VAE):
             self.out_features = self.base_net.pixel_dim
@@ -118,7 +122,7 @@ class _AbstractPredictor(ABC):
 class _WeeklyPredictor(_AbstractPredictor):
 
     def __init__(
-        self, net: CNN | UNet | Denoiser,
+        self, net: CNN | UNet | Climatology | Denoiser,
         dataset: CESM2 | ERA5,
         landmask_path: str, target_path: str, local_rank: int,
         batch_size: int = 1,
@@ -245,7 +249,7 @@ class _WeeklyPredictor(_AbstractPredictor):
 class BaselinePredictor(_WeeklyPredictor):
 
     def __init__(
-        self, net: CNN | UNet,
+        self, net: CNN | UNet | Climatology,
         dataset: CESM2 | ERA5,
         landmask_path: str, target_path: str,
         local_rank: int, batch_size: int = 1,
@@ -383,7 +387,6 @@ class SimCastS2SPredictor(RequireVAEEncoders, _WeeklyPredictor):
         precip_decoder: VAEDecoder,
         noise_scheduler: CosineNoiseScheduler,
         eta: float,
-        guidance_scale: float,
         dataset: CESM2 | ERA5,
         landmask_path: str,
         target_path: str,
@@ -444,10 +447,8 @@ class SimCastS2SPredictor(RequireVAEEncoders, _WeeklyPredictor):
 
         self.noise_scheduler: CosineNoiseScheduler = noise_scheduler
         self.eta: float = eta
-        self.guidance_scale: float = guidance_scale
         self.ensemble_size: int = ensemble_size
         assert ensemble_size > 0
-        assert self.guidance_scale >= 0.
         self.reverse_process: ReverseProcess = ReverseProcess(eta=eta, noise_scheduler=noise_scheduler)
         self.sampling_timesteps = self.reverse_process.sampling_timesteps(inference_steps)
         self.n_denoising_steps: int = len(self.sampling_timesteps) - 1
@@ -470,8 +471,6 @@ class SimCastS2SPredictor(RequireVAEEncoders, _WeeklyPredictor):
         condition_latent: torch.Tensor
         target_latent: torch.Tensor
         condition_latent, target_latent = self.vae_encode(condition=condition, target=groundtruth)
-        condition_kept: torch.Tensor = torch.ones((batch_size,), device=target_latent.device, dtype=torch.bool)
-        condition_dropped: torch.Tensor = torch.zeros((batch_size,), device=target_latent.device, dtype=torch.bool)
         groundtruth = self._weekly_mean(groundtruth)
 
         member_predictions: list[torch.Tensor] = []
@@ -491,30 +490,13 @@ class SimCastS2SPredictor(RequireVAEEncoders, _WeeklyPredictor):
                     torch.ones((batch_size, 1), device=target_latent.device, dtype=torch.long) * k
                 )
                 # Backward process
-                predicted_velocity_cond: torch.Tensor = self.net(
+                predicted_velocity: torch.Tensor = self.net(
                     target=target_latent_k,
                     condition=condition_latent,
                     integer_step=integer_step,
                     condition_days=condition_days,
                     target_days=target_days,
-                    condition_mask=condition_kept,
                 )
-                predicted_velocity: torch.Tensor
-                if self.guidance_scale == 1:
-                    predicted_velocity = predicted_velocity_cond
-                else:
-                    predicted_velocity_uncond: torch.Tensor = self.net(
-                        target=target_latent_k,
-                        condition=condition_latent,
-                        integer_step=integer_step,
-                        condition_days=condition_days,
-                        target_days=target_days,
-                        condition_mask=condition_dropped,
-                    )
-                    predicted_velocity = (
-                        predicted_velocity_uncond
-                        + self.guidance_scale * (predicted_velocity_cond - predicted_velocity_uncond)
-                    )
                 target_latent_k, target_latent_0 = self.reverse_process.sample(
                     target_k=target_latent_k, predicted_velocity=predicted_velocity, k=integer_step,
                     k_prev=torch.full_like(integer_step, k_prev),
@@ -627,7 +609,7 @@ class Visualizer:
             coordinates=self.coordinates_reader.tensors,
             title=title,
             filename=filename.replace(".pt", ".png"),
-            vlim=0.04,
+            vlim=2,
             use_cartopy_projection=True,
         )
 

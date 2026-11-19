@@ -4,14 +4,14 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=256G
+#SBATCH --mem=512G
 #SBATCH --gres=gpu:b200:2
 #SBATCH --partition=gpu
 #SBATCH --mail-user=zgp2ps@virginia.edu
 #SBATCH --mail-type=ALL
 #SBATCH --account=mamalakislab
 #SBATCH --output=./.slurmlogs/%j.out
-#SBATCH --job-name="vaeprecipcesm2"
+#SBATCH --job-name="diffusionv3"
 
 source $HOME/.bashrc &&
 source $HOME/miniconda3/etc/profile.d/conda.sh &&
@@ -33,5 +33,5 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 
 # Force IPv4 localhost for single-node runs to avoid AF errors
 export MASTER_ADDR=127.0.0.1
-export MASTER_PORT=29501
-torchrun --master_addr=${MASTER_ADDR} --master_port=${MASTER_PORT} --nproc_per_node=${SLURM_GPUS_ON_NODE} train.py --model=vae-precip --dataset=cesm2
+export MASTER_PORT=29504
+torchrun --master_addr=${MASTER_ADDR} --master_port=${MASTER_PORT} --nproc_per_node=${SLURM_GPUS_ON_NODE} train.py --model=diffusion --dataset=cesm2

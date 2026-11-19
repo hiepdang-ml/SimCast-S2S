@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from models.common import NamedModel
-from models.adaptation.lora import LoRALinear
+from models.adaptation.lora import LoRAConv2d, LoRALinear, LoRATConv2d
 
 
 class CosineNoiseScheduler(nn.Module):
@@ -53,40 +53,41 @@ class _Finetunable:
     up_blocks: nn.ModuleList
     head: nn.Module
 
-    def is_backbone_frozen(self) -> bool:
+    def _adaptation_parameter_ids(self) -> set[int]:
+        """Parameters trained during LoRA adaptation."""
         self._validate_architecture()
-        check_down: bool = not any(
-            param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
-            for name, param in self.down_blocks.named_parameters()
+        assert isinstance(self, nn.Module)
+
+        parameter_ids = {
+            id(param)
+            for name, param in self.named_parameters()
+            if "lora_A" in name or "lora_B" in name
+        }
+        for module in self.modules():
+            if isinstance(module, (nn.LayerNorm, nn.GroupNorm)):
+                parameter_ids.update(
+                    id(param) for param in module.parameters(recurse=False)
+                )
+        parameter_ids.update(id(param) for param in self.head.parameters())
+        return parameter_ids
+
+    def is_backbone_frozen(self) -> bool:
+        assert isinstance(self, nn.Module)
+        adaptation_parameter_ids = self._adaptation_parameter_ids()
+        return all(
+            param.requires_grad == (id(param) in adaptation_parameter_ids)
+            for param in self.parameters()
         )
-        check_mid: bool = not any(
-            param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
-            for name, param in self.mid_blocks.named_parameters()
-        )
-        check_up: bool = not any(
-            param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
-            for name, param in self.up_blocks.named_parameters()
-        )
-        check_head: bool = not any(
-            param.requires_grad and ("lora_A" not in name and "lora_B" not in name)
-            for name, param in self.head.named_parameters()
-        )
-        return check_down and check_mid and check_up and check_head
 
     def freeze_backbone(self) -> None:
-        self._validate_architecture()
-        for name, param in self.down_blocks.named_parameters():
-            param.requires_grad = "lora_A" in name or "lora_B" in name
-        print("denoiser.down_blocks has been frozen for LoRA finetuning")
-        for name, param in self.mid_blocks.named_parameters():
-            param.requires_grad = "lora_A" in name or "lora_B" in name
-        print("denoiser.mid_blocks has been frozen for LoRA finetuning")
-        for name, param in self.up_blocks.named_parameters():
-            param.requires_grad = "lora_A" in name or "lora_B" in name
-        print("denoiser.up_blocks has been frozen for LoRA finetuning")
-        for name, param in self.head.named_parameters():
-            param.requires_grad = "lora_A" in name or "lora_B" in name
-        print("denoiser.head has been frozen for LoRA finetuning")
+        assert isinstance(self, nn.Module)
+        adaptation_parameter_ids = self._adaptation_parameter_ids()
+        for param in self.parameters():
+            param.requires_grad = id(param) in adaptation_parameter_ids
+        print(
+            f"{self.name} backbone has been frozen; LoRA adapters, "
+            "normalization affine parameters, and velocity head remain trainable"
+        )
 
     def unfreeze_all(self) -> None:
         assert isinstance(self, nn.Module)
@@ -133,33 +134,81 @@ class _SinusoidEmbedding(nn.Module):
         return sinusoid
 
 
-class _ConvActConv(nn.Module):
+def _group_count(channels: int, maximum: int = 32) -> int:
+    """Return the largest useful GroupNorm group count for ``channels``."""
+    for groups in range(min(maximum, channels), 0, -1):
+        if channels % groups == 0:
+            return groups
+    raise RuntimeError(f"Unable to choose GroupNorm groups for {channels=}")
 
-    def __init__(self, input_dim: int, output_dim: int):
+
+class _ResidualConvBlock(nn.Module):
+    """Normalized residual block with diffusion-step FiLM conditioning."""
+
+    def __init__(self, input_dim: int, output_dim: int, time_embedding_dim: int) -> None:
         super().__init__()
         self.input_dim: int = input_dim
         self.output_dim: int = output_dim
-        if input_dim == output_dim:
-            self.layer0 = nn.Identity()
-        else:
-            self.layer0: nn.Module = nn.Conv2d(
-                in_channels=input_dim, out_channels=output_dim,
-                kernel_size=3, padding=1, padding_mode="reflect",
-            )
-        self.activation: nn.Module = nn.ReLU()
-        self.layer1: nn.Module = nn.Conv2d(
+        self.time_embedding_dim: int = time_embedding_dim
+
+        self.norm1 = nn.GroupNorm(
+            num_groups=_group_count(input_dim), num_channels=input_dim,
+        )
+        self.conv1 = nn.Conv2d(
+            in_channels=input_dim, out_channels=output_dim,
+            kernel_size=3, padding=1, padding_mode="reflect",
+        )
+        self.norm2 = nn.GroupNorm(
+            num_groups=_group_count(output_dim), num_channels=output_dim,
+        )
+        self.time_projection = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(time_embedding_dim, 2 * output_dim),
+        )
+        self.conv2 = nn.Conv2d(
             in_channels=output_dim, out_channels=output_dim,
             kernel_size=3, padding=1, padding_mode="reflect",
         )
+        self.residual_projection: nn.Module
+        if input_dim == output_dim:
+            self.residual_projection = nn.Identity()
+        else:
+            self.residual_projection = nn.Conv2d(
+                in_channels=input_dim, out_channels=output_dim, kernel_size=1,
+            )
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
+    def forward(self, input: torch.Tensor, time_embedding: torch.Tensor) -> torch.Tensor:
         N, T, D, H, W = input.shape
         assert D == self.input_dim
-        output: torch.Tensor = input.flatten(0, 1)
-        output = self.layer1(self.activation(self.layer0(output)))
-        assert output.shape == (N * T, self.output_dim, H, W)
+        assert time_embedding.shape == (N, self.time_embedding_dim)
+
+        flat_input = input.flatten(0, 1)
+        residual = self.residual_projection(flat_input)
+        output = self.conv1(F.silu(self.norm1(flat_input)))
+        output = self.norm2(output)
+
+        scale, shift = self.time_projection(time_embedding).chunk(2, dim=1)
+        scale = scale[:, None, :, None, None].expand(N, T, self.output_dim, 1, 1)
+        shift = shift[:, None, :, None, None].expand(N, T, self.output_dim, 1, 1)
         output = output.reshape(N, T, self.output_dim, H, W)
-        return output
+        output = output * (1 + scale) + shift
+        output = self.conv2(F.silu(output.flatten(0, 1)))
+        output = output + residual
+        assert output.shape == (N * T, self.output_dim, H, W)
+        return output.reshape(N, T, self.output_dim, H, W)
+
+    def enable_lora(self, rank: int) -> int:
+        count = 0
+        for i, layer in enumerate(self.time_projection):
+            if type(layer) is nn.Linear:
+                self.time_projection[i] = LoRALinear(base=layer, rank=rank)
+                count += 1
+        for name in ("conv1", "conv2", "residual_projection"):
+            layer = getattr(self, name)
+            if type(layer) is nn.Conv2d:
+                setattr(self, name, LoRAConv2d(base=layer, rank=rank))
+                count += 1
+        return count
 
 
 class _TransformerFeedForward(nn.Module):
@@ -181,7 +230,7 @@ class _TransformerFeedForward(nn.Module):
         count: int = 0
         for i, layer in enumerate(self.net):
             if isinstance(layer, nn.Linear):
-                self.net[i] = LoRALinear(layer, rank=rank)
+                self.net[i] = LoRALinear(base=layer, rank=rank)
                 count += 1
         return count
 
@@ -237,14 +286,20 @@ class _MultiheadAttention(nn.Module):
         for name in ("q_projection", "k_projection", "v_projection", "out_projection"):
             layer = getattr(self, name)
             if isinstance(layer, nn.Linear):
-                setattr(self, name, LoRALinear(layer, rank=rank))
+                setattr(self, name, LoRALinear(base=layer, rank=rank))
                 count += 1
         return count
 
 
 class _TransformerEncoderLayer(nn.Module):
 
-    def __init__(self, kv_dim: int, model_dim: int, n_heads: int, feedforward_dim: int):
+    def __init__(
+        self,
+        kv_dim: int,
+        model_dim: int,
+        n_heads: int,
+        feedforward_dim: int,
+    ):
         super().__init__()
         self.kv_dim: int = kv_dim
         self.model_dim: int = model_dim
@@ -264,16 +319,18 @@ class _TransformerEncoderLayer(nn.Module):
     def forward(self, kv: torch.Tensor) -> torch.Tensor:
         N, L, D = kv.shape
         kv = self.kv_projection(kv)
-        output: torch.Tensor = self.self_attention(query=kv, key=kv, value=kv)
-        kv = self.norm1(kv + output)
-        kv = self.norm2(kv + self.feed_forward(kv))
+        normalized = self.norm1(kv)
+        kv = kv + self.self_attention(
+            query=normalized, key=normalized, value=normalized,
+        )
+        kv = kv + self.feed_forward(self.norm2(kv))
         assert kv.shape == (N, L, self.model_dim)
         return kv
 
     def enable_lora(self, rank: int) -> int:
         count: int = 0
         if isinstance(self.kv_projection, nn.Linear):
-            self.kv_projection = LoRALinear(self.kv_projection, rank=rank)
+            self.kv_projection = LoRALinear(base=self.kv_projection, rank=rank)
             count += 1
         count += self.self_attention.enable_lora(rank=rank)
         count += self.feed_forward.enable_lora(rank=rank)
@@ -282,7 +339,13 @@ class _TransformerEncoderLayer(nn.Module):
 
 class _TransformerDecoderLayer(nn.Module):
 
-    def __init__(self, q_dim: int, model_dim: int, n_heads: int, feedforward_dim: int):
+    def __init__(
+        self,
+        q_dim: int,
+        model_dim: int,
+        n_heads: int,
+        feedforward_dim: int,
+    ):
         super().__init__()
         self.q_dim: int = q_dim
         self.model_dim: int = model_dim
@@ -307,20 +370,21 @@ class _TransformerDecoderLayer(nn.Module):
         assert q_D == self.q_dim
         assert kv_D == self.model_dim
         q = self.q_projection(q)
-        output: torch.Tensor = self.self_attention(query=q, key=q, value=q)
-        q = self.norm1(q + output)
-
-        # Cross-attention
-        output = self.cross_attention(query=q, key=kv, value=kv)
-        q = self.norm2(q + output)
-        q = self.norm3(q + self.ffn(q))
+        normalized_q = self.norm1(q)
+        q = q + self.self_attention(
+            query=normalized_q, key=normalized_q, value=normalized_q,
+        )
+        q = q + self.cross_attention(
+            query=self.norm2(q), key=kv, value=kv,
+        )
+        q = q + self.ffn(self.norm3(q))
         assert q.shape == (q_N, q_L, self.model_dim)
         return q
 
     def enable_lora(self, rank: int) -> int:
         count: int = 0
         if isinstance(self.q_projection, nn.Linear):
-            self.q_projection = LoRALinear(self.q_projection, rank=rank)
+            self.q_projection = LoRALinear(base=self.q_projection, rank=rank)
             count += 1
         count += self.self_attention.enable_lora(rank=rank)
         count += self.cross_attention.enable_lora(rank=rank)
@@ -330,41 +394,41 @@ class _TransformerDecoderLayer(nn.Module):
 
 class _TransformerEncoder(nn.Module):
 
-    def __init__(self, kv_dim: int, model_dim: int, n_heads: int, feedforward_dim: int, n_layers: int):
+    def __init__(
+        self,
+        kv_dim: int,
+        model_dim: int,
+        n_heads: int,
+        feedforward_dim: int,
+        n_layers: int,
+    ):
         super().__init__()
         self.kv_dim: int = kv_dim
         self.model_dim: int = model_dim
         self.n_heads: int = n_heads
         self.feedforward_dim: int = feedforward_dim
         self.n_layers: int = n_layers
-
-        self.skips = nn.ModuleList(
-            [nn.Linear(in_features=kv_dim, out_features=model_dim)]
-            + [nn.Identity() for i in range(n_layers - 1)]
-        )
         self.layers = nn.ModuleList([
             _TransformerEncoderLayer(
                 kv_dim=kv_dim if i == 0 else model_dim,
-                model_dim=model_dim, n_heads=n_heads, feedforward_dim=feedforward_dim
+                model_dim=model_dim, n_heads=n_heads, feedforward_dim=feedforward_dim,
             )
             for i in range(n_layers)
         ])
+        self.final_norm = nn.LayerNorm(model_dim)
 
     def forward(self, kv: torch.Tensor) -> torch.Tensor:
         N, L, D = kv.shape
         assert D == self.kv_dim
-        for skip, layer in zip(self.skips, self.layers):
-            kv = skip(kv) + layer(kv)
+        for layer in self.layers:
+            kv = layer(kv)
+        kv = self.final_norm(kv)
 
         assert kv.shape == (N, L, self.model_dim)
         return kv
 
     def enable_lora(self, rank: int) -> int:
         count: int = 0
-        for i, skip in enumerate(self.skips):
-            if isinstance(skip, nn.Linear):
-                self.skips[i] = LoRALinear(skip, rank=rank)
-                count += 1
         for layer in self.layers:
             layer = cast(_TransformerEncoderLayer, layer)
             count += layer.enable_lora(rank=rank)
@@ -373,25 +437,28 @@ class _TransformerEncoder(nn.Module):
 
 class _TransformerDecoder(nn.Module):
 
-    def __init__(self, q_dim: int, model_dim: int, n_heads: int, feedforward_dim: int, n_layers: int):
+    def __init__(
+        self,
+        q_dim: int,
+        model_dim: int,
+        n_heads: int,
+        feedforward_dim: int,
+        n_layers: int,
+    ):
         super().__init__()
         self.q_dim: int = q_dim
         self.model_dim: int = model_dim
         self.n_heads: int = n_heads
         self.feedforward_dim: int = feedforward_dim
         self.n_layers: int = n_layers
-
-        self.skips = nn.ModuleList(
-            [nn.Linear(in_features=q_dim, out_features=model_dim)]
-            + [nn.Identity() for i in range(n_layers - 1)]
-        )
         self.layers = nn.ModuleList([
             _TransformerDecoderLayer(
                 q_dim=q_dim if i == 0 else model_dim,
-                model_dim=model_dim, n_heads=n_heads, feedforward_dim=feedforward_dim
+                model_dim=model_dim, n_heads=n_heads, feedforward_dim=feedforward_dim,
             )
             for i in range(n_layers)
         ])
+        self.final_norm = nn.LayerNorm(model_dim)
         self.out_projection = nn.Sequential(
             nn.Linear(in_features=model_dim, out_features=feedforward_dim),
             nn.GELU(),
@@ -405,25 +472,21 @@ class _TransformerDecoder(nn.Module):
         kv_N, kv_L, kv_D = kv.shape
         assert q_D == self.q_dim
         assert kv_D == self.model_dim
-        for skip, layer in zip(self.skips, self.layers):
-            q = skip(q) + layer(q=q, kv=kv)
-
-        q = self.out_projection(q)
+        residual = q
+        for layer in self.layers:
+            q = layer(q=q, kv=kv)
+        q = residual + self.out_projection(self.final_norm(q))
         assert q.shape == (q_N, q_L, q_D)
         return q
 
     def enable_lora(self, rank: int) -> int:
         count: int = 0
-        for i, layer in enumerate(self.skips):
-            if isinstance(layer, nn.Linear):
-                self.skips[i] = LoRALinear(layer, rank=rank)
-                count += 1
         for layer in self.layers:
             layer = cast(_TransformerDecoderLayer, layer)
             count += layer.enable_lora(rank=rank)
         for i, layer in enumerate(self.out_projection):
             if isinstance(layer, nn.Linear):
-                self.out_projection[i] = LoRALinear(layer, rank=rank)
+                self.out_projection[i] = LoRALinear(base=layer, rank=rank)
                 count += 1
         return count
 
@@ -452,11 +515,10 @@ class _Transformer(nn.Module):
         )
         self.decoder = _TransformerDecoder(
             q_dim=q_dim, model_dim=model_dim, n_heads=n_heads,
-            feedforward_dim=feedforward_dim, n_layers=n_decoder_layers
+            feedforward_dim=feedforward_dim, n_layers=n_decoder_layers,
         )
         self.kv_pos_embedding = nn.Parameter(torch.randn(1, maxlength, kv_dim) * 0.02)
         self.q_pos_embedding = nn.Parameter(torch.randn(1, maxlength, q_dim) * 0.02)
-        self.null_kv_embedding = nn.Parameter(torch.randn(1, 1, kv_dim) * 0.02)
         self.kv_day_embedding = _SinusoidEmbedding(embedding_dim=kv_dim)
         self.q_day_embedding = _SinusoidEmbedding(embedding_dim=q_dim)
 
@@ -466,7 +528,6 @@ class _Transformer(nn.Module):
         tgt: torch.Tensor,
         src_days: torch.Tensor,
         tgt_days: torch.Tensor,
-        condition_mask: torch.Tensor,
     ) -> torch.Tensor:
         src_N, src_L, src_D = src.shape
         tgt_N, tgt_L, tgt_D = tgt.shape
@@ -478,11 +539,7 @@ class _Transformer(nn.Module):
         assert src_L == src_day_L
         assert tgt_L == tgt_day_L
         assert src_L <= self.maxlength and tgt_L <= self.maxlength
-        assert condition_mask.shape == (src_N,)
         src = src + self.kv_pos_embedding[:, :src_L, :] + self.kv_day_embedding(src_days)
-        null_src = self.null_kv_embedding.expand(src_N, src_L, self.kv_dim)
-        assert condition_mask.dtype == torch.bool
-        src = torch.where(condition=condition_mask[:, None, None], input=src, other=null_src)
         tgt = tgt + self.q_pos_embedding[:, :tgt_L, :] + self.q_day_embedding(tgt_days)
         memory: torch.Tensor = self.encoder(kv=src)
         output: torch.Tensor = self.decoder(q=tgt, kv=memory)
@@ -529,6 +586,16 @@ class _DownSample(nn.Module):
         assert output.shape == (N * T, self.output_dim, H // 2, W // 2)
         return output.reshape(N, T, self.output_dim, H // 2, W // 2)
 
+    def enable_lora(self, rank: int) -> int:
+        count = 0
+        for sequence in (self.conv2d, self.maxpool2d):
+            assert isinstance(sequence, nn.Sequential)
+            for i, layer in enumerate(sequence):
+                if type(layer) is nn.Conv2d:
+                    sequence[i] = LoRAConv2d(base=layer, rank=rank)
+                    count += 1
+        return count
+
 
 class _UpSample(nn.Module):
 
@@ -556,6 +623,19 @@ class _UpSample(nn.Module):
         output = torch.cat([self.convtranspose2d(output), self.up2d(output)], dim=1)
         assert output.shape == (N * T, self.output_dim, H * 2, W * 2)
         return output.reshape(N, T, self.output_dim, H * 2, W * 2)
+
+    def enable_lora(self, rank: int) -> int:
+        count = 0
+        for sequence in (self.convtranspose2d, self.up2d):
+            assert isinstance(sequence, nn.Sequential)
+            for i, layer in enumerate(sequence):
+                if type(layer) is nn.Conv2d:
+                    sequence[i] = LoRAConv2d(base=layer, rank=rank)
+                    count += 1
+                elif type(layer) is nn.ConvTranspose2d:
+                    sequence[i] = LoRATConv2d(layer, rank=rank)
+                    count += 1
+        return count
 
 
 class _MidSample(nn.Module):
@@ -619,6 +699,7 @@ class _ScalingBlock(nn.Module):
         n_attention_heads: int,
         transformer_maxlength: int,
         kind: Literal["up", "down", "mid"],
+        time_embedding_dim: int,
     ):
         super().__init__()
         self.input_dim: int = input_dim
@@ -634,20 +715,14 @@ class _ScalingBlock(nn.Module):
         self.n_attention_heads: int = n_attention_heads
         self.transformer_maxlength: int = transformer_maxlength
         self.kind: Literal["up", "down", "mid"] = kind
+        self.time_embedding_dim: int = time_embedding_dim
 
         # Target
-        self.target_conv1_layers: nn.ModuleList = nn.ModuleList([
-            _ConvActConv(input_dim=input_dim if i == 0 else output_dim, output_dim=output_dim)
-            for i in range(n_conv_layers)
-        ])
-        self.target_conv2_layers: nn.ModuleList = nn.ModuleList([
-            _ConvActConv(input_dim=output_dim, output_dim=output_dim)
-            for i in range(n_conv_layers)
-        ])
-        self.target_res_blocks: nn.ModuleList = nn.ModuleList([
-            nn.Conv2d(
-                in_channels=input_dim if i == 0 else output_dim,
-                out_channels=output_dim, kernel_size=1
+        self.target_residual_blocks: nn.ModuleList = nn.ModuleList([
+            _ResidualConvBlock(
+                input_dim=input_dim if i == 0 else output_dim,
+                output_dim=output_dim,
+                time_embedding_dim=time_embedding_dim,
             )
             for i in range(n_conv_layers)
         ])
@@ -662,9 +737,6 @@ class _ScalingBlock(nn.Module):
             n_decoder_layers=n_transformer_decoder_layers,
             maxlength=transformer_maxlength,
         )
-        # Step
-        self.step_embedding_layer: nn.Module = _SinusoidEmbedding(embedding_dim=output_dim)
-        self.cond_weights: nn.Parameter = nn.Parameter(torch.randn(size=(1, transformer_maxlength, output_dim)))
         self.spatial_context: nn.Module = _SpatialContext(dim=output_dim) if kind == "mid" else nn.Identity()
         # Scaling block
         self.scaling_block: nn.Module
@@ -692,35 +764,26 @@ class _ScalingBlock(nn.Module):
         step: torch.Tensor,
         condition_days: torch.Tensor,
         target_days: torch.Tensor,
-        condition_mask: torch.Tensor,
     ) -> torch.Tensor:
         condition_N, condition_L, condition_D, condition_H, condition_W = condition.shape
         assert condition_D == self.condition_dim
         target_N, target_T, target_D, target_H, target_W = target.shape
         assert target_D == self.input_dim
         assert (target_H, target_W) == (self.in_H, self.in_W)
-        step_N, step_L = step.shape
+        step_N, step_D = step.shape
         condition_days_N, condition_days_L = condition_days.shape
         target_days_N, target_days_L = target_days.shape
         assert target_N == condition_N == step_N == condition_days_N == target_days_N
         assert condition_days_L == condition_L
         assert target_days_L == target_T
-        assert condition_mask.shape == (target_N,)
         if (condition_H, condition_W) != (target_H, target_W):
             condition_flat: torch.Tensor = condition.flatten(0, 1)
             condition_flat = F.interpolate(condition_flat, size=(target_H, target_W), mode="bilinear")
             condition = condition_flat.reshape(condition_N, condition_L, self.condition_dim, target_H, target_W)
 
-        step = self.step_embedding_layer(step).mean(dim=1)
-        assert step.shape == (step_N, self.output_dim)
-
-        for i in range(self.n_conv_layers):
-            target_resnet_input: torch.Tensor = target.flatten(0, 1)
-            target_resnet_input = self.target_res_blocks[i](target_resnet_input).reshape(
-                target_N, target_T, self.output_dim, target_H, target_W
-            )
-            target = self.target_conv1_layers[i](target) + step[:, None, :, None, None]
-            target = self.target_conv2_layers[i](target) + target_resnet_input
+        assert step_D == self.time_embedding_dim
+        for block in self.target_residual_blocks:
+            target = block(target, step)
 
         assert target.shape == (target_N, target_T, self.output_dim, target_H, target_W)
 
@@ -736,17 +799,12 @@ class _ScalingBlock(nn.Module):
         expanded_target_days = target_days[:, None, None, :].expand(
             target_N, target_H, target_W, target_T
         ).reshape(target_N * target_H * target_W, target_T)
-        expanded_condition_mask = condition_mask[:, None, None].expand(
-            target_N, target_H, target_W
-        ).reshape(target_N * target_H * target_W)
         conditioned_target: torch.Tensor = self.transfomer(
             src=condition, tgt=target,
             src_days=expanded_condition_days, tgt_days=expanded_target_days,
-            condition_mask=expanded_condition_mask,
         )
         assert conditioned_target.shape == target.shape == (target_N * target_H * target_W, target_T, self.output_dim)
-        weight: torch.Tensor = torch.sigmoid(self.cond_weights[:, :target_T, :])
-        output: torch.Tensor = weight * conditioned_target + (1 - weight) * target
+        output = conditioned_target
         assert output.shape == target.shape
         output = output.reshape(target_N, target_H, target_W, target_T, self.output_dim)
         output = output.permute(0, 3, 4, 1, 2).contiguous()
@@ -757,7 +815,13 @@ class _ScalingBlock(nn.Module):
         return output.reshape(target_N, target_T, self.output_dim, self.out_H, self.out_W)
 
     def enable_lora(self, rank: int) -> int:
-        return self.transfomer.enable_lora(rank=rank)
+        count = self.transfomer.enable_lora(rank=rank)
+        for module in self.target_residual_blocks:
+            block = cast(_ResidualConvBlock, module)
+            count += block.enable_lora(rank=rank)
+        if isinstance(self.scaling_block, (_DownSample, _UpSample)):
+            count += self.scaling_block.enable_lora(rank=rank)
+        return count
 
 
 class _DownBlock(_ScalingBlock):
@@ -776,6 +840,7 @@ class _DownBlock(_ScalingBlock):
         n_transformer_decoder_layers: int,
         n_attention_heads: int,
         transformer_maxlength: int,
+        time_embedding_dim: int,
     ):
         super().__init__(
             input_dim=input_dim,
@@ -790,6 +855,7 @@ class _DownBlock(_ScalingBlock):
             n_attention_heads=n_attention_heads,
             transformer_maxlength=transformer_maxlength,
             kind="down",
+            time_embedding_dim=time_embedding_dim,
         )
 
 
@@ -809,6 +875,7 @@ class _UpBlock(_ScalingBlock):
         n_transformer_decoder_layers: int,
         n_attention_heads: int,
         transformer_maxlength: int,
+        time_embedding_dim: int,
     ):
         super().__init__(
             input_dim=input_dim + down_output_dim,
@@ -823,6 +890,7 @@ class _UpBlock(_ScalingBlock):
             n_attention_heads=n_attention_heads,
             transformer_maxlength=transformer_maxlength,
             kind="up",
+            time_embedding_dim=time_embedding_dim,
         )
 
 
@@ -841,6 +909,7 @@ class _MidBlock(_ScalingBlock):
         n_transformer_decoder_layers: int,
         n_attention_heads: int,
         transformer_maxlength: int,
+        time_embedding_dim: int,
     ):
         super().__init__(
             input_dim=input_dim,
@@ -855,6 +924,7 @@ class _MidBlock(_ScalingBlock):
             n_attention_heads=n_attention_heads,
             transformer_maxlength=transformer_maxlength,
             kind="mid",
+            time_embedding_dim=time_embedding_dim,
         )
 
 
@@ -925,6 +995,19 @@ class Denoiser(_Finetunable, NamedModel, nn.Module):
 
         self.n_scaling_blocks: int = len(down_out_dims)
         self.n_mid_blocks: int = len(mid_out_dims)
+        self.time_embedding_dim: int = max(
+            down_out_dims + mid_out_dims + up_out_dims
+        )
+        if self.time_embedding_dim % 2 != 0:
+            self.time_embedding_dim += 1
+        self.time_embedding_layer = _SinusoidEmbedding(
+            embedding_dim=self.time_embedding_dim,
+        )
+        self.time_embedding_mlp = nn.Sequential(
+            nn.Linear(self.time_embedding_dim, 4 * self.time_embedding_dim),
+            nn.SiLU(),
+            nn.Linear(4 * self.time_embedding_dim, self.time_embedding_dim),
+        )
 
         self.down_blocks = nn.ModuleList([
             _DownBlock(
@@ -939,6 +1022,7 @@ class Denoiser(_Finetunable, NamedModel, nn.Module):
                 n_transformer_decoder_layers=n_transformer_decoder_layers_per_scaling_block[i],
                 n_attention_heads=n_attention_heads,
                 transformer_maxlength=transformer_maxlength,
+                time_embedding_dim=self.time_embedding_dim,
             )
             for i in range(self.n_scaling_blocks)
         ])
@@ -956,6 +1040,7 @@ class Denoiser(_Finetunable, NamedModel, nn.Module):
                 n_transformer_decoder_layers=n_transformer_decoder_layers_per_scaling_block[-i - 1],
                 n_attention_heads=n_attention_heads,
                 transformer_maxlength=transformer_maxlength,
+                time_embedding_dim=self.time_embedding_dim,
             )
             for i in range(self.n_scaling_blocks)
         ])
@@ -972,24 +1057,43 @@ class Denoiser(_Finetunable, NamedModel, nn.Module):
                 n_transformer_decoder_layers=n_transformer_decoder_layers_per_mid_block[i],
                 n_attention_heads=n_attention_heads,
                 transformer_maxlength=transformer_maxlength,
+                time_embedding_dim=self.time_embedding_dim,
             )
             for i in range(self.n_mid_blocks)
         ])
-        self.head = nn.Conv2d(in_channels=self.up_out_dims[-1], out_channels=target_dim, kernel_size=1)
-        self.n_lora_linear_layers: int = 0
+        self.head = nn.Sequential(
+            nn.GroupNorm(
+                num_groups=_group_count(self.up_out_dims[-1]),
+                num_channels=self.up_out_dims[-1],
+            ),
+            nn.SiLU(),
+            nn.Conv2d(
+                in_channels=self.up_out_dims[-1],
+                out_channels=target_dim,
+                kernel_size=1,
+            ),
+        )
+        self.n_lora_adapters: int = 0
         if is_finetuning:
             assert self.lora_rank > 0
+            for i, layer in enumerate(self.time_embedding_mlp):
+                if type(layer) is nn.Linear:
+                    self.time_embedding_mlp[i] = LoRALinear(base=layer, rank=self.lora_rank)
+                    self.n_lora_adapters += 1
             for block in self.down_blocks:
                 assert isinstance(block, _DownBlock)
-                self.n_lora_linear_layers += block.enable_lora(rank=self.lora_rank)
+                self.n_lora_adapters += block.enable_lora(rank=self.lora_rank)
             for block in self.mid_blocks:
                 assert isinstance(block, _MidBlock)
                 block = cast(_MidBlock, block)
-                self.n_lora_linear_layers += block.enable_lora(rank=self.lora_rank)
+                self.n_lora_adapters += block.enable_lora(rank=self.lora_rank)
             for block in self.up_blocks:
                 assert isinstance(block, _UpBlock)
-                self.n_lora_linear_layers += block.enable_lora(rank=self.lora_rank)
-            print(f"Applied LoRA to {self.n_lora_linear_layers} transformer linear layers")
+                self.n_lora_adapters += block.enable_lora(rank=self.lora_rank)
+            print(
+                f"Applied {self.n_lora_adapters} LoRA adapters to transformer, "
+                "timestep, residual, and sampling layers"
+            )
 
     def forward(
         self,
@@ -998,7 +1102,6 @@ class Denoiser(_Finetunable, NamedModel, nn.Module):
         integer_step: torch.Tensor,
         condition_days: torch.Tensor,
         target_days: torch.Tensor,
-        condition_mask: torch.Tensor,
     ) -> torch.Tensor:
         target_N, target_T, target_D, target_H, target_W = target.shape
         condition_N, condition_L, condition_D, condition_H, condition_W = condition.shape
@@ -1012,8 +1115,10 @@ class Denoiser(_Finetunable, NamedModel, nn.Module):
         assert condition_D == self.condition_dim
         assert (condition_H, condition_W) == (target_H, target_W)
         assert step_L == 1
-        assert condition_mask.shape == (target_N,)
-        assert condition_mask.dtype == torch.bool
+
+        block_step = self.time_embedding_layer(integer_step).squeeze(1)
+        block_step = self.time_embedding_mlp(block_step)
+        assert block_step.shape == (target_N, self.time_embedding_dim)
 
         # Check if too many scaling blocks
         _min_dim: float = min(target_H, target_W) / (2 ** self.n_scaling_blocks)
@@ -1029,8 +1134,7 @@ class Denoiser(_Finetunable, NamedModel, nn.Module):
                 self.down_blocks[i](
                     target=down_input,
                     condition=condition,
-                    step=integer_step, condition_days=condition_days, target_days=target_days,
-                    condition_mask=condition_mask,
+                    step=block_step, condition_days=condition_days, target_days=target_days,
                 )
             )
             down_input = down_outputs[-1]
@@ -1040,8 +1144,7 @@ class Denoiser(_Finetunable, NamedModel, nn.Module):
             mid_output = self.mid_blocks[i](
                 target=mid_output,
                 condition=condition,
-                step=integer_step, condition_days=condition_days, target_days=target_days,
-                condition_mask=condition_mask,
+                step=block_step, condition_days=condition_days, target_days=target_days,
             )
 
         up_output: torch.Tensor = mid_output
@@ -1060,8 +1163,7 @@ class Denoiser(_Finetunable, NamedModel, nn.Module):
             up_output = self.up_blocks[i](
                 target=concat,
                 condition=condition,
-                step=integer_step, condition_days=condition_days, target_days=target_days,
-                condition_mask=condition_mask,
+                step=block_step, condition_days=condition_days, target_days=target_days,
             )
 
         assert len(down_outputs) == 0, f"down_outputs must exhaust, getting {len(down_outputs)} items left"
@@ -1161,7 +1263,11 @@ class ReverseProcess(_DiffusionProcess):
     def sampling_timesteps(self, inference_steps: int) -> list[int]:
         """Original training indices, descending from K to 0"""
         train_steps = self.noise_scheduler.n_steps
-        assert 1 <= inference_steps <= train_steps
+        if type(inference_steps) is not int or not 1 <= inference_steps <= train_steps:
+            raise ValueError(
+                f"inference_steps must be an integer in [1, {train_steps}], "
+                f"got {inference_steps!r}"
+            )
         return [i * train_steps // inference_steps for i in range(inference_steps, -1, -1)]
 
     def sample(

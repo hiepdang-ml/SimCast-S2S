@@ -1,17 +1,17 @@
 #!/bin/bash
 
-#SBATCH --time=24:00:00
+#SBATCH --time=12:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=512GB
-#SBATCH --gres=gpu:b200:4
+#SBATCH --gres=gpu:rtx_pro_6000:2
 #SBATCH --partition=gpu
 #SBATCH --mail-user=zgp2ps@virginia.edu
 #SBATCH --mail-type=ALL
 #SBATCH --account=mamalakislab
 #SBATCH --output=./.slurmlogs/%j.out
-#SBATCH --job-name="00-10-200"
+#SBATCH --job-name="r32-00-10-100"
 
 source $HOME/.bashrc &&
 source $HOME/miniconda3/etc/profile.d/conda.sh &&

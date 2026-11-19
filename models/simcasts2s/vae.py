@@ -245,10 +245,14 @@ class VAEEncoder(_Freezable, _HasNamedModules, NamedModel, nn.Module):
         return mu, logvar
 
     @staticmethod
+    def posterior_std(logvar: torch.Tensor) -> torch.Tensor:
+        logvar = torch.clamp(logvar, min=-10., max=10.) # avoid overflow
+        return torch.exp(0.5 * logvar)
+
+    @staticmethod
     def reparameterize(mu: torch.Tensor, logvar: torch.Tensor, scale: float = 1.) -> torch.Tensor:
         assert mu.shape == logvar.shape
-        logvar = torch.clamp(logvar, min=-10., max=10.) # avoid overflow
-        std: torch.Tensor = torch.exp(0.5 * logvar)
+        std: torch.Tensor = VAEEncoder.posterior_std(logvar)
         eps: torch.Tensor = torch.randn_like(std)
         return mu + scale * eps * std
 
