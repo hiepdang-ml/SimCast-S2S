@@ -12,6 +12,7 @@ import torch
 from common.configs import MetaData, ECMWFS2SConfig
 from common.metrics import GeographicalMAE, GeographicalMSE
 from common.utils import TorchDictIO
+from datapipeline.preprocessing import TrendLine, detrender_state_path
 from datapipeline.readers.era5 import ERA5Utilities
 from datapipeline.utils import SampleInfo
 
@@ -108,11 +109,26 @@ class ECMWFPreprocessor:
         self.H, self.W = train_metadata.resolution
 
         suffix: str = f"{self.sim_id}_{self.var_name}_{train_metadata.start_year}_{train_metadata.end_year}.pt"
-        self.lr_weight: NDArray[np.float32] = torch.load(
-            f=train_metadata.detrender_state_directory.joinpath(suffix),
-            weights_only=False,
+        state: dict[int, TrendLine] = torch.load(
+            f=detrender_state_path(train_metadata, self.var_name, self.sim_id),
+            weights_only=True,
             map_location="cpu",
-        ).numpy().astype(np.float32, copy=False)
+        )
+        expected_years: set[int] = set(range(
+            train_metadata.detrend_start_year,
+            train_metadata.detrend_end_year + 1,
+        ))
+        if set(state) != expected_years:
+            raise ValueError("Detrending state does not cover the configured target years")
+        self.trend_lines: dict[int, TrendLine] = {
+            int(year): {
+                "window_start_year": int(line["window_start_year"]),
+                "window_end_year": int(line["window_end_year"]),
+                "a": line["a"].to(dtype=torch.float64),
+                "b": line["b"].to(dtype=torch.float64),
+            }
+            for year, line in state.items()
+        }
         self.climatological_mean: NDArray[np.float32] = torch.load(
             f=train_metadata.climatology_state_directory.joinpath(f"mean_{suffix}"),
             weights_only=False,
@@ -123,7 +139,10 @@ class ECMWFPreprocessor:
             weights_only=False,
             map_location="cpu",
         ).numpy().astype(np.float32, copy=False)
-        assert self.lr_weight.shape == (2, self.H * self.W)
+        assert all(
+            line["a"].shape == line["b"].shape == (self.H, self.W)
+            for line in self.trend_lines.values()
+        )
         assert self.climatological_mean.shape == (365, self.H, self.W)
         assert self.climatological_std.shape == (365, self.H, self.W)
 
@@ -207,16 +226,22 @@ class ECMWFPreprocessor:
         return da.copy(data=standardized_anomaly)
 
     def _compute_trend(self, years: NDArray[np.float32]) -> NDArray[np.float32]:
-        assert years.ndim in {1, 2}
-        X: NDArray[np.float32] = np.stack(
-            [
-                np.ones(years.shape, dtype=np.float32),
-                years.astype(np.float32, copy=False),
-            ],
-            axis=-1,
+        assert years.ndim == 1
+        target_years: NDArray[np.int64] = years.astype(np.int64)
+        if not np.array_equal(years, target_years):
+            raise ValueError("Trend target years must be integers")
+        trend: NDArray[np.float32] = np.empty(
+            (years.shape[0], self.H, self.W), dtype=np.float32,
         )
-        trend: NDArray[np.float32] = X.reshape(-1, 2) @ self.lr_weight
-        trend = trend.reshape(*years.shape, self.H, self.W)
+        unique_years: NDArray[np.int64] = np.unique(target_years)
+        for target_year in unique_years:
+            year: int = int(target_year)
+            if year not in self.trend_lines:
+                raise KeyError(f"No detrending line for target year {year}")
+            line: TrendLine = self.trend_lines[year]
+            a: NDArray[np.float64] = line["a"].numpy()
+            b: NDArray[np.float64] = line["b"].numpy()
+            trend[target_years == year] = a + year * b
         return trend
 
 
