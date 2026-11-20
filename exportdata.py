@@ -4,7 +4,7 @@ from typing import Literal
 
 import torch
 from datapipeline.container import VariableContainer
-from datapipeline.preprocessing import Detrender, ClimatologyRemover
+from datapipeline.preprocessing import Detrender, SeasonalCycle
 from datapipeline.readers.cesm2 import DataReader as CESM2_DataReader
 from datapipeline.readers.era5 import DataReader as ERA5_DataReader
 from datapipeline.writer import DataWriter
@@ -141,16 +141,15 @@ class TensorExporter:
             print(f"Saved rolling detrending state: {self.dataset_name}.{var_name}")
             del mean_container
 
-    # TODO: not implemented seasonality removal and standardization
+    # TODO: Apply standardization in a separate preprocessing step.
     def _export_split(self, split: Split) -> None:
         """Preprocess and write every variable in one dataset split."""
         metadata: MetaData = self.metadata_by_split[split]
-        climatology_fit_metadata: MetaData | None = (
-            None if split == "train" else self.train_metadata
-        )
         context_metadata: MetaData | None = self._get_context_metadata(metadata)
         detrender = Detrender(metadata=metadata)
-        climatology_remover = ClimatologyRemover(metadata=metadata)
+        seasonal_cycle = SeasonalCycle(metadata=metadata)
+        if split != "train":
+            seasonal_cycle.load_state(train_metadata=self.train_metadata)
 
         with DataWriter(metadata=metadata, fresh=self.fresh) as writer:
             for var_name in metadata.var_names:
@@ -172,15 +171,15 @@ class TensorExporter:
                     var_container, context_container=context_container
                 )
                 print(f"Detrended {self.dataset_name}.{split}.{var_name}")
-                climatology_remover(
-                    var_container,
-                    train_metadata=climatology_fit_metadata,
-                    context_container=context_container,
-                )
-                print(f"Climatology removed {self.dataset_name}.{split}.{var_name}")
+                if split == "train":
+                    seasonal_cycle.fit(var_container, train_metadata=self.train_metadata)
+                seasonal_cycle.transform(input_container=var_container, context_container=context_container)
+                print(f"Removed seasonal cycle from {self.dataset_name}.{split}.{var_name}")
                 writer(var_container, context_container=context_container)
                 print(f"Saved all .pt files {self.dataset_name}.{split}.{var_name}")
                 del var_container, context_container
+            if split == "train":
+                seasonal_cycle.save_state(train_metadata=self.train_metadata)
 
     def run(self) -> None:
         self._fit_detrenders()

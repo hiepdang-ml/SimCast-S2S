@@ -24,6 +24,8 @@ cesm2:
   val_end_year: 2010
   test_start_year: 2011
   test_end_year: 2014
+  detrend_window_n_years: 30
+  seasonality_smoothing_window_n_days: 7
 
   n_input_days: 84
   n_lead_days: 14
@@ -34,7 +36,7 @@ cesm2:
   val_write_directory: "/scratch/zgp2ps/cesm2/tensors/val/"
   test_write_directory: "/scratch/zgp2ps/cesm2/tensors/test/"
   detrender_state_directory: "/scratch/zgp2ps/cesm2/tensors/detrender/"
-  climatology_state_directory: "/scratch/zgp2ps/cesm2/tensors/climatology/"
+  seasonal_state_directory: "/scratch/zgp2ps/cesm2/tensors/seasonal/"
 
 
 era5:
@@ -60,6 +62,8 @@ era5:
   val_end_year: 2020
   test_start_year: 2021
   test_end_year: 2025
+  detrend_window_n_years: 30
+  seasonality_smoothing_window_n_days: 7
 
   n_input_days: 84
   n_lead_days: 14
@@ -70,7 +74,7 @@ era5:
   val_write_directory: "/scratch/zgp2ps/era5/tensors/val/"
   test_write_directory: "/scratch/zgp2ps/era5/tensors/test/"
   detrender_state_directory: "/scratch/zgp2ps/era5/tensors/detrender/"
-  climatology_state_directory: "/scratch/zgp2ps/era5/tensors/climatology/"
+  seasonal_state_directory: "/scratch/zgp2ps/era5/tensors/seasonal/"
 
 
 cnn:

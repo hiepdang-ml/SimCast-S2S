@@ -110,7 +110,9 @@ class MetaData(BaseConfig):
         self.detrend_start_year: int = int(self._config["train_start_year"])
         self.detrend_end_year: int = int(self._config["test_end_year"])
         assert self.detrend_window_n_years <= self.detrend_end_year - self.detrend_start_year + 1
-        self.climatology_state_directory: Path = Path(self._config["climatology_state_directory"])
+        self.seasonal_state_directory: Path = Path(self._config["seasonal_state_directory"])
+        self.seasonality_smoothing_window_n_days: int = int(self._config["seasonality_smoothing_window_n_days"])
+        assert self.seasonality_smoothing_window_n_days % 2 == 1
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -129,6 +131,7 @@ class MetaData(BaseConfig):
             "n_output_days": self.n_output_days,
             "n_step_days": self.n_step_days,
             "detrend_window_n_years": self.detrend_window_n_years,
+            "seasonality_smoothing_window_n_days": self.seasonality_smoothing_window_n_days,
         }
         if self.dataset_name == "era5":
             d.update({"array_root": self.array_root.as_posix()})

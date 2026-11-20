@@ -1,9 +1,9 @@
 import os
-from collections import defaultdict
 from pathlib import Path
 from typing import TypedDict, cast
 
 import torch
+from torch.nn import functional as F
 
 from .container import VariableContainer
 from common.configs import MetaData
@@ -24,6 +24,12 @@ def detrender_state_path(metadata: MetaData, var_name: str, sim_id: str) -> Path
         f"window{metadata.detrend_window_n_years}.pt"
     )
     return metadata.detrender_state_directory.joinpath(filename)
+
+
+def seasonal_state_path(metadata: MetaData, var_name: str, sim_id: str) -> Path:
+    """Return the saved seasonal cycle for this training period."""
+    filename = f"seasonal_{sim_id}_{var_name}_{metadata.start_year}_{metadata.end_year}.pt"
+    return metadata.seasonal_state_directory.joinpath(filename)
 
 
 class _TrendFromLinearRegression:
@@ -219,83 +225,105 @@ class Detrender:
                 container.set(sim_id=sim_id, year=year, value=detrended)
 
 
-class _ClimatologicalMean:
+class SeasonalCycle:
 
-    def __init__(self, var_name: str, resolution: tuple[int, int]):
-        self.var_name: str = var_name
-        self.resolution: tuple[int, int] = resolution
-        self.H, self.W = self.resolution
-        self.climatological_mean: dict[str, torch.Tensor] = {}  # sim_ids
-        self.climatological_std : dict[str, torch.Tensor] = {}  # sim_ids
+    def __init__(self, metadata: MetaData) -> None:
+        self.H, self.W = metadata.resolution
+        self.seasonal_cycles: dict[str, dict[str, torch.Tensor]] = {}  # var_name, sim_id
+        os.makedirs(name=metadata.seasonal_state_directory, exist_ok=True)
 
     def fit(self, input_container: VariableContainer, train_metadata: MetaData) -> None:
-        assert self.var_name == input_container.var_name
+        """Store the fitted seasonal cycle for this variable and each simulation."""
         assert input_container.var_name in train_metadata.var_names
-        assert not bool(self.climatological_mean), "climatological_mean is already computed"
+        seasonal_cycles: dict[str, torch.Tensor] = {}
         n_years: int = train_metadata.n_years
+        window_days: int = train_metadata.seasonality_smoothing_window_n_days
+        half_window_days: int = window_days // 2
 
         for sim_id in train_metadata.sim_ids:
             # retrieve input data (ensure ascending year)
             tensors_by_year: dict[int, torch.Tensor] = cast(dict[int, torch.Tensor], input_container.get(sim_id=sim_id, year=None))
             year_tensors: list[torch.Tensor] = [tensors_by_year[k] for k in train_metadata.years]
             assert all(tensor.shape == (365, self.H, self.W) for tensor in year_tensors)
-            input_tensor: torch.Tensor = torch.stack(year_tensors, dim=0)
-            assert input_tensor.shape == (n_years, 365, self.H, self.W)
-            self.climatological_mean[sim_id] = input_tensor.mean(dim=0)
-            self.climatological_std[sim_id] = input_tensor.var(dim=0).sqrt().clamp(min=1e-12)
+
+            # Smooth only for the seasonal mean. Use adjacent training years at Dec/Jan
+            # and shorter windows at the ends of the training period.
+            series: torch.Tensor = torch.cat(year_tensors, dim=0)
+            assert series.shape == (n_years * 365, self.H, self.W)
+            seasonal_sum: torch.Tensor = torch.zeros_like(year_tensors[0])
+            for year_start in range(0, series.shape[0], 365):
+                context_start: int = max(0, year_start - half_window_days)
+                days: torch.Tensor = series[context_start:year_start + 365 + half_window_days]
+                # NOTE: With a seven-day window and at least two training years, days
+                # contains 371 days for interior years and 368 for the first and last years
+                smoothed: torch.Tensor = F.avg_pool1d(
+                    days.flatten(start_dim=1, end_dim=-1).T.unsqueeze(0),
+                    kernel_size=window_days, stride=1, padding=half_window_days, count_include_pad=False,
+                )
+                start: int = year_start - context_start
+                smoothed_year: torch.Tensor = smoothed[0, :, start:start + 365]
+                assert smoothed_year.shape == (self.H * self.W, 365)
+                seasonal_sum.add_(smoothed_year.T.reshape_as(seasonal_sum))
+                del days
+            seasonal_cycles[sim_id] = seasonal_sum / n_years
+            del series
+        self.seasonal_cycles[input_container.var_name] = seasonal_cycles
 
     def load_state(self, train_metadata: MetaData) -> None:
-        with torch.serialization.safe_globals([defaultdict]):
-            for sim_id in train_metadata.sim_ids:
-                suffix: str = f"{sim_id}_{self.var_name}_{train_metadata.start_year}_{train_metadata.end_year}.pt"
-                self.climatological_mean[sim_id] = torch.load(f=train_metadata.climatology_state_directory.joinpath(f"mean_{suffix}"), weights_only=False)
-                self.climatological_std[sim_id] = torch.load(f=train_metadata.climatology_state_directory.joinpath(f"std_{suffix}"), weights_only=False)
+        """Load the seasonal cycles for all configured variables and simulations."""
+        self.seasonal_cycles = {
+            var_name: {
+                sim_id: torch.load(
+                    f=seasonal_state_path(train_metadata, var_name, sim_id), weights_only=True
+                )
+                for sim_id in train_metadata.sim_ids
+            }
+            for var_name in train_metadata.var_names
+        }
 
     def save_state(self, train_metadata: MetaData) -> None:
-        for sim_id in train_metadata.sim_ids:
-            suffix: str = f"{sim_id}_{self.var_name}_{train_metadata.start_year}_{train_metadata.end_year}.pt"
-            torch.save(obj=self.climatological_mean[sim_id], f=train_metadata.climatology_state_directory.joinpath(f"mean_{suffix}"))
-            torch.save(obj=self.climatological_std[sim_id], f=train_metadata.climatology_state_directory.joinpath(f"std_{suffix}"))
+        """Save the stored cycles using one file per variable and simulation."""
+        for var_name, cycles_by_sim in self.seasonal_cycles.items():
+            for sim_id, cycle in cycles_by_sim.items():
+                torch.save(
+                    obj=cycle, f=seasonal_state_path(train_metadata, var_name, sim_id)
+                )
 
-
-class ClimatologyRemover:
-
-    def __init__(self, metadata: MetaData):
-        self.metadata: MetaData = metadata
-        self.H, self.W = self.metadata.resolution
-        os.makedirs(name=self.metadata.climatology_state_directory, exist_ok=True)
-
-    def __call__(
-        self, input_container: VariableContainer, train_metadata: MetaData | None = None,
+    def transform(
+        self, input_container: VariableContainer,
         *, context_container: VariableContainer | None = None,
     ) -> None:
         """
-        Inplace operation to save memory
+        Subtract the stored seasonal cycle from detrended daily data in place for
+        one variable in ``input_container`` and ``context_container``
+
+        Call ``fit()`` or ``load_state()`` before calling this method.
+        Each simulation uses its own fitted calendar-day cycle.
+
+        Args:
+            input_container: Unfiltered, detrended data for one variable.
+                Each yearly tensor has shape ``(365, H, W)``.
+            context_container: Optional detrended data for the same variable
+                from the year preceding the split. It is transformed in place
+                using the same seasonal cycles.
         """
-        cm: _ClimatologicalMean = _ClimatologicalMean(
-            var_name=input_container.var_name, resolution=self.metadata.resolution
-        )
-        if self.metadata.tp == "train":
-            # fit new cm (during training)
-            assert train_metadata is None
-            cm.fit(input_container=input_container, train_metadata=self.metadata)
-            cm.save_state(train_metadata=self.metadata)
-        else:
-            # load saved cm (during inference)
-            assert isinstance(train_metadata, MetaData)
-            assert input_container.var_name in train_metadata.var_names
-            cm.load_state(train_metadata=train_metadata)
+        var_name: str = input_container.var_name
+        if var_name not in self.seasonal_cycles:
+            raise RuntimeError(
+                f"No fitted seasonal cycle for {var_name!r}. "
+                "Call fit() or load_state() before transform()."
+            )
+        seasonal_cycles: dict[str, torch.Tensor] = self.seasonal_cycles[var_name]
 
         for container in (input_container, context_container):
             if container is None:
                 continue
-            assert container.var_name == input_container.var_name
+            assert container.var_name == var_name
             for sim_id in container.metadata.sim_ids:
                 tensors_by_year = cast(dict[int, torch.Tensor], container.get(sim_id=sim_id, year=None))
                 year_tensors = [tensors_by_year[k] for k in container.metadata.years]
                 assert all(tensor.shape == (365, self.H, self.W) for tensor in year_tensors)
                 input_tensor = torch.stack(year_tensors, dim=0)
-                anomaly_tensor = input_tensor - cm.climatological_mean[sim_id]
-                standardized_anomaly_tensor = anomaly_tensor / cm.climatological_std[sim_id]
+                anomaly_tensor = input_tensor - seasonal_cycles[sim_id]
                 for i, year in enumerate(container.metadata.years):
-                    container.set(sim_id=sim_id, year=year, value=standardized_anomaly_tensor[i])
+                    container.set(sim_id=sim_id, year=year, value=anomaly_tensor[i])

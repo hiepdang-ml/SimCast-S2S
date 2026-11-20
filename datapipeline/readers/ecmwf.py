@@ -12,7 +12,7 @@ import torch
 from common.configs import MetaData, ECMWFS2SConfig
 from common.metrics import GeographicalMAE, GeographicalMSE
 from common.utils import TorchDictIO
-from datapipeline.preprocessing import TrendLine, detrender_state_path
+from datapipeline.preprocessing import TrendLine, detrender_state_path, seasonal_state_path
 from datapipeline.readers.era5 import ERA5Utilities
 from datapipeline.utils import SampleInfo
 
@@ -108,7 +108,6 @@ class ECMWFPreprocessor:
         self.sim_id: str = train_metadata.sim_ids[0]
         self.H, self.W = train_metadata.resolution
 
-        suffix: str = f"{self.sim_id}_{self.var_name}_{train_metadata.start_year}_{train_metadata.end_year}.pt"
         state: dict[int, TrendLine] = torch.load(
             f=detrender_state_path(train_metadata, self.var_name, self.sim_id),
             weights_only=True,
@@ -129,22 +128,16 @@ class ECMWFPreprocessor:
             }
             for year, line in state.items()
         }
-        self.climatological_mean: NDArray[np.float32] = torch.load(
-            f=train_metadata.climatology_state_directory.joinpath(f"mean_{suffix}"),
-            weights_only=False,
-            map_location="cpu",
-        ).numpy().astype(np.float32, copy=False)
-        self.climatological_std: NDArray[np.float32] = torch.load(
-            f=train_metadata.climatology_state_directory.joinpath(f"std_{suffix}"),
-            weights_only=False,
+        self.seasonal_cycle: NDArray[np.float32] = torch.load(
+            f=seasonal_state_path(train_metadata, self.var_name, self.sim_id),
+            weights_only=True,
             map_location="cpu",
         ).numpy().astype(np.float32, copy=False)
         assert all(
             line["a"].shape == line["b"].shape == (self.H, self.W)
             for line in self.trend_lines.values()
         )
-        assert self.climatological_mean.shape == (365, self.H, self.W)
-        assert self.climatological_std.shape == (365, self.H, self.W)
+        assert self.seasonal_cycle.shape == (365, self.H, self.W)
 
     def preprocess_predictions(self, da: xr.DataArray) -> xr.DataArray:
         required_dims: tuple[str, ...] = ("number", "time", "step", "latitude", "longitude")
@@ -214,16 +207,13 @@ class ECMWFPreprocessor:
         assert np.all((0 <= day_index) & (day_index < 365))
 
         trend: NDArray[np.float32] = self._compute_trend(years=years)
-        climatological_mean: NDArray[np.float32] = self.climatological_mean[day_index]
-        climatological_std: NDArray[np.float32] = self.climatological_std[day_index]
-        assert trend.shape == climatological_mean.shape == climatological_std.shape == (n_samples, self.H, self.W)
+        seasonal_cycle: NDArray[np.float32] = self.seasonal_cycle[day_index]
+        assert trend.shape == seasonal_cycle.shape == (n_samples, self.H, self.W)
 
         input_array: NDArray[np.float32] = da.values.astype(np.float32)
         assert input_array.shape == (n_samples, self.H, self.W)
-        standardized_anomaly: NDArray[np.float32] = (
-            (input_array - trend - climatological_mean) / climatological_std
-        ).astype(np.float32, copy=False)
-        return da.copy(data=standardized_anomaly)
+        anomaly: NDArray[np.float32] = input_array - trend - seasonal_cycle
+        return da.copy(data=anomaly)
 
     def _compute_trend(self, years: NDArray[np.float32]) -> NDArray[np.float32]:
         assert years.ndim == 1
