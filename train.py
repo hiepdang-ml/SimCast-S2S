@@ -6,7 +6,7 @@ import torch.distributed as dist
 from datapipeline.dataset import CESM2, ERA5
 from common.utils import CheckpointLoader
 from workers import BaselineTrainer, VAETrainer, DiffusionTrainer
-from common.configs import MetaData, CNNConfig, UnetConfig, VAEConfig, DiffusionConfig
+from common.configs import DatasetName, MetaData, CNNConfig, UnetConfig, VAEConfig, DiffusionConfig
 from models.baselines import CNN, UNet
 from models.simcasts2s import (
     VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, VAEEncoder, Denoiser,
@@ -20,7 +20,7 @@ def main(
         "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip",
         "diffusion",
     ],
-    dataset: Literal["cesm2", "era5"],
+    dataset: DatasetName,
     is_finetuning: bool, lora_rank: int,
     local_rank: int,
 ) -> None:
@@ -35,8 +35,8 @@ def main(
         raise ValueError(f"lora_rank must be > 0, got {lora_rank}")
 
     # Dataset
-    train_metadata = MetaData(dataset_name=dataset, tp="train")
-    val_metadata = MetaData(dataset_name=dataset, tp="val")
+    train_metadata = MetaData(dataset_name=dataset, split="train")
+    val_metadata = MetaData(dataset_name=dataset, split="val")
     if dataset == "cesm2":
         train_dataset = CESM2(metadata=train_metadata)
         val_dataset = CESM2(metadata=val_metadata)
@@ -145,8 +145,8 @@ def main(
     elif model.lower() == "vae-wind":
         vae_config = VAEConfig(context_group="wind")
         assert vae_config.context_group == "wind"
-        train_metadata = MetaData(dataset_name=dataset, tp="train")
-        val_metadata = MetaData(dataset_name=dataset, tp="val")
+        train_metadata = MetaData(dataset_name=dataset, split="train")
+        val_metadata = MetaData(dataset_name=dataset, split="val")
         if dataset == "cesm2":
             print(f"Training {model} on {dataset}")
             train_metadata = train_metadata.with_var_subset(context_group=vae_config.context_group)
@@ -199,8 +199,8 @@ def main(
     elif model.lower() == "vae-mass":
         vae_config = VAEConfig(context_group="mass")
         assert vae_config.context_group == "mass"
-        train_metadata = MetaData(dataset_name=dataset, tp="train")
-        val_metadata = MetaData(dataset_name=dataset, tp="val")
+        train_metadata = MetaData(dataset_name=dataset, split="train")
+        val_metadata = MetaData(dataset_name=dataset, split="val")
         if dataset == "cesm2":
             train_metadata = train_metadata.with_var_subset(context_group=vae_config.context_group)
             val_metadata = val_metadata.with_var_subset(context_group=vae_config.context_group)
@@ -252,8 +252,8 @@ def main(
     elif model.lower() == "vae-thermal":
         vae_config = VAEConfig(context_group="thermal")
         assert vae_config.context_group == "thermal"
-        train_metadata = MetaData(dataset_name=dataset, tp="train")
-        val_metadata = MetaData(dataset_name=dataset, tp="val")
+        train_metadata = MetaData(dataset_name=dataset, split="train")
+        val_metadata = MetaData(dataset_name=dataset, split="val")
         if dataset == "cesm2":
             print(f"Training {model} on {dataset}")
             train_metadata = train_metadata.with_var_subset(context_group=vae_config.context_group)
@@ -306,8 +306,8 @@ def main(
     elif model.lower() == "vae-hydro":
         vae_config = VAEConfig(context_group="hydro")
         assert vae_config.context_group == "hydro"
-        train_metadata = MetaData(dataset_name=dataset, tp="train")
-        val_metadata = MetaData(dataset_name=dataset, tp="val")
+        train_metadata = MetaData(dataset_name=dataset, split="train")
+        val_metadata = MetaData(dataset_name=dataset, split="val")
         if dataset == "cesm2":
             print(f"Training {model} on {dataset}")
             train_metadata = train_metadata.with_var_subset(context_group=vae_config.context_group)
@@ -360,8 +360,8 @@ def main(
     elif model.lower() == "vae-precip":
         vae_config = VAEConfig(context_group="precip")
         assert vae_config.context_group == "precip"
-        train_metadata = MetaData(dataset_name=dataset, tp="train")
-        val_metadata = MetaData(dataset_name=dataset, tp="val")
+        train_metadata = MetaData(dataset_name=dataset, split="train")
+        val_metadata = MetaData(dataset_name=dataset, split="val")
         if dataset == "cesm2":
             print(f"Training {model} on {dataset}")
             train_metadata = train_metadata.with_var_subset(context_group=vae_config.context_group)

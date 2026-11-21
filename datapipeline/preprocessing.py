@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from typing import TypedDict, cast
 
+from sympy.ntheory.digits import defaultdict
 import torch
 from torch.nn import functional as F
 
@@ -14,22 +15,6 @@ class TrendLine(TypedDict):
     window_end_year: int
     a: torch.Tensor
     b: torch.Tensor
-
-
-def detrender_state_path(metadata: MetaData, var_name: str, sim_id: str) -> Path:
-    """Return the state file shared by all train/validation/test splits."""
-    filename: str = (
-        f"{sim_id}_{var_name}_"
-        f"{metadata.detrend_start_year}_{metadata.detrend_end_year}_"
-        f"window{metadata.detrend_window_n_years}.pt"
-    )
-    return metadata.detrender_state_directory.joinpath(filename)
-
-
-def seasonal_state_path(metadata: MetaData, var_name: str, sim_id: str) -> Path:
-    """Return the saved seasonal cycle for this training period."""
-    filename = f"seasonal_{sim_id}_{var_name}_{metadata.start_year}_{metadata.end_year}.pt"
-    return metadata.seasonal_state_directory.joinpath(filename)
 
 
 class _TrendFromLinearRegression:
@@ -152,7 +137,9 @@ class _TrendFromLinearRegression:
     def load_state(self, metadata: MetaData) -> None:
         for sim_id in metadata.sim_ids:
             state = torch.load(
-                f=detrender_state_path(metadata, self.var_name, sim_id),
+                f=Detrender.state_path(
+                    metadata=metadata, var_name=self.var_name, sim_id=sim_id
+                ),
                 weights_only=True,
                 map_location="cpu",
             )
@@ -164,7 +151,9 @@ class _TrendFromLinearRegression:
         for sim_id in metadata.sim_ids:
             torch.save(
                 obj=self.trend_lines[sim_id],
-                f=detrender_state_path(metadata, self.var_name, sim_id),
+                f=Detrender.state_path(
+                    metadata=metadata, var_name=self.var_name, sim_id=sim_id
+                ),
             )
 
 
@@ -174,6 +163,16 @@ class Detrender:
         self.metadata: MetaData = metadata
         self.H, self.W = self.metadata.resolution
         os.makedirs(name=self.metadata.detrender_state_directory, exist_ok=True)
+
+    @staticmethod
+    def state_path(metadata: MetaData, var_name: str, sim_id: str) -> Path:
+        """Return the state file shared by all train/validation/test splits."""
+        filename: str = (
+            f"{sim_id}_{var_name}_"
+            f"{metadata.detrend_start_year}_{metadata.detrend_end_year}_"
+            f"window{metadata.detrend_window_n_years}.pt"
+        )
+        return metadata.detrender_state_directory.joinpath(filename)
 
     def fit(self, mean_container: VariableContainer) -> None:
         """Fit and save target-year trend lines from full-dataset yearly means."""
@@ -232,12 +231,18 @@ class SeasonalCycle:
         self.seasonal_cycles: dict[str, dict[str, torch.Tensor]] = {}  # var_name, sim_id
         os.makedirs(name=metadata.seasonal_state_directory, exist_ok=True)
 
+    @staticmethod
+    def state_path(metadata: MetaData, var_name: str, sim_id: str) -> Path:
+        """Return the saved seasonal cycle for this training period."""
+        filename: str = f"seasonal_{sim_id}_{var_name}_{metadata.start_year}_{metadata.end_year}.pt"
+        return metadata.seasonal_state_directory.joinpath(filename)
+
     def fit(self, input_container: VariableContainer, train_metadata: MetaData) -> None:
         """Store the fitted seasonal cycle for this variable and each simulation."""
         assert input_container.var_name in train_metadata.var_names
         seasonal_cycles: dict[str, torch.Tensor] = {}
         n_years: int = train_metadata.n_years
-        window_days: int = train_metadata.seasonality_smoothing_window_n_days
+        window_days: int = train_metadata.seasonal_smoothing_window_n_days
         half_window_days: int = window_days // 2
 
         for sim_id in train_metadata.sim_ids:
@@ -274,7 +279,10 @@ class SeasonalCycle:
         self.seasonal_cycles = {
             var_name: {
                 sim_id: torch.load(
-                    f=seasonal_state_path(train_metadata, var_name, sim_id), weights_only=True
+                    f=SeasonalCycle.state_path(
+                        metadata=train_metadata, var_name=var_name, sim_id=sim_id
+                    ),
+                    weights_only=True
                 )
                 for sim_id in train_metadata.sim_ids
             }
@@ -286,7 +294,10 @@ class SeasonalCycle:
         for var_name, cycles_by_sim in self.seasonal_cycles.items():
             for sim_id, cycle in cycles_by_sim.items():
                 torch.save(
-                    obj=cycle, f=seasonal_state_path(train_metadata, var_name, sim_id)
+                    obj=cycle,
+                    f=SeasonalCycle.state_path(
+                        metadata=train_metadata, var_name=var_name, sim_id=sim_id
+                    )
                 )
 
     def transform(
@@ -327,3 +338,137 @@ class SeasonalCycle:
                 anomaly_tensor = input_tensor - seasonal_cycles[sim_id]
                 for i, year in enumerate(container.metadata.years):
                     container.set(sim_id=sim_id, year=year, value=anomaly_tensor[i])
+
+
+class Standardization:
+
+    def __init__(self, metadata: MetaData) -> None:
+        self.H, self.W = metadata.resolution
+        self.standard_deviations: dict[str, dict[str, torch.Tensor]] = {}  # var_name, sim_id
+        os.makedirs(name=metadata.standardization_state_directory, exist_ok=True)
+
+    @staticmethod
+    def state_path(metadata: MetaData, var_name: str, sim_id: str) -> Path:
+        """Return the saved standard deviations for this training period and window."""
+        filename: str = (
+            f"std_{sim_id}_{var_name}_{metadata.start_year}_{metadata.end_year}_"
+            f"window{metadata.standardization_window_n_days}d.pt"
+        )
+        return metadata.standardization_state_directory.joinpath(filename)
+
+    def fit(self, input_container: VariableContainer, train_metadata: MetaData) -> None:
+        """Fit a sample standard deviation for each calendar day and grid cell."""
+        assert input_container.var_name in train_metadata.var_names
+        window_days: int = train_metadata.standardization_window_n_days
+        half_window_days: int = window_days // 2
+        wrap_start: int = 365 - half_window_days
+        sample_count: int = window_days * train_metadata.n_years
+        # A one-sample window has zero variance and uses the unit scale below.
+        sample_correction: float = sample_count / max(1, sample_count - 1)
+        std_by_sim: dict[str, torch.Tensor] = {}
+
+        for sim_id in train_metadata.sim_ids:
+            year_tensors: list[torch.Tensor] = [
+                cast(torch.Tensor, input_container.get(sim_id=sim_id, year=year))
+                for year in train_metadata.years
+            ]
+            assert all(tensor.shape == (365, self.H, self.W) for tensor in year_tensors)
+            anomalies: torch.Tensor = torch.stack(year_tensors, dim=0)
+            assert anomalies.shape == (train_metadata.n_years, 365, self.H, self.W)
+            daily_variance: torch.Tensor
+            daily_mean: torch.Tensor
+            daily_variance, daily_mean = torch.var_mean(anomalies, dim=0, correction=0)
+            del anomalies
+
+            # Total variance combines variation within each calendar day and
+            # variation between the day means. Wrap the 365-day calendar.
+            assert daily_variance.shape == (365, self.H, self.W)
+            wrapped_variance: torch.Tensor = torch.cat(
+                tensors=(
+                    daily_variance[wrap_start:], # shape: (half_window_days, self.H, self.W)
+                    daily_variance, # shape: (365, self.H, self.W)
+                    daily_variance[:half_window_days], # shape: (half_window_days, self.H, self.W)
+                ),
+                dim=0
+            )
+            wrapped_mean: torch.Tensor = torch.cat(
+                tensors=(
+                    daily_mean[wrap_start:], # shape: (half_window_days, self.H, self.W)
+                    daily_mean, # shape: (365, self.H, self.W)
+                    daily_mean[:half_window_days], # shape: (half_window_days, self.H, self.W)
+                ),
+                dim=0
+            )
+            # Compute within_day variance: \mathbb{E}_{k \in W_d}[\sigma_k^2]
+            within_days_unfold: torch.Tensor = wrapped_variance.unfold(dimension=0, size=window_days, step=1)
+            assert within_days_unfold.shape == (365, self.H, self.W, window_days)
+            within_days_variance: torch.Tensor = within_days_unfold.mean(dim=-1)
+            # Compute between_day variance: E_{k \in W_d}[(\mu_k - \bar{\mu}_d)^2]
+            between_days_unfold: torch.Tensor = wrapped_mean.unfold(dimension=0, size=window_days, step=1)
+            assert between_days_unfold.shape == (365, self.H, self.W, window_days)
+            between_days_variance: torch.Tensor = between_days_unfold.var(dim=-1, correction=0)
+            # Compute total variance: Var(X_d) = within_day variance + between_day variance
+            sample_variance: torch.Tensor = (within_days_variance + between_days_variance) * sample_correction
+            assert sample_variance.shape == (365, self.H, self.W)
+            std_by_sim[sim_id] = sample_variance.sqrt()
+
+        self.standard_deviations[input_container.var_name] = std_by_sim
+
+    def load_state(self, train_metadata: MetaData) -> None:
+        """Load standardization scales for all configured variables and simulations."""
+        self.standard_deviations.clear()
+        for var_name in train_metadata.var_names:
+            self.standard_deviations[var_name] = {}
+            for sim_id in train_metadata.sim_ids:
+                std_tensor: torch.Tensor = cast(
+                    torch.Tensor,
+                    torch.load(
+                        f=Standardization.state_path(
+                            metadata=train_metadata, var_name=var_name, sim_id=sim_id
+                        ),
+                        weights_only=True
+                    ),
+                )
+                self.standard_deviations[var_name][sim_id] = std_tensor
+
+    def save_state(self, train_metadata: MetaData) -> None:
+        """Save one tensor of calendar-day scales per variable and simulation."""
+        for var_name, std_by_sim in self.standard_deviations.items():
+            for sim_id, std in std_by_sim.items():
+                torch.save(obj=std, f=Standardization.state_path(train_metadata, var_name, sim_id))
+
+    def transform(
+        self, input_container: VariableContainer,
+        *, context_container: VariableContainer | None = None,
+    ) -> None:
+        """Standardize daily anomalies in place using fitted standard deviations.
+
+        Call ``fit()`` or ``load_state()`` before transforming a variable.
+        Each anomaly is divided by the deviation for its simulation,
+        calendar day, and grid cell.
+
+        Args:
+            input_container: Detrended and deseasonalized data for one variable.
+                Each yearly tensor has shape ``(365, H, W)``.
+            context_container: Optional anomalies for the same variable from the
+                year preceding the split. They are standardized in place using
+                the same fitted deviations.
+        """
+        var_name: str = input_container.var_name
+        if var_name not in self.standard_deviations:
+            raise RuntimeError(
+                f"No fitted standard deviations for {var_name!r}. "
+                "Call fit() or load_state() before transform()."
+            )
+        std_by_sim: dict[str, torch.Tensor] = self.standard_deviations[var_name]
+
+        for container in (input_container, context_container):
+            if container is None:
+                continue
+            assert container.var_name == var_name
+            for sim_id, year in container.metadata.combinations:
+                anomalies: torch.Tensor = cast(
+                    torch.Tensor, container.get(sim_id=sim_id, year=year)
+                )
+                assert anomalies.shape == (365, self.H, self.W)
+                container.set(sim_id=sim_id, year=year, value=anomalies / std_by_sim[sim_id])

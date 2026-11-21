@@ -1,7 +1,5 @@
 import re
-import json
 import pathlib
-from typing import Any
 from functools import cached_property
 
 import torch
@@ -16,19 +14,8 @@ class _GenericDataset(Dataset):
         super().__init__()
         assert metadata.dataset_name in {"cesm2", "era5"}
         self.metadata: MetaData = metadata
-        meta_dict: dict[str, Any] = self.metadata.to_dict()
         self.H, self.W = self.metadata.resolution
-        # validate consistent write/read metadata
-        with open(self.metadata.write_directory.joinpath("metadata/metadata.json"), mode="r") as file:
-            loaded_dict: dict[str, Any] = json.load(fp=file)
-            loaded_dict["resolution"] = tuple(loaded_dict["resolution"])
-            loaded_dict.pop("sim_ids"); loaded_dict.pop("input_vars"); loaded_dict.pop("output_vars") # noqa: E702
-            for k in loaded_dict.keys():
-                if meta_dict[k] != loaded_dict[k]:
-                    raise RuntimeError(
-                        f"Inconsistent value for '{k}': "
-                        f"loaded .pt file has {k} = {loaded_dict[k]!r}, but metadata has {k} = {meta_dict[k]!r}."
-                    )
+        self.metadata.validate_export_metadata()
 
         # Preload filepath lookups for efficiency
         self.input_filepaths: dict[str, list[pathlib.Path]] = self.__collect_filepaths(
@@ -54,7 +41,7 @@ class _GenericDataset(Dataset):
         output_parts: list[str] = output_filename.removesuffix(".pt").split("__")
 
         assert input_parts[0][:6] == output_parts[0][:6]  # sample_id
-        assert input_parts[0].split(".")[1] == output_parts[0].split(".")[1] # tp ("train", "val", "test")
+        assert input_parts[0].split(".")[1] == output_parts[0].split(".")[1] # split ("train", "val", "test")
         assert input_parts[0].split(".")[-1] == "input" and output_parts[0].split(".")[-1] == "output"
 
         sim_id, var_name, year = input_parts[1].split("_")
@@ -191,7 +178,7 @@ class ERA5(_GenericDataset):
 
 
 if __name__ == "__main__":
-    metadata = MetaData(dataset_name="cesm2", tp="test")
+    metadata = MetaData(dataset_name="cesm2", split="test")
     dataset = CESM2(metadata)
 
     from torch.utils.data import DataLoader

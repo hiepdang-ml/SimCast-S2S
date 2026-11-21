@@ -12,7 +12,7 @@ import torch
 from common.configs import MetaData, ECMWFS2SConfig
 from common.metrics import GeographicalMAE, GeographicalMSE
 from common.utils import TorchDictIO
-from datapipeline.preprocessing import TrendLine, detrender_state_path, seasonal_state_path
+from datapipeline.preprocessing import Detrender, SeasonalCycle, Standardization, TrendLine
 from datapipeline.readers.era5 import ERA5Utilities
 from datapipeline.utils import SampleInfo
 
@@ -102,14 +102,14 @@ class ECMWFPreprocessor:
 
     def __init__(self, train_metadata: MetaData) -> None:
         assert train_metadata.dataset_name == "era5"
-        assert train_metadata.tp == "train"
+        assert train_metadata.split == "train"
         self.train_metadata: MetaData = train_metadata
         self.var_name: str = train_metadata.output_vars[0]
         self.sim_id: str = train_metadata.sim_ids[0]
         self.H, self.W = train_metadata.resolution
 
         state: dict[int, TrendLine] = torch.load(
-            f=detrender_state_path(train_metadata, self.var_name, self.sim_id),
+            f=Detrender.state_path(train_metadata, self.var_name, self.sim_id),
             weights_only=True,
             map_location="cpu",
         )
@@ -129,7 +129,12 @@ class ECMWFPreprocessor:
             for year, line in state.items()
         }
         self.seasonal_cycle: NDArray[np.float32] = torch.load(
-            f=seasonal_state_path(train_metadata, self.var_name, self.sim_id),
+            f=SeasonalCycle.state_path(train_metadata, self.var_name, self.sim_id),
+            weights_only=True,
+            map_location="cpu",
+        ).numpy().astype(np.float32, copy=False)
+        self.standard_deviation: NDArray[np.float32] = torch.load(
+            f=Standardization.state_path(train_metadata, self.var_name, self.sim_id),
             weights_only=True,
             map_location="cpu",
         ).numpy().astype(np.float32, copy=False)
@@ -138,6 +143,7 @@ class ECMWFPreprocessor:
             for line in self.trend_lines.values()
         )
         assert self.seasonal_cycle.shape == (365, self.H, self.W)
+        assert self.standard_deviation.shape == (365, self.H, self.W)
 
     def preprocess_predictions(self, da: xr.DataArray) -> xr.DataArray:
         required_dims: tuple[str, ...] = ("number", "time", "step", "latitude", "longitude")
@@ -208,12 +214,13 @@ class ECMWFPreprocessor:
 
         trend: NDArray[np.float32] = self._compute_trend(years=years)
         seasonal_cycle: NDArray[np.float32] = self.seasonal_cycle[day_index]
-        assert trend.shape == seasonal_cycle.shape == (n_samples, self.H, self.W)
+        standard_deviation: NDArray[np.float32] = self.standard_deviation[day_index]
+        assert trend.shape == seasonal_cycle.shape == standard_deviation.shape == (n_samples, self.H, self.W)
 
         input_array: NDArray[np.float32] = da.values.astype(np.float32)
         assert input_array.shape == (n_samples, self.H, self.W)
         anomaly: NDArray[np.float32] = input_array - trend - seasonal_cycle
-        return da.copy(data=anomaly)
+        return da.copy(data=anomaly / standard_deviation)
 
     def _compute_trend(self, years: NDArray[np.float32]) -> NDArray[np.float32]:
         assert years.ndim == 1
@@ -247,7 +254,7 @@ class ECMWFGenerator:
         to_year: int,
     ) -> None:
         assert metadata.dataset_name == "era5"
-        assert metadata.tp == "test"
+        assert metadata.split == "test"
         assert len(metadata.output_vars) == 1
 
         self.metadata: MetaData = metadata
@@ -556,8 +563,8 @@ def main() -> None:
 
     dataset: str = "era5"
     model_config: ECMWFS2SConfig = ECMWFS2SConfig()
-    ecmwf_metadata: MetaData = MetaData(dataset_name=dataset, tp="test")
-    era5_metadata: MetaData = MetaData(dataset_name=dataset, tp="train")
+    ecmwf_metadata: MetaData = MetaData(dataset_name=dataset, split="test")
+    era5_metadata: MetaData = MetaData(dataset_name=dataset, split="train")
     # To save memory:
     for year in range(args.fromyear, args.toyear + 1, 1):
         generator = ECMWFGenerator(

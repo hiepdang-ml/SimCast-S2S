@@ -6,7 +6,7 @@ import torch.distributed as dist
 from datapipeline.dataset import CESM2, ERA5, MetaData
 from common.utils import CheckpointLoader
 from workers import BaselinePredictor, VAEPredictor, SimCastS2SPredictor
-from common.configs import CNNConfig, UnetConfig, ClimatologyConfig, VAEConfig, DiffusionConfig
+from common.configs import DatasetName, CNNConfig, UnetConfig, ClimatologyConfig, VAEConfig, DiffusionConfig
 from models.baselines import CNN, UNet, Climatology
 from models.simcasts2s import (
     VAE, VAE_Wind, VAE_Mass, VAE_Thermal, VAE_Hydro, VAE_Precip, Denoiser,
@@ -20,7 +20,7 @@ def main(
         "vae-wind", "vae-mass", "vae-thermal", "vae-hydro", "vae-precip",
         "simcast-s2s",
     ],
-    dataset: Literal["cesm2", "era5"],
+    dataset: DatasetName,
     local_rank: int,
     batch_size: int,
 ) -> None:
@@ -30,7 +30,7 @@ def main(
     test_dataset: CESM2 | ERA5
     model_config: CNNConfig | UnetConfig | ClimatologyConfig | VAEConfig | DiffusionConfig
     net: torch.nn.Module
-    test_metadata = MetaData(dataset_name=dataset, tp="test")
+    test_metadata = MetaData(dataset_name=dataset, split="test")
     if dataset == "cesm2":
         test_dataset = CESM2(metadata=test_metadata)
     else:
@@ -81,7 +81,7 @@ def main(
         ).predict()
 
     elif model.lower() == "vae-wind":
-        test_metadata = MetaData(dataset_name=dataset, tp="test")
+        test_metadata = MetaData(dataset_name=dataset, split="test")
         test_metadata = test_metadata.with_var_subset(context_group="wind")
         if dataset == "cesm2":
             test_dataset = CESM2(metadata=test_metadata)
@@ -102,7 +102,7 @@ def main(
         ).predict()
 
     elif model.lower() == "vae-mass":
-        test_metadata = MetaData(dataset_name=dataset, tp="test")
+        test_metadata = MetaData(dataset_name=dataset, split="test")
         test_metadata = test_metadata.with_var_subset(context_group="mass")
         if dataset == "cesm2":
             test_dataset = CESM2(metadata=test_metadata)
@@ -123,7 +123,7 @@ def main(
         ).predict()
 
     elif model.lower() == "vae-thermal":
-        test_metadata = MetaData(dataset_name=dataset, tp="test")
+        test_metadata = MetaData(dataset_name=dataset, split="test")
         test_metadata = test_metadata.with_var_subset(context_group="thermal")
         if dataset == "cesm2":
             test_dataset = CESM2(metadata=test_metadata)
@@ -144,7 +144,7 @@ def main(
         ).predict()
 
     elif model.lower() == "vae-hydro":
-        test_metadata = MetaData(dataset_name=dataset, tp="test")
+        test_metadata = MetaData(dataset_name=dataset, split="test")
         test_metadata = test_metadata.with_var_subset(context_group="hydro")
         if dataset == "cesm2":
             test_dataset = CESM2(metadata=test_metadata)
@@ -165,7 +165,7 @@ def main(
         ).predict()
 
     elif model.lower() == "vae-precip":
-        test_metadata = MetaData(dataset_name=dataset, tp="test")
+        test_metadata = MetaData(dataset_name=dataset, split="test")
         test_metadata = test_metadata.with_var_subset(context_group="precip")
         if dataset == "cesm2":
             test_dataset = CESM2(metadata=test_metadata)

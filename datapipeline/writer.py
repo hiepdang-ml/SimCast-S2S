@@ -44,7 +44,7 @@ class DataWriter:
 
         self.counter_path: pathlib.Path = self.metadata.write_directory.joinpath("counter")
         self.counter_path.mkdir(parents=True, exist_ok=True)
-        self._GLOBAL_COUNTER: int = self.__get_counter()
+        self._GLOBAL_COUNTER: int = 0 if self.fresh else self.resume_counter(metadata)
         self._LOCAL_COUNTER: int = self._GLOBAL_COUNTER
 
         self.input_path: pathlib.Path = self.metadata.write_directory.joinpath("input")
@@ -72,14 +72,17 @@ class DataWriter:
         with open(file=filepath, mode="w") as file:
             json.dump(obj=d, fp=file)
 
-    def __get_counter(self) -> int:
-        filepath: pathlib.Path = self.counter_path.joinpath("counter.json")
+    @staticmethod
+    def resume_counter(metadata: MetaData) -> int:
+        """Return the next sample ID after checking the existing export metadata."""
+        filepath: pathlib.Path = metadata.write_directory / "counter" / "counter.json"
         if not filepath.exists():
             return 0
-        else:
-            with open(filepath, mode="r") as file:
-                counter: int = int(json.load(fp=file)["counter"])
-            return counter
+        with filepath.open() as file:
+            counter: int = int(json.load(file)["counter"])
+        if counter:
+            metadata.validate_export_metadata(export_resume=True)
+        return counter
 
     def __save_counter(self) -> None:
         filepath: pathlib.Path = self.counter_path.joinpath("counter.json")
@@ -95,7 +98,7 @@ class DataWriter:
     ) -> str:
         sample_id: str = f"{sample_index:06d}"
         var_name = var_name.replace("_", "") # var_name should not contain "_" to avoid downstream parsing error
-        prefix: str = f"{sample_id}.{self.metadata.tp}.{input_or_output}__{sim_id}_{var_name}_{year}__"
+        prefix: str = f"{sample_id}.{self.metadata.split}.{input_or_output}__{sim_id}_{var_name}_{year}__"
         suffix = f"{self.__date_string(year, start_day_index)}_{self.__date_string(year, end_day_index)}"
         return f"{prefix}{suffix}.pt"
 

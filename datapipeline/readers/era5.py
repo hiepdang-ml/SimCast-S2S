@@ -18,10 +18,10 @@ class Merger:
         self.pressurelevels_root: Path = self.source_root.joinpath("pressurelevels")
         self.singlelevel_root: Path = self.source_root.joinpath("singlelevel")
 
-    def _align_variables(self, year: int, tp: Literal["pressure_levels", "single_level"]) -> xr.Dataset:
+    def _align_variables(self, year: int, level_type: Literal["pressure_levels", "single_level"]) -> xr.Dataset:
         filedirs: list[Path]
         required_dims: list[str]
-        if tp == "pressure_levels":
+        if level_type == "pressure_levels":
             filedirs = sorted(self.pressurelevels_root.glob(f"{year}*"), key=lambda x: x.name)
             required_dims = ["valid_time", "pressure_level", "latitude", "longitude"]
         else:
@@ -48,7 +48,7 @@ class Merger:
         return ds.transpose(*required_dims)
 
     def from_pressure_levels(self, year: int) -> xr.Dataset:
-        ds: xr.Dataset = self._align_variables(year=year, tp="pressure_levels")
+        ds: xr.Dataset = self._align_variables(year=year, level_type="pressure_levels")
         flattened_vars: dict[str, xr.DataArray] = {}
         for var_name in ds.data_vars.keys():
             da: xr.DataArray = ds[var_name]
@@ -59,7 +59,7 @@ class Merger:
         return xr.Dataset(flattened_vars)
 
     def from_single_level(self, year: int) -> xr.Dataset:
-        return self._align_variables(year=year, tp="single_level")
+        return self._align_variables(year=year, level_type="single_level")
 
     def to_netcdf(self, year: int, target_resolution: tuple[int, int]) -> None:
         ds: xr.Dataset = xr.merge(

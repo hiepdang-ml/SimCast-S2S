@@ -1,9 +1,14 @@
 from abc import ABC, abstractmethod
+import json
 import yaml
 
 from pathlib import Path
 from itertools import product
-from typing import Literal, Any
+from typing import Literal, Any, TypeAlias
+
+
+DatasetName: TypeAlias = Literal["cesm2", "era5"]
+Split: TypeAlias = Literal["train", "val", "test"]
 
 
 class BaseConfig(ABC):
@@ -49,9 +54,9 @@ class MetaData(BaseConfig):
         }
     }
 
-    def __init__(self, dataset_name: Literal["cesm2", "era5"], tp: Literal["train", "val", "test"]) -> None:
-        self.dataset_name: Literal["cesm2", "era5"] = dataset_name
-        self.tp: Literal["train", "val", "test"] = tp
+    def __init__(self, dataset_name: DatasetName, split: Split) -> None:
+        self.dataset_name: DatasetName = dataset_name
+        self.split: Split = split
         self.var_table: dict[str, list[str]] = MetaData.VAR_LOOKUP_TABLE[dataset_name]
         with open("./config.yaml", mode="r") as file:
             self._config: dict[str, Any] = yaml.safe_load(file)[dataset_name]
@@ -84,20 +89,20 @@ class MetaData(BaseConfig):
         self.start_year: int
         self.end_year: int
         self.write_directory: Path
-        if self.tp == "train":
+        if self.split == "train":
             self.start_year = self._config["train_start_year"]
             self.end_year = self._config["train_end_year"]
             self.write_directory = Path(self._config["train_write_directory"])
-        elif self.tp == "val":
+        elif self.split == "val":
             self.start_year = self._config["val_start_year"]
             self.end_year = self._config["val_end_year"]
             self.write_directory = Path(self._config["val_write_directory"])
-        elif self.tp == "test":
+        elif self.split == "test":
             self.start_year = self._config["test_start_year"]
             self.end_year = self._config["test_end_year"]
             self.write_directory = Path(self._config["test_write_directory"])
         else:
-            raise ValueError(f"Invalid tp for MetaData, expected one of ['train', 'val', 'test'], get: '{self.tp}'")
+            raise ValueError(f"Expected split 'train', 'val', or 'test', got {self.split!r}")
 
         self.n_input_days: int = self._config["n_input_days"]
         self.n_lead_days: int = self._config["n_lead_days"]
@@ -111,13 +116,16 @@ class MetaData(BaseConfig):
         self.detrend_end_year: int = int(self._config["test_end_year"])
         assert self.detrend_window_n_years <= self.detrend_end_year - self.detrend_start_year + 1
         self.seasonal_state_directory: Path = Path(self._config["seasonal_state_directory"])
-        self.seasonality_smoothing_window_n_days: int = int(self._config["seasonality_smoothing_window_n_days"])
-        assert self.seasonality_smoothing_window_n_days % 2 == 1
+        self.seasonal_smoothing_window_n_days: int = int(self._config["seasonal_smoothing_window_n_days"])
+        assert self.seasonal_smoothing_window_n_days % 2 == 1
+        self.standardization_state_directory: Path = Path(self._config["standardization_state_directory"])
+        self.standardization_window_n_days: int = int(self._config["standardization_window_n_days"])
+        assert 1 <= self.standardization_window_n_days <= 365 and self.standardization_window_n_days % 2 == 1
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
             "dataset_name": self.dataset_name,
-            "tp": self.tp,
+            "split": self.split,
             "raw_root": self.raw_root.as_posix(),
             "landmask_root": self.landmask_root.as_posix(),
             "landmask_path": self.landmask_path.as_posix(),
@@ -131,11 +139,49 @@ class MetaData(BaseConfig):
             "n_output_days": self.n_output_days,
             "n_step_days": self.n_step_days,
             "detrend_window_n_years": self.detrend_window_n_years,
-            "seasonality_smoothing_window_n_days": self.seasonality_smoothing_window_n_days,
+            "seasonal_smoothing_window_n_days": self.seasonal_smoothing_window_n_days,
+            "standardization_window_n_days": self.standardization_window_n_days,
         }
         if self.dataset_name == "era5":
             d.update({"array_root": self.array_root.as_posix()})
         return d
+
+    def validate_export_metadata(self, *, export_resume: bool = False) -> None:
+        """Check the saved settings before reading or extending a tensor export."""
+        filepath: Path = self.write_directory / "metadata" / "metadata.json"
+        with filepath.open() as file:
+            saved: dict[str, object] = json.load(file)
+        assert isinstance(saved["resolution"], list)
+        saved["resolution"] = tuple(saved["resolution"])
+
+        current: dict[str, object] = self.to_dict()
+        selection_fields: set[str] = {"sim_ids"}  # fields allowed to differ
+        if not export_resume:    # so that dataset.py passes this check when training VAEs
+            selection_fields.add("input_vars")
+
+        differences: list[str] = []
+        for field in sorted(saved.keys() | current.keys()):
+            if field not in saved:
+                differences.append(f"{field!r} is missing from the saved metadata")
+            elif field not in current:
+                differences.append(f"{field!r} is missing from the current metadata")
+            elif field not in selection_fields and saved[field] != current[field]:
+                differences.append(
+                    f"{field!r} is {saved[field]!r} in the export and {current[field]!r} in the config"
+                )
+
+        if differences:
+            details: str = "\n".join(differences)
+            raise RuntimeError(f"Inconsistent export metadata in {filepath}\n{details}")
+
+    def validate_split_settings(self, other: "MetaData") -> None:
+        """Check the exported settings shared by the train, validation, and test splits."""
+        current: dict[str, object] = self.to_dict()
+        other_settings: dict[str, object] = other.to_dict()
+        fields: set[str] = (current.keys() | other_settings.keys()) - {"split", "years"}
+        for field in sorted(fields):
+            if field not in current or field not in other_settings or current[field] != other_settings[field]:
+                raise ValueError(f"Split metadata disagree on {field!r} ({self.split} and {other.split})")
 
     def with_var_subset(
         self,
