@@ -1,4 +1,5 @@
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import TypedDict, cast
 
@@ -7,7 +8,46 @@ import torch
 from torch.nn import functional as F
 
 from .container import VariableContainer
-from common.configs import MetaData
+from common.configs import FunctionalTransformName, MetaData
+
+
+class FunctionalTransform:
+
+    def __init__(self, metadata: MetaData) -> None:
+        self.functions: dict[str, FunctionalTransformName] = metadata.functional_transforms
+
+    def transform(self, input_tensor: torch.Tensor, *, var_name: str) -> torch.Tensor:
+        """Apply the configured pointwise function to a raw daily tensor."""
+        # Default to "identity"
+        function: FunctionalTransformName = self.functions.get(var_name, "identity")
+        if function == "identity":
+            return input_tensor
+
+        if function == "log":
+            invalid_mask: torch.Tensor = input_tensor <= 0
+            requirement: str = "positive"
+            invalid_kind: str = "nonpositive"
+            operation: Callable[[], torch.Tensor] = input_tensor.log
+        else:
+            invalid_mask = input_tensor < 0
+            requirement = "nonnegative"
+            invalid_kind = "negative"
+            operation = input_tensor.sqrt
+
+        if invalid_mask.any():
+            invalid_count: int = int(invalid_mask.count_nonzero().item())
+            raise ValueError(
+                f"The {function} transform for {var_name!r} requires {requirement} values. "
+                f"Found {invalid_count} {invalid_kind} values."
+            )
+        del invalid_mask
+        return operation()
+
+    @staticmethod
+    def state_suffix(metadata: MetaData, var_name: str) -> str:
+        """Identify the raw-data function used to fit saved preprocessing state."""
+        function: FunctionalTransformName = metadata.functional_transforms.get(var_name, "identity")
+        return function
 
 
 class TrendLine(TypedDict):
@@ -167,10 +207,11 @@ class Detrender:
     @staticmethod
     def state_path(metadata: MetaData, var_name: str, sim_id: str) -> Path:
         """Return the state file shared by all train/validation/test splits."""
+        suffix: str = FunctionalTransform.state_suffix(metadata, var_name)
         filename: str = (
-            f"{sim_id}_{var_name}_"
+            f"trend_{sim_id}_{var_name}_"
             f"{metadata.detrend_start_year}_{metadata.detrend_end_year}_"
-            f"window{metadata.detrend_window_n_years}.pt"
+            f"window{metadata.detrend_window_n_years}y_{suffix}.pt"
         )
         return metadata.detrender_state_directory.joinpath(filename)
 
@@ -234,7 +275,8 @@ class SeasonalCycle:
     @staticmethod
     def state_path(metadata: MetaData, var_name: str, sim_id: str) -> Path:
         """Return the saved seasonal cycle for this training period."""
-        filename: str = f"seasonal_{sim_id}_{var_name}_{metadata.start_year}_{metadata.end_year}.pt"
+        suffix: str = FunctionalTransform.state_suffix(metadata, var_name)
+        filename: str = f"seasonal_{sim_id}_{var_name}_{metadata.start_year}_{metadata.end_year}_{suffix}.pt"
         return metadata.seasonal_state_directory.joinpath(filename)
 
     def fit(self, input_container: VariableContainer, train_metadata: MetaData) -> None:
@@ -350,9 +392,10 @@ class Standardization:
     @staticmethod
     def state_path(metadata: MetaData, var_name: str, sim_id: str) -> Path:
         """Return the saved standard deviations for this training period and window."""
+        suffix: str = FunctionalTransform.state_suffix(metadata, var_name)
         filename: str = (
-            f"std_{sim_id}_{var_name}_{metadata.start_year}_{metadata.end_year}_"
-            f"window{metadata.standardization_window_n_days}d.pt"
+            f"standardization_{sim_id}_{var_name}_{metadata.start_year}_{metadata.end_year}_"
+            f"window{metadata.standardization_window_n_days}d_{suffix}.pt"
         )
         return metadata.standardization_state_directory.joinpath(filename)
 

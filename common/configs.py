@@ -9,6 +9,7 @@ from typing import Literal, Any, TypeAlias
 
 DatasetName: TypeAlias = Literal["cesm2", "era5"]
 Split: TypeAlias = Literal["train", "val", "test"]
+FunctionalTransformName: TypeAlias = Literal["identity", "log", "sqrt"]
 
 
 class BaseConfig(ABC):
@@ -67,6 +68,15 @@ class MetaData(BaseConfig):
         for var_name in self.input_vars + self.output_vars:
             if var_name not in self.var_names:
                 self.var_names.append(var_name)
+
+        transforms: object = self._config["functional_transforms"]
+        if not isinstance(transforms, dict):
+            raise ValueError("functional_transforms must map variable names to transform names")
+        self.functional_transforms: dict[str, FunctionalTransformName] = {}
+        for var_name, function in transforms.items():
+            assert var_name in self.var_names
+            assert function in ("identity", "log", "sqrt")
+            self.functional_transforms[var_name] = function
 
         self.years: list[int] = list(range(self.start_year, self.end_year + 1))
         self.combinations: list[tuple[str, int]] = list(product(self.sim_ids, self.years))
@@ -138,6 +148,7 @@ class MetaData(BaseConfig):
             "n_lead_days": self.n_lead_days,
             "n_output_days": self.n_output_days,
             "n_step_days": self.n_step_days,
+            "functional_transforms": self.functional_transforms,
             "detrend_window_n_years": self.detrend_window_n_years,
             "seasonal_smoothing_window_n_days": self.seasonal_smoothing_window_n_days,
             "standardization_window_n_days": self.standardization_window_n_days,

@@ -12,7 +12,7 @@ import torch
 from common.configs import MetaData, ECMWFS2SConfig
 from common.metrics import GeographicalMAE, GeographicalMSE
 from common.utils import TorchDictIO
-from datapipeline.preprocessing import Detrender, SeasonalCycle, Standardization, TrendLine
+from datapipeline.preprocessing import Detrender, FunctionalTransform, SeasonalCycle, Standardization, TrendLine
 from datapipeline.readers.era5 import ERA5Utilities
 from datapipeline.utils import SampleInfo
 
@@ -107,6 +107,7 @@ class ECMWFPreprocessor:
         self.var_name: str = train_metadata.output_vars[0]
         self.sim_id: str = train_metadata.sim_ids[0]
         self.H, self.W = train_metadata.resolution
+        self.functional_transform = FunctionalTransform(train_metadata)
 
         state: dict[int, TrendLine] = torch.load(
             f=Detrender.state_path(train_metadata, self.var_name, self.sim_id),
@@ -219,7 +220,10 @@ class ECMWFPreprocessor:
 
         input_array: NDArray[np.float32] = da.values.astype(np.float32)
         assert input_array.shape == (n_samples, self.H, self.W)
-        anomaly: NDArray[np.float32] = input_array - trend - seasonal_cycle
+        transformed: torch.Tensor = self.functional_transform.transform(
+            torch.from_numpy(input_array), var_name=self.var_name,
+        )
+        anomaly: NDArray[np.float32] = transformed.numpy() - trend - seasonal_cycle
         return da.copy(data=anomaly / standard_deviation)
 
     def _compute_trend(self, years: NDArray[np.float32]) -> NDArray[np.float32]:

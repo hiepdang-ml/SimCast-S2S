@@ -24,6 +24,10 @@ cesm2:
   val_end_year: 2010
   test_start_year: 2011
   test_end_year: 2014
+  functional_transforms:
+    # (identity, log, or sqrt), unlisted variables use identity.
+    # If no transforms need to perform, simply use {}
+    PRECT: sqrt
   detrend_window_n_years: 30
   seasonal_smoothing_window_n_days: 7
   standardization_window_n_days: 7
@@ -64,6 +68,10 @@ era5:
   val_end_year: 2020
   test_start_year: 2021
   test_end_year: 2025
+  functional_transforms:
+    # (identity, log, or sqrt), unlisted variables use identity.
+    # If no transforms need to perform, simply use {}
+    tp: sqrt
   detrend_window_n_years: 30
   seasonal_smoothing_window_n_days: 7
   standardization_window_n_days: 7

@@ -3,7 +3,7 @@ from copy import copy
 
 import torch
 from datapipeline.container import VariableContainer
-from datapipeline.preprocessing import Detrender, SeasonalCycle, Standardization
+from datapipeline.preprocessing import Detrender, FunctionalTransform, SeasonalCycle, Standardization
 from datapipeline.readers.cesm2 import DataReader as CESM2_DataReader
 from datapipeline.readers.era5 import DataReader as ERA5_DataReader
 from datapipeline.writer import DataWriter
@@ -23,6 +23,7 @@ class TensorExporter:
         }
         self.train_metadata: MetaData = self.metadata_by_split["train"]
         self.full_metadata: MetaData = self._build_full_metadata()
+        self.functional_transform = FunctionalTransform(metadata=self.train_metadata)
 
     def _build_full_metadata(self) -> MetaData:
         """Combine the split timelines for fitting rolling trend lines."""
@@ -83,12 +84,17 @@ class TensorExporter:
         else:
             return CESM2_DataReader(var_name=var_name, sim_id=sim_id, year=year).tensor
 
+    def _load_transformed_year(self, var_name: str, sim_id: str, year: int) -> torch.Tensor:
+        """Load daily values and apply their configured function before detrending."""
+        raw_tensor: torch.Tensor = self._read_variable_year(var_name=var_name, sim_id=sim_id, year=year)
+        return self.functional_transform.transform(raw_tensor, var_name=var_name)
+
     def _load_variable(self, var_name: str, metadata: MetaData) -> VariableContainer:
         """Load all daily tensors for one variable and metadata period."""
         assert metadata.dataset_name == self.dataset_name
         container = VariableContainer(var_name=var_name, metadata=metadata)
         for sim_id, year in metadata.combinations:
-            value: torch.Tensor = self._read_variable_year(var_name=var_name, sim_id=sim_id, year=year)
+            value: torch.Tensor = self._load_transformed_year(var_name=var_name, sim_id=sim_id, year=year)
             assert value.shape == (365, *metadata.resolution)
             container.set(sim_id=sim_id, year=year, value=value)
             print(
@@ -100,11 +106,11 @@ class TensorExporter:
     def _load_yearly_means(
         self, var_name: str, metadata: MetaData,
     ) -> VariableContainer:
-        """Load one raw year at a time and retain only its annual mean."""
+        """Compute annual means of the functionally transformed daily values."""
         assert metadata.dataset_name == self.dataset_name
         mean_container = VariableContainer(var_name=var_name, metadata=metadata)
         for sim_id, year in metadata.combinations:
-            value: torch.Tensor = self._read_variable_year(var_name=var_name, sim_id=sim_id, year=year)
+            value: torch.Tensor = self._load_transformed_year(var_name=var_name, sim_id=sim_id, year=year)
             assert value.shape == (365, *metadata.resolution)
             mean_container.set(sim_id=sim_id, year=year, value=value.mean(dim=0, keepdim=True))
             print(f"Loaded yearly mean: {self.dataset_name}.{sim_id}.{var_name}.{year}")
