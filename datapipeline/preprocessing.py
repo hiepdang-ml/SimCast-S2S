@@ -43,6 +43,20 @@ class FunctionalTransform:
         del invalid_mask
         return operation()
 
+    def inverse_transform(self, input_tensor: torch.Tensor, *, var_name: str) -> torch.Tensor:
+        """
+        Args:
+            input_tensor: Values in the output space of ``transform()``.
+            var_name: Variable whose configured function to invert.
+        """
+        # Default to "identity"
+        function: FunctionalTransformName = self.functions.get(var_name, "identity")
+        if function == "log":
+            return input_tensor.exp()
+        if function == "sqrt":
+            return input_tensor.square()
+        return input_tensor
+
     @staticmethod
     def state_suffix(metadata: MetaData, var_name: str) -> str:
         """Identify the raw-data function used to fit saved preprocessing state."""
@@ -127,7 +141,7 @@ class _TrendFromLinearRegression:
                 b: torch.Tensor = numerator / denominator
                 # Compute ȳ
                 value_at_mean_year: torch.Tensor = rolling_sum / detrend_window_n_years
-                # Compute
+                # Compute the mean calendar year (first year + mean position).
                 mean_year: float = float(years[window_start]) + positions.mean().item()
                 a: torch.Tensor = value_at_mean_year - mean_year * b
                 lines_by_window_start.append({
@@ -243,7 +257,29 @@ class Detrender:
                 previous year. It must contain the same variable as
                 ``input_container`` and is also modified in place.
         """
-        lr: _TrendFromLinearRegression = _TrendFromLinearRegression(
+        self._apply_from_saved_state(input_container, context_container=context_container, operation=torch.sub)
+
+    def inverse_transform(
+        self, input_container: VariableContainer,
+        *, context_container: VariableContainer | None = None,
+    ) -> None:
+        """Restore the saved target-year trend to detrended daily fields in place.
+
+        Args:
+            input_container: Detrended daily data for one variable and split.
+                Each yearly tensor has shape ``(365, H, W)``.
+            context_container: Optional detrended data for the same variable
+                from the preceding year. Its trend is restored in place using
+                its own calendar year.
+        """
+        self._apply_from_saved_state(input_container, context_container=context_container, operation=torch.add)
+
+    def _apply_from_saved_state(
+        self, input_container: VariableContainer,
+        *, context_container: VariableContainer | None,
+        operation: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+    ) -> None:
+        lr = _TrendFromLinearRegression(
             var_name=input_container.var_name, resolution=self.metadata.resolution
         )
         lr.load_state(metadata=self.metadata)
@@ -261,8 +297,8 @@ class Detrender:
                     torch.Tensor, trend_container.get(sim_id=sim_id, year=year)
                 ).to(input_tensor.dtype)
                 assert trend_tensor.shape == self.metadata.resolution
-                detrended: torch.Tensor = input_tensor - trend_tensor[None, :, :]
-                container.set(sim_id=sim_id, year=year, value=detrended)
+                transformed: torch.Tensor = operation(input_tensor, trend_tensor[None, :, :])
+                container.set(sim_id=sim_id, year=year, value=transformed)
 
 
 class SeasonalCycle:
@@ -318,23 +354,23 @@ class SeasonalCycle:
 
     def load_state(self, train_metadata: MetaData) -> None:
         """Load the seasonal cycles for all configured variables and simulations."""
-        self.seasonal_cycles = {
-            var_name: {
-                sim_id: torch.load(
+        self.seasonal_cycles.clear()
+        for var_name in train_metadata.var_names:
+            cycles_by_sim: dict[str, torch.Tensor] = {}
+            for sim_id in train_metadata.sim_ids:
+                cycles_by_sim[sim_id] = torch.load(
                     f=SeasonalCycle.state_path(
                         metadata=train_metadata, var_name=var_name, sim_id=sim_id
                     ),
-                    weights_only=True
+                    weights_only=True,
                 )
-                for sim_id in train_metadata.sim_ids
-            }
-            for var_name in train_metadata.var_names
-        }
+            self.seasonal_cycles[var_name] = cycles_by_sim
 
     def save_state(self, train_metadata: MetaData) -> None:
         """Save the stored cycles using one file per variable and simulation."""
         for var_name, cycles_by_sim in self.seasonal_cycles.items():
             for sim_id, cycle in cycles_by_sim.items():
+                assert cycle.shape == (365, self.H, self.W)
                 torch.save(
                     obj=cycle,
                     f=SeasonalCycle.state_path(
@@ -360,11 +396,35 @@ class SeasonalCycle:
                 from the year preceding the split. It is transformed in place
                 using the same seasonal cycles.
         """
+        self._apply_from_saved_state(input_container, context_container=context_container, operation=torch.sub)
+
+    def inverse_transform(
+        self, input_container: VariableContainer,
+        *, context_container: VariableContainer | None = None,
+    ) -> None:
+        """Restore the fitted calendar-day seasonal cycle to daily anomalies in place.
+
+        Call ``fit()`` or ``load_state()`` before transforming a variable.
+
+        Args:
+            input_container: Daily anomalies for one variable, in
+                ``(365, H, W)`` tensors.
+            context_container: Optional anomalies for the same variable from
+                the year preceding the split. The seasonal cycle is restored
+                in place using the same fitted state.
+        """
+        self._apply_from_saved_state(input_container, context_container=context_container, operation=torch.add)
+
+    def _apply_from_saved_state(
+        self, input_container: VariableContainer,
+        *, context_container: VariableContainer | None,
+        operation: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+    ) -> None:
         var_name: str = input_container.var_name
         if var_name not in self.seasonal_cycles:
             raise RuntimeError(
                 f"No fitted seasonal cycle for {var_name!r}. "
-                "Call fit() or load_state() before transform()."
+                "Call fit() or load_state() before applying the seasonal cycle."
             )
         seasonal_cycles: dict[str, torch.Tensor] = self.seasonal_cycles[var_name]
 
@@ -376,10 +436,10 @@ class SeasonalCycle:
                 tensors_by_year = cast(dict[int, torch.Tensor], container.get(sim_id=sim_id, year=None))
                 year_tensors = [tensors_by_year[k] for k in container.metadata.years]
                 assert all(tensor.shape == (365, self.H, self.W) for tensor in year_tensors)
-                input_tensor = torch.stack(year_tensors, dim=0)
-                anomaly_tensor = input_tensor - seasonal_cycles[sim_id]
+                input_tensor: torch.Tensor = torch.stack(year_tensors, dim=0)
+                transformed: torch.Tensor = operation(input_tensor, seasonal_cycles[sim_id])
                 for i, year in enumerate(container.metadata.years):
-                    container.set(sim_id=sim_id, year=year, value=anomaly_tensor[i])
+                    container.set(sim_id=sim_id, year=year, value=transformed[i])
 
 
 class Standardization:
@@ -461,9 +521,9 @@ class Standardization:
         """Load standardization scales for all configured variables and simulations."""
         self.standard_deviations.clear()
         for var_name in train_metadata.var_names:
-            self.standard_deviations[var_name] = {}
+            std_by_sim: dict[str, torch.Tensor] = {}
             for sim_id in train_metadata.sim_ids:
-                std_tensor: torch.Tensor = cast(
+                std_by_sim[sim_id] = cast(
                     torch.Tensor,
                     torch.load(
                         f=Standardization.state_path(
@@ -472,12 +532,13 @@ class Standardization:
                         weights_only=True
                     ),
                 )
-                self.standard_deviations[var_name][sim_id] = std_tensor
+            self.standard_deviations[var_name] = std_by_sim
 
     def save_state(self, train_metadata: MetaData) -> None:
         """Save one tensor of calendar-day scales per variable and simulation."""
         for var_name, std_by_sim in self.standard_deviations.items():
             for sim_id, std in std_by_sim.items():
+                assert std.shape == (365, self.H, self.W)
                 torch.save(obj=std, f=Standardization.state_path(train_metadata, var_name, sim_id))
 
     def transform(
@@ -497,11 +558,30 @@ class Standardization:
                 year preceding the split. They are standardized in place using
                 the same fitted deviations.
         """
+        self._apply_from_saved_state(input_container, context_container=context_container, operation=torch.div)
+
+    def inverse_transform(
+        self, input_container: VariableContainer,
+        *, context_container: VariableContainer | None = None,
+    ) -> None:
+        """Restore the anomaly scale for standardized daily data in place.
+
+        Call ``fit()`` or ``load_state()`` first. Each standardized value is
+        multiplied by the same calendar-day scale used by ``transform()``.
+        The optional context container is restored in place using the same scales.
+        """
+        self._apply_from_saved_state(input_container, context_container=context_container, operation=torch.mul)
+
+    def _apply_from_saved_state(
+        self, input_container: VariableContainer,
+        *, context_container: VariableContainer | None,
+        operation: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+    ) -> None:
         var_name: str = input_container.var_name
         if var_name not in self.standard_deviations:
             raise RuntimeError(
                 f"No fitted standard deviations for {var_name!r}. "
-                "Call fit() or load_state() before transform()."
+                "Call fit() or load_state() before applying standardization."
             )
         std_by_sim: dict[str, torch.Tensor] = self.standard_deviations[var_name]
 
@@ -509,9 +589,14 @@ class Standardization:
             if container is None:
                 continue
             assert container.var_name == var_name
-            for sim_id, year in container.metadata.combinations:
-                anomalies: torch.Tensor = cast(
-                    torch.Tensor, container.get(sim_id=sim_id, year=year)
-                )
-                assert anomalies.shape == (365, self.H, self.W)
-                container.set(sim_id=sim_id, year=year, value=anomalies / std_by_sim[sim_id])
+            for sim_id in container.metadata.sim_ids:
+                std: torch.Tensor = std_by_sim[sim_id]
+                # for consistently dry grids, do not divide => set std = 1
+                scale: torch.Tensor = torch.where(std == 0, 1.0, std)
+                for year in container.metadata.years:
+                    anomalies: torch.Tensor = cast(
+                        torch.Tensor, container.get(sim_id=sim_id, year=year)
+                    )
+                    assert anomalies.shape == (365, self.H, self.W)
+                    transformed: torch.Tensor = operation(anomalies, scale)
+                    container.set(sim_id=sim_id, year=year, value=transformed)

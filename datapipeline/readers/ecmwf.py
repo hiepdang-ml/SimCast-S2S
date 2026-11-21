@@ -224,7 +224,9 @@ class ECMWFPreprocessor:
             torch.from_numpy(input_array), var_name=self.var_name,
         )
         anomaly: NDArray[np.float32] = transformed.numpy() - trend - seasonal_cycle
-        return da.copy(data=anomaly / standard_deviation)
+        # A zero training standard deviation uses a unit scale.
+        np.divide(anomaly, standard_deviation, out=anomaly, where=standard_deviation != 0)
+        return da.copy(data=anomaly)
 
     def _compute_trend(self, years: NDArray[np.float32]) -> NDArray[np.float32]:
         assert years.ndim == 1
