@@ -6,6 +6,22 @@ import yaml
 import torch
 import xarray as xr
 
+from datapipeline.units import SECONDS_PER_HOUR
+
+
+class CESM2Utilities:
+
+    @staticmethod
+    def convert_to_era5_definition(var_name: str, da: xr.DataArray) -> xr.DataArray:
+        """Convert CESM2 fields to ERA5 units and sign conventions."""
+        if var_name == "PRECT":
+            return (da * SECONDS_PER_HOUR).assign_attrs(units="m")
+        if var_name in {"Z200", "Z500", "Z850"}:
+            return (da * 9.80665).assign_attrs(units="m**2 s**-2")
+        if var_name == "FLUT":
+            return (-da).assign_attrs(units="W m**-2")
+        return da
+
 
 class DataReader:
 
@@ -44,7 +60,10 @@ class DataReader:
 
     @property   # Only access once -> No cache
     def tensor(self) -> torch.Tensor:
-        tensor: torch.Tensor = torch.from_numpy(self.ds.to_array().values.astype("float32")).squeeze()
+        data: xr.DataArray = CESM2Utilities.convert_to_era5_definition(
+            self.var_name, self.ds[self.var_name].astype("float32"),
+        )
+        tensor: torch.Tensor = torch.from_numpy(data.to_numpy())
         assert tensor.shape == (365, 192, 288)
         return tensor
 

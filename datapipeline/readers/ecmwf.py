@@ -12,8 +12,9 @@ import torch
 from common.configs import MetaData, ECMWFS2SConfig
 from common.metrics import GeographicalMAE, GeographicalMSE
 from common.utils import TorchDictIO
-from datapipeline.preprocessing import Detrender, FunctionalTransform, SeasonalCycle, Standardization, TrendLine
+from datapipeline.preprocessing import Detrender, FunctionalTransform, PrecipitationMask, SeasonalCycle, Standardization, TrendLine
 from datapipeline.readers.era5 import ERA5Utilities
+from datapipeline.units import ERA5_TP_TO_DAILY_MM
 from datapipeline.utils import SampleInfo
 
 
@@ -91,7 +92,8 @@ class ECMWFReader:
                 continue
             da: xr.DataArray = raw_tp.isel(time=time_indices)
             da = self.accumulated_tp_to_daily_totals(da)
-            da = da / 1000.0 / 86400.0  # kg m^-2 -> m, then daily total -> m s^-1
+            # Daily kg m^-2 is daily mm of water equivalent. Convert to mean hourly depth in metres.
+            da = (da / ERA5_TP_TO_DAILY_MM).assign_attrs(units="m")
             da = ERA5Utilities.fliplatitude(da)
             monthly_outputs.append(self.resize(da, self.target_resolution))
             print(f"Read: {filepath}")
@@ -108,6 +110,10 @@ class ECMWFPreprocessor:
         self.sim_id: str = train_metadata.sim_ids[0]
         self.H, self.W = train_metadata.resolution
         self.functional_transform = FunctionalTransform(train_metadata)
+        mask_path: Path = PrecipitationMask.state_path(train_metadata, self.sim_id)
+        self.precipitation_mask: NDArray[np.bool_] = PrecipitationMask.load_mask(
+            mask_path, train_metadata.resolution,
+        ).numpy()
 
         state: dict[int, TrendLine] = torch.load(
             f=Detrender.state_path(train_metadata, self.var_name, self.sim_id),
@@ -226,6 +232,7 @@ class ECMWFPreprocessor:
         anomaly: NDArray[np.float32] = transformed.numpy() - trend - seasonal_cycle
         # A zero training standard deviation uses a unit scale.
         np.divide(anomaly, standard_deviation, out=anomaly, where=standard_deviation != 0)
+        anomaly[:, self.precipitation_mask] = 0
         return da.copy(data=anomaly)
 
     def _compute_trend(self, years: NDArray[np.float32]) -> NDArray[np.float32]:
@@ -326,7 +333,6 @@ class ECMWFGenerator:
             filepath: Path = self.groundtruth_path.joinpath(filename)
             assert filepath.exists()
             da: xr.DataArray = xr.open_dataarray(filepath, engine="netcdf4").load()
-            da = ERA5Utilities.convert_to_cesm2_definition(var_name=self.output_name, da=da)
             ERA5Utilities.validate_complete_data(da=da, var_name=self.output_name, year=year)
             da = self.preprocessor.preprocess_groundtruths(da=da)
             tensor: torch.Tensor = torch.from_numpy(da.values.astype(np.float32))

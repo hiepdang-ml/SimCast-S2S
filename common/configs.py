@@ -4,6 +4,7 @@ import yaml
 
 from pathlib import Path
 from itertools import product
+from math import isfinite
 from typing import Literal, Any, TypeAlias
 
 
@@ -131,6 +132,13 @@ class MetaData(BaseConfig):
         self.standardization_state_directory: Path = Path(self._config["standardization_state_directory"])
         self.standardization_window_n_days: int = int(self._config["standardization_window_n_days"])
         assert 1 <= self.standardization_window_n_days <= 365 and self.standardization_window_n_days % 2 == 1
+        self.precipitation_mask_state_directory: Path = Path(self._config["precipitation_mask_state_directory"])
+        self.precipitation_threshold_weekly_mm: float = float(self._config["precipitation_threshold_weekly_mm"])
+        self.precipitation_threshold_dry_week_percent: float = float(self._config["precipitation_threshold_dry_week_percent"])
+        if not isfinite(self.precipitation_threshold_weekly_mm) or self.precipitation_threshold_weekly_mm < 0:
+            raise ValueError("precipitation_threshold_weekly_mm must be finite and nonnegative")
+        if not 0 <= self.precipitation_threshold_dry_week_percent <= 100:
+            raise ValueError("precipitation_threshold_dry_week_percent must be between 0 and 100")
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -152,6 +160,8 @@ class MetaData(BaseConfig):
             "detrend_window_n_years": self.detrend_window_n_years,
             "seasonal_smoothing_window_n_days": self.seasonal_smoothing_window_n_days,
             "standardization_window_n_days": self.standardization_window_n_days,
+            "precipitation_threshold_weekly_mm": self.precipitation_threshold_weekly_mm,
+            "precipitation_threshold_dry_week_percent": self.precipitation_threshold_dry_week_percent,
         }
         if self.dataset_name == "era5":
             d.update({"array_root": self.array_root.as_posix()})

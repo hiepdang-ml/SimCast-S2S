@@ -126,21 +126,6 @@ class ERA5Utilities:
         return data.sortby("latitude", ascending=True)
 
     @staticmethod
-    def convert_to_cesm2_definition(var_name: str, da: xr.DataArray) -> xr.DataArray:
-        if var_name == "avgtnlwrf":
-            print(f"Convert {var_name} (flip sign)")
-            return -da    # ECMWF convention assigns possitive downward
-        if var_name == "tp":
-            print(f"Convert {var_name} (divided by 3600)")
-            return da / 3600  # precisely, da = da * 24 / 86400
-        if var_name in {"z200", "z500", "z850"}:
-            print(f"Convert {var_name} (divided by 9.80665)")
-            return da / 9.80665   # geopotential -> geopotential height
-
-        print(f"No conversion {var_name}")
-        return da
-
-    @staticmethod
     def validate_complete_data(da: xr.DataArray, var_name: str, year: int) -> None:
         # check var name
         assert da.name == var_name
@@ -182,11 +167,9 @@ class DataReader:
         # Load merged files from disk
         # NOTE: Force to load full data to RAM (not just memory references)
         da: xr.DataArray = xr.open_dataarray(filepath, engine="netcdf4").load()
-        # Convert to ERA5's definition
-        da = ERA5Utilities.convert_to_cesm2_definition(var_name=var_name, da=da)
         # Validate
         ERA5Utilities.validate_complete_data(da=da, var_name=var_name, year=year)
-        tensor: torch.Tensor = torch.from_numpy(da.values.astype("float32"))
+        tensor: torch.Tensor = torch.from_numpy(da.values.astype("float32", copy=False))
         return tensor
 
 

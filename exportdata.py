@@ -3,7 +3,7 @@ from copy import copy
 
 import torch
 from datapipeline.container import VariableContainer
-from datapipeline.preprocessing import Detrender, FunctionalTransform, SeasonalCycle, Standardization
+from datapipeline.preprocessing import Detrender, FunctionalTransform, PrecipitationMask, SeasonalCycle, Standardization
 from datapipeline.readers.cesm2 import DataReader as CESM2_DataReader
 from datapipeline.readers.era5 import DataReader as ERA5_DataReader
 from datapipeline.writer import DataWriter
@@ -24,6 +24,7 @@ class TensorExporter:
         self.train_metadata: MetaData = self.metadata_by_split["train"]
         self.full_metadata: MetaData = self._build_full_metadata()
         self.functional_transform = FunctionalTransform(metadata=self.train_metadata)
+        self.precipitation_mask: PrecipitationMask = PrecipitationMask(self.train_metadata)
 
     def _build_full_metadata(self) -> MetaData:
         """Combine the split timelines for fitting rolling trend lines."""
@@ -78,11 +79,10 @@ class TensorExporter:
         return context
 
     def _read_variable_year(self, var_name: str, sim_id: str, year: int) -> torch.Tensor:
-        """Read raw data of one variable and calendar year from the selected dataset."""
+        """Read one raw calendar year in the ERA5 convention."""
         if self.dataset_name == "era5":
             return ERA5_DataReader().get_tensor(var_name=var_name, year=year)
-        else:
-            return CESM2_DataReader(var_name=var_name, sim_id=sim_id, year=year).tensor
+        return CESM2_DataReader(var_name=var_name, sim_id=sim_id, year=year).tensor
 
     def _load_transformed_year(self, var_name: str, sim_id: str, year: int) -> torch.Tensor:
         """Load daily values and apply their configured function before detrending."""
@@ -108,13 +108,24 @@ class TensorExporter:
     ) -> VariableContainer:
         """Compute annual means of the functionally transformed daily values."""
         assert metadata.dataset_name == self.dataset_name
-        mean_container = VariableContainer(var_name=var_name, metadata=metadata)
-        for sim_id, year in metadata.combinations:
-            value: torch.Tensor = self._load_transformed_year(var_name=var_name, sim_id=sim_id, year=year)
-            assert value.shape == (365, *metadata.resolution)
+        mean_container: VariableContainer = VariableContainer(var_name=var_name, metadata=metadata)
+
+        def read_and_record(sim_id: str, year: int) -> torch.Tensor:
+            raw: torch.Tensor = self._read_variable_year(var_name, sim_id, year)
+            assert raw.shape == (365, *metadata.resolution)
+            value: torch.Tensor = self.functional_transform.transform(raw, var_name=var_name)
             mean_container.set(sim_id=sim_id, year=year, value=value.mean(dim=0, keepdim=True))
             print(f"Loaded yearly mean: {self.dataset_name}.{sim_id}.{var_name}.{year}")
-            del value
+            return raw
+
+        recorded_years: set[int] = set()
+        if var_name == self.precipitation_mask.var_name:
+            self.precipitation_mask.fit(read_and_record)
+            self.precipitation_mask.save_state()
+            recorded_years.update(self.train_metadata.years)
+        for sim_id, year in metadata.combinations:
+            if year not in recorded_years:
+                read_and_record(sim_id, year)
         return mean_container
 
     def _fit_detrenders(self) -> None:
@@ -156,6 +167,8 @@ class TensorExporter:
                 if split == "train":
                     standardization.fit(var_container, train_metadata=self.train_metadata)
                 standardization.transform(input_container=var_container, context_container=context_container)
+                if var_name == self.precipitation_mask.var_name:
+                    self.precipitation_mask.transform(var_container, context_container=context_container)
                 print(f"Standardized anomalies for {self.dataset_name}.{split}.{var_name}")
                 writer(var_container, context_container=context_container)
                 print(f"Saved all .pt files {self.dataset_name}.{split}.{var_name}")

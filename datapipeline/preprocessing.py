@@ -1,14 +1,103 @@
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import TypedDict, cast
 
-from sympy.ntheory.digits import defaultdict
+import numpy as np
+from numpy.typing import NDArray
 import torch
 from torch.nn import functional as F
 
 from .container import VariableContainer
+from .units import ERA5_TP_TO_DAILY_MM
 from common.configs import FunctionalTransformName, MetaData
+
+
+WEEK_DAYS: int = 7
+
+
+class PrecipitationMask:
+    """Fit one dry-grid mask per simulation from raw ERA5-convention training precipitation."""
+
+    THRESHOLD_MM: float = 1.0
+    DRY_WEEK_PERCENT: int = 95
+
+    def __init__(self, train_metadata: MetaData) -> None:
+        if train_metadata.split != "train":
+            raise ValueError("Precipitation masks require training metadata")
+        self.train_metadata: MetaData = train_metadata
+        self.var_name: str = "tp" if train_metadata.dataset_name.lower() == "era5" else "PRECT"
+        self.THRESHOLD_MM = train_metadata.precipitation_threshold_weekly_mm
+        self.dry_week_percent: float = train_metadata.precipitation_threshold_dry_week_percent
+        self.masks: dict[str, torch.Tensor] = {}    # sim_id: mask_tensor
+
+    def fit(self, read_year: Callable[[str, int], torch.Tensor]) -> None:
+        self.masks = {}
+        for sim_id in self.train_metadata.sim_ids:
+            daily_mm: Iterable[NDArray[np.float32]] = (
+                read_year(sim_id, year).float().numpy() * ERA5_TP_TO_DAILY_MM
+                for year in self.train_metadata.years
+            )
+            average_weekly_precipitation, dry_weeks, total_weeks = self.summarize_weekly_precipitation(daily_mm)
+            dry: NDArray[np.bool_] = (average_weekly_precipitation <= self.THRESHOLD_MM) | (
+                dry_weeks * 100 > self.dry_week_percent * total_weeks
+            )
+            self.masks[sim_id] = torch.from_numpy(dry)
+
+    def summarize_weekly_precipitation(self, daily_mm: Iterable[NDArray[np.float32]]) -> tuple[NDArray[np.float32], NDArray[np.int64], int]:
+        """Return average weekly precipitation, inclusive threshold counts, and the number of complete weeks."""
+        accumulated_precipitation: NDArray[np.float32] = np.zeros(self.train_metadata.resolution, dtype=np.float32)
+        dry_weeks: NDArray[np.int64] = np.zeros(self.train_metadata.resolution, dtype=np.int64)
+        leftover: NDArray[np.float32] = np.empty((0, *self.train_metadata.resolution), dtype=np.float32)
+        total_weeks: int = 0
+        for chunk in daily_mm:
+            assert chunk.shape == (365, *self.train_metadata.resolution)
+            if len(leftover):
+                chunk = np.concatenate((leftover, chunk), axis=0)
+            n_weeks: int = len(chunk) // WEEK_DAYS
+            end_idx: int = n_weeks * WEEK_DAYS
+            leftover = chunk[end_idx:].copy()
+            weekly_precipitation: NDArray[np.float32] = chunk[:end_idx].reshape(n_weeks, WEEK_DAYS, *self.train_metadata.resolution).sum(axis=1)
+            accumulated_precipitation += weekly_precipitation.sum(axis=0)
+            assert accumulated_precipitation.shape == self.train_metadata.resolution
+            dry_weeks += np.count_nonzero(weekly_precipitation <= self.THRESHOLD_MM, axis=0)
+            total_weeks += n_weeks
+
+        return accumulated_precipitation / np.float32(total_weeks), dry_weeks, total_weeks
+
+    @staticmethod
+    def state_path(train_metadata: MetaData, sim_id: str) -> Path:
+        return train_metadata.precipitation_mask_state_directory / (
+            f"precipitation_mask_{sim_id}_{train_metadata.start_year}_{train_metadata.end_year}_"
+            f"{train_metadata.precipitation_threshold_weekly_mm}mm_{train_metadata.precipitation_threshold_dry_week_percent}pct.pt"
+        )
+
+    def save_state(self) -> None:
+        directory: Path = self.train_metadata.precipitation_mask_state_directory
+        directory.mkdir(parents=True, exist_ok=True)
+        for sim_id, mask in self.masks.items():
+            destination: Path = self.state_path(self.train_metadata, sim_id)
+            torch.save(mask, destination)
+
+    @staticmethod
+    def load_mask(path: Path, resolution: tuple[int, int]) -> torch.Tensor:
+        mask: object = torch.load(path, weights_only=True, map_location="cpu")
+        if not isinstance(mask, torch.Tensor) or mask.dtype != torch.bool or mask.shape != resolution:
+            raise ValueError(f"Invalid training precipitation mask in {path}")
+        return mask
+
+    def transform(
+        self, input_container: VariableContainer, *, context_container: VariableContainer | None = None,
+    ) -> None:
+        """Zero the final standardized precipitation anomalies in place."""
+        assert input_container.var_name == self.var_name    # "tp" or "PRECT"
+        for container in (input_container, context_container):
+            if container is None:
+                continue
+            assert container.var_name == self.var_name
+            for sim_id, year in container.metadata.combinations:
+                values: torch.Tensor = cast(torch.Tensor, container.get(sim_id, year))
+                values.masked_fill_(self.masks[sim_id].to(values.device), 0)
 
 
 class FunctionalTransform:

@@ -31,6 +31,8 @@ cesm2:
   detrend_window_n_years: 30
   seasonal_smoothing_window_n_days: 7
   standardization_window_n_days: 7
+  precipitation_threshold_weekly_mm: 1.0  # Threshold for avg weekly precipitation and for a dry week
+  precipitation_threshold_dry_week_percent: 95  # Threshold for % dry weeks exceeds this percent
 
   n_input_days: 84
   n_lead_days: 14
@@ -43,6 +45,7 @@ cesm2:
   detrender_state_directory: "/scratch/zgp2ps/cesm2/tensors/detrender/"
   seasonal_state_directory: "/scratch/zgp2ps/cesm2/tensors/seasonality/"
   standardization_state_directory: "/scratch/zgp2ps/cesm2/tensors/standardization/"
+  precipitation_mask_state_directory: "/scratch/zgp2ps/cesm2/tensors/precipitation_mask/"
 
 
 era5:
@@ -75,6 +78,8 @@ era5:
   detrend_window_n_years: 30
   seasonal_smoothing_window_n_days: 7
   standardization_window_n_days: 7
+  precipitation_threshold_weekly_mm: 1.0  # Threshold for avg weekly precipitation and for a dry week
+  precipitation_threshold_dry_week_percent: 95  # Threshold for % dry weeks exceeds this percent
 
   n_input_days: 84
   n_lead_days: 14
@@ -87,6 +92,7 @@ era5:
   detrender_state_directory: "/scratch/zgp2ps/era5/tensors/detrender/"
   seasonal_state_directory: "/scratch/zgp2ps/era5/tensors/seasonality/"
   standardization_state_directory: "/scratch/zgp2ps/era5/tensors/standardization/"
+  precipitation_mask_state_directory: "/scratch/zgp2ps/era5/tensors/precipitation_mask/"
 
 
 cnn:
